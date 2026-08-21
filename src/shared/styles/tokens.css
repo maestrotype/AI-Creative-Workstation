@@ -1,0 +1,140 @@
+/* ==========================================================================
+   Canvas — Design Tokens
+   Single source of truth for every visual value in the application.
+   No component or global stylesheet may hardcode colours, fonts, sizes,
+   or timing values. Reference these custom properties exclusively.
+
+   Palette philosophy:
+   – Background palette is warm-dark gray (not cool blue-black, not pure black).
+   – Accent is a restrained amber/gold — cinematic warmth without garish neon.
+   – Text hierarchy uses opacity-layered warm-whites.
+   – Motion is physical: fast feedback, deliberate reveals, cinematic entrances.
+   ========================================================================== */
+
+:root {
+  /* ─── Surface palette ─────────────────────────────────────────────── */
+  --color-bg-base:        #0A0A0B;                         /* App canvas – warm near-black */
+  --color-bg-raised:      #111113;                         /* Sidebar, panels */
+  --color-bg-card:        #161618;                         /* Cards, input wells */
+  --color-bg-elevated:    #1C1C1F;                         /* Popovers, modals */
+  --color-bg-hover:       rgba(255, 255, 255, 0.04);       /* Interactive hover tint */
+  --color-bg-active:      rgba(255, 255, 255, 0.06);       /* Active/pressed tint */
+
+  /* ─── Borders & dividers ──────────────────────────────────────────── */
+  --color-border-subtle:  rgba(255, 255, 255, 0.05);       /* Card edges, dividers */
+  --color-border-default: rgba(255, 255, 255, 0.08);       /* Input resting border */
+  --color-border-strong:  rgba(255, 255, 255, 0.12);       /* Focused/hovered elements */
+
+  /* ─── Text hierarchy ──────────────────────────────────────────────── */
+  --color-text-primary:   rgba(255, 255, 255, 0.92);       /* Headings, high emphasis */
+  --color-text-secondary: rgba(255, 255, 255, 0.56);       /* Body copy, descriptions */
+  --color-text-tertiary:  rgba(255, 255, 255, 0.32);       /* Captions, timestamps */
+  --color-text-disabled:  rgba(255, 255, 255, 0.18);       /* Disabled controls */
+  --color-text-inverse:   #0A0A0B;                         /* Text on accent surfaces */
+
+  /* ─── Accent — warm amber/gold ────────────────────────────────────── */
+  --color-accent:         #D4A044;                         /* Primary CTA, submit */
+  --color-accent-hover:   #E0B060;                         /* Accent hover */
+  --color-accent-active:  #BF8E38;                         /* Accent pressed */
+  --color-accent-muted:   rgba(212, 160, 68, 0.24);       /* Tinted backgrounds */
+  --color-accent-subtle:  rgba(212, 160, 68, 0.10);       /* Very subtle tint */
+  --color-accent-glow:    rgba(212, 160, 68, 0.08);       /* Ambient glow */
+  --color-accent-border:  rgba(212, 160, 68, 0.20);       /* Accent-tinted borders */
+
+  /* ─── Semantic colours ────────────────────────────────────────────── */
+  --color-success:        #3DB87A;
+  --color-warning:        #E0A030;
+  --color-error:          #D05050;
+  --color-info:           #4A90D9;
+
+  /* ─── Typography ──────────────────────────────────────────────────── */
+  --font-heading:  'Sora', system-ui, -apple-system, sans-serif;
+  --font-body:     'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:     ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
+
+  /* Scale — designed for a desktop creative tool (generous headings) */
+  --text-display:     2.5rem;      /* 40px – hero moments */
+  --text-heading-xl:  2rem;        /* 32px – page titles */
+  --text-heading-lg:  1.5rem;      /* 24px – section headings */
+  --text-heading-md:  1.25rem;     /* 20px – subsection */
+  --text-heading-sm:  1rem;        /* 16px – card headings */
+  --text-body-lg:     1rem;        /* 16px – main reading */
+  --text-body:        0.875rem;    /* 14px – default UI text */
+  --text-body-sm:     0.8125rem;   /* 13px – secondary text */
+  --text-caption:     0.75rem;     /* 12px – labels, badges */
+  --text-micro:       0.6875rem;   /* 11px – metadata */
+
+  /* Weight */
+  --weight-light:    300;
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+
+  /* Leading */
+  --leading-tight:   1.15;
+  --leading-heading: 1.25;
+  --leading-body:    1.6;
+  --leading-ui:      1.35;
+
+  /* Tracking */
+  --tracking-tight:  -0.02em;     /* Display & heading text */
+  --tracking-normal:  0;
+  --tracking-wide:    0.04em;     /* Uppercase labels */
+
+  /* ─── Spacing (4px base) ──────────────────────────────────────────── */
+  --space-1:   4px;
+  --space-2:   8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+
+  /* ─── Radii ───────────────────────────────────────────────────────── */
+  --radius-sm:    4px;
+  --radius-md:    8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-2xl:  20px;
+  --radius-full: 9999px;
+
+  /* ─── Elevation (shadows) ─────────────────────────────────────────── */
+  --shadow-sm:  0 1px  2px rgba(0, 0, 0, 0.40);
+  --shadow-md:  0 2px  8px rgba(0, 0, 0, 0.50);
+  --shadow-lg:  0 4px 16px rgba(0, 0, 0, 0.55);
+  --shadow-xl:  0 8px 32px rgba(0, 0, 0, 0.60);
+  --shadow-glow: 0 0 24px rgba(212, 160, 68, 0.12);
+  --shadow-glow-strong: 0 0 40px rgba(212, 160, 68, 0.18);
+
+  /* Focus ring */
+  --ring-focus: 0 0 0 2px var(--color-accent-muted);
+
+  /* ─── Motion ──────────────────────────────────────────────────────── */
+  --duration-instant:    80ms;     /* Hover tint, micro feedback */
+  --duration-fast:      120ms;     /* Toggle, checkbox */
+  --duration-normal:    200ms;     /* Standard transitions */
+  --duration-moderate:  320ms;     /* Panel, menu open */
+  --duration-slow:      500ms;     /* Page transitions */
+  --duration-cinematic: 800ms;     /* Hero entrance animations */
+
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);      /* Decelerate – primary */
+  --ease-in:     cubic-bezier(0.55, 0, 1, 0.45);     /* Accelerate – exit */
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);     /* Symmetric */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);  /* Playful overshoot */
+
+  /* ─── Layout constants ────────────────────────────────────────────── */
+  --nav-width:       220px;
+  --nav-rail-width:   64px;
+  --content-max:     860px;
+  --card-min-width:  240px;
+  --icon-btn-size:    32px;
+  --submit-btn-size:  36px;
+  --input-bar-max:   680px;
+
+  color-scheme: dark;
+}

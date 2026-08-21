@@ -1,0 +1,176 @@
+/* ==========================================================================
+   HomePage — start page layout and composition.
+   ========================================================================== */
+
+.page {
+  display: flex;
+  min-height: 100dvh;
+}
+
+/* ─── Main content area ─────────────────────────────────────────────── */
+
+.main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-12) var(--space-8);
+  /* Very subtle ambient glow — cinematic, NOT garish */
+  background-image:
+    radial-gradient(
+      ellipse 600px 400px at 30% -5%,
+      var(--color-accent-glow),
+      transparent 70%
+    );
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+/* ─── Content column ────────────────────────────────────────────────── */
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  width: 100%;
+  max-width: var(--content-max);
+  margin-inline: auto;
+}
+
+/* ─── Header (heading + subheading) ─────────────────────────────────── */
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  animation: headerReveal var(--duration-slow) var(--ease-out) both;
+}
+
+.heading {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-heading);
+  font-size: var(--text-heading-xl);
+  font-weight: var(--weight-light);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-heading);
+}
+
+.subheading {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
+  max-width: 48ch;
+}
+
+@keyframes headerReveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─── Intent bar wrapper (centers the IntentInput) ──────────────────── */
+
+.intentSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  animation: intentReveal var(--duration-slow) var(--ease-out) 80ms both;
+}
+
+@keyframes intentReveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─── Quick-start suggestion chips ──────────────────────────────────── */
+
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  animation: suggestionsReveal var(--duration-slow) var(--ease-out) 160ms both;
+}
+
+.chip {
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text-secondary);
+  background-color: transparent;
+  font-family: inherit;
+  font-size: var(--text-body-sm);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  transition:
+    background-color var(--duration-instant) var(--ease-out),
+    border-color     var(--duration-instant) var(--ease-out),
+    color            var(--duration-instant) var(--ease-out);
+}
+
+.chip:hover {
+  color: var(--color-text-primary);
+  background-color: var(--color-accent-subtle);
+  border-color: var(--color-accent-border);
+}
+
+.chip:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+@keyframes suggestionsReveal {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ─── Recent section wrapper ────────────────────────────────────────── */
+
+.recentSection {
+  animation: recentReveal var(--duration-slow) var(--ease-out) 240ms both;
+}
+
+@keyframes recentReveal {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─── Responsive ────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .main {
+    padding: var(--space-6) var(--space-4);
+  }
+
+  .heading {
+    font-size: var(--text-heading-lg);
+  }
+}
+
+/* ─── Reduced motion ────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .header,
+  .intentSection,
+  .suggestions,
+  .recentSection {
+    animation: none;
+  }
+}
