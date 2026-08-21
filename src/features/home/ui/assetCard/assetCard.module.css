@@ -1,0 +1,60 @@
+.card {
+  overflow: hidden;
+  background-color: var(--color-card);
+  border: 1px solid var(--color-raised-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+  transition:
+    transform var(--duration-normal) var(--ease-out),
+    border-color var(--duration-normal) var(--ease-out),
+    box-shadow var(--duration-normal) var(--ease-out);
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-accent-border);
+  box-shadow: var(--shadow-3);
+}
+
+.thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+}
+
+/* No thumbnail yet — icon placeholder on a subtle gradient (Rule 2). */
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  color: var(--color-text-tertiary);
+  background: linear-gradient(135deg, var(--color-raised), var(--color-card));
+}
+
+.meta {
+  padding: var(--space-3) var(--space-4);
+}
+
+.name {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: var(--text-body-md);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.details {
+  margin-top: var(--space-1);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-ui);
+}
+
+.type {
+  color: var(--color-text-secondary);
+}

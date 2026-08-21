@@ -1,0 +1,139 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  background-color: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-2);
+  transition:
+    border-color var(--duration-normal) var(--ease-out),
+    box-shadow var(--duration-normal) var(--ease-out);
+}
+
+.field:focus-within {
+  border-color: var(--color-accent-border);
+  box-shadow:
+    var(--shadow-3),
+    var(--ring-focus);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.textarea {
+  width: 100%;
+  min-height: var(--space-8);
+  max-height: 240px;
+  overflow-y: auto;
+  resize: none;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-body-lg);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-body);
+  caret-color: var(--color-accent);
+}
+
+.textarea::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.textarea:focus {
+  outline: none;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.attachButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-icon-btn);
+  height: var(--size-icon-btn);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-full);
+  transition:
+    background-color var(--duration-instant) var(--ease-out),
+    color var(--duration-instant) var(--ease-out);
+}
+
+.attachButton:hover {
+  background-color: var(--color-hover);
+  color: var(--color-text-primary);
+}
+
+.attachButton:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+.hint {
+  margin-left: auto;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-normal);
+  user-select: none;
+}
+
+.submitButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-submit-btn);
+  height: var(--size-submit-btn);
+  flex-shrink: 0;
+  color: var(--color-text-inverse);
+  background-color: var(--color-accent);
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-1);
+  transition:
+    background-color var(--duration-instant) var(--ease-out),
+    transform var(--duration-instant) var(--ease-snap),
+    box-shadow var(--duration-normal) var(--ease-out),
+    opacity var(--duration-quick) var(--ease-out);
+}
+
+.submitButton:hover:enabled {
+  background-color: var(--color-accent-light);
+  box-shadow: var(--shadow-accent-glow);
+}
+
+.submitButton:active:enabled {
+  background-color: var(--color-accent-deep);
+  transform: scale(0.96);
+}
+
+.submitButton:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus), var(--shadow-2);
+}
+
+/* Disabled state = 40% opacity (DESIGN_SYSTEM "Disabled" spec). */
+.submitButton:disabled,
+.field[aria-busy='true'] .attachButton {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .hint {
+    display: none;
+  }
+}

@@ -1,0 +1,127 @@
+/* ==========================================================================
+   Canvas design tokens — single source of truth for all visual values.
+   Values transcribed from docs/design/DESIGN_SYSTEM.md (Rule 2).
+   ========================================================================== */
+
+:root {
+  /* Surfaces (dark, cool slate) */
+  --color-canvas: hsl(220, 8%, 8%);          /* app bg (#12131A) */
+  --color-raised: hsl(220, 8%, 11%);         /* sidebar/panels (#191A23) */
+  --color-card: hsl(220, 8%, 14%);           /* cards & list items */
+  --color-hover: hsl(220, 8%, 18%);          /* hover (+2–4%) */
+  --color-border: hsl(220, 10%, 22%);        /* dividers (#333544) */
+  --color-raised-border: hsl(220, 10%, 16%);
+  --color-subtle: hsl(220, 10%, 28%);        /* inactive elements */
+
+  /* Accent — warm amber (the signature color) */
+  --color-accent-light: hsl(38, 90%, 65%);    /* #FFC670 hover */
+  --color-accent: hsl(38, 88%, 58%);          /* #F4A827 primary CTA */
+  --color-accent-deep: hsl(38, 85%, 48%);     /* #D98E1E pressed */
+  --color-accent-muted: hsl(38, 40%, 35%);    /* inactive accent UI */
+  --color-accent-tint: hsl(38, 88%, 58% / 0.08);   /* selected bg */
+  --color-accent-border: hsl(38, 88%, 58% / 0.32);
+
+  /* Semantic */
+  --color-cloud: hsl(208, 85%, 58%);      /* cloud provider (blue) */
+  --color-success: hsl(152, 65%, 48%);    /* local success green */
+  --color-warning: hsl(45, 92%, 58%);     /* warnings (yellow) */
+  --color-error: hsl(4, 75%, 58%);        /* destructive (red) */
+  --color-local: hsl(152, 55%, 42%);      /* local inference badge */
+
+  /* Text */
+  --color-text-primary: hsl(220, 15%, 92%);   /* headings (#F7F8FA) */
+  --color-text-secondary: hsl(220, 12%, 65%); /* body copy (#B4B8C4) */
+  --color-text-tertiary: hsl(220, 10%, 45%);  /* captions (#7A7E8F) */
+  --color-text-inverse: hsl(220, 8%, 8%);     /* on-accent (#12131A) */
+
+  /* Type families (bundled locally via @fontsource) */
+  --font-display: 'Sora', 'Inter', system-ui, sans-serif;
+  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Type scale (3.5rem → 0.6875rem) */
+  --text-display-xl: 3.5rem;   /* hero moments only */
+  --text-display-lg: 2.5rem;
+  --text-heading-xl: 2rem;     /* page titles — Sora */
+  --text-heading-lg: 1.5rem;
+  --text-heading-md: 1.25rem;  /* section headers */
+  --text-heading-sm: 1rem;
+  --text-body-lg: 1rem;        /* primary reading text */
+  --text-body-md: 0.875rem;    /* default UI body */
+  --text-body-sm: 0.8125rem;   /* compact hints */
+  --text-label: 0.75rem;       /* badges, tags */
+  --text-micro: 0.6875rem;     /* tiny metadata (uppercase) */
+
+  /* Weight / leading / tracking */
+  --weight-light: 300;      /* Sora display headings */
+  --weight-regular: 400;    /* body copy */
+  --weight-medium: 500;     /* labels, emphasis */
+  --weight-semibold: 600;   /* Inter emphasis only */
+
+  --leading-display: 1.1;
+  --leading-heading: 1.2;
+  --leading-body: 1.6;
+  --leading-ui: 1.3;
+
+  --tracking-tight: -0.015em;  /* display & headings */
+  --tracking-normal: 0;        /* body copy */
+  --tracking-wider: 0.08em;    /* uppercase micro labels */
+
+  /* Spacing scale (4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-24: 96px;
+
+  /* Radius (4 → 24px, full) */
+  --radius-sm: 4px;    /* chips, tags */
+  --radius-md: 8px;    /* buttons, inputs */
+  --radius-lg: 12px;   /* cards, panels */
+  --radius-xl: 16px;   /* modals, large containers */
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  /* Elevation — depth = lighter surface + shadow */
+  --shadow-1: 0 1px 3px hsl(220, 25%, 3% / 0.4);
+  --shadow-2: 0 2px 8px hsl(220, 25%, 3% / 0.5);
+  --shadow-3: 0 4px 16px hsl(220, 25%, 3% / 0.6);
+  --shadow-4: 0 8px 32px hsl(220, 25%, 3% / 0.7);
+  --shadow-accent-glow: 0 4px 24px hsl(38, 88%, 58% / 0.3);
+
+  /* Focus — amber ring */
+  --ring-focus: 0 0 0 3px hsl(38, 88%, 58% / 0.24);
+
+  /* Motion (duration + easing pairs from the design system) */
+  --duration-instant: 50ms;      /* hover feedback */
+  --duration-quick: 100ms;       /* micro-interactions */
+  --duration-normal: 200ms;      /* panel slides, standard transitions */
+  --duration-deliberate: 300ms;  /* result reveal */
+  --duration-slow: 500ms;        /* page-level transitions */
+  --duration-cinematic: 800ms;
+
+  --ease-snap: cubic-bezier(0, 0, 1, 1);          /* instant snap */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);      /* easeOutExpo — default */
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);       /* cleanup in */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Layout sizing */
+  --size-nav-width: 240px;      /* expanded side navigation */
+  --size-nav-rail: 76px;        /* collapsed icon rail (narrow viewports) */
+  --size-page-max: 880px;       /* Home content column */
+  --size-card-min: 250px;       /* minimum asset card width */
+  --size-icon-btn: 32px;        /* ghost icon buttons */
+  --size-submit-btn: 38px;      /* circular submit button */
+
+  /* Ambient glow (body background accents) */
+  --glow-amber: hsl(38, 90%, 55% / 0.06);
+  --glow-blue: hsl(208, 85%, 55% / 0.05);
+
+  color-scheme: dark;
+}

@@ -1,0 +1,162 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.title {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-display);
+  font-size: var(--text-heading-md);
+  font-weight: var(--weight-light);
+  letter-spacing: var(--tracking-tight);
+}
+
+.count {
+  padding-inline: var(--space-2);
+  color: var(--color-text-secondary);
+  background-color: var(--color-accent-tint);
+  border-radius: var(--radius-full);
+  font-size: var(--text-label);
+  line-height: var(--leading-ui);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--size-card-min), 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gridItem {
+  display: flex;
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Loading skeleton                                                    */
+/* ------------------------------------------------------------------ */
+.skeletonGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--size-card-min), 1fr));
+  gap: var(--space-4);
+}
+
+.skeletonCard {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: var(--color-card);
+  border: 1px solid var(--color-raised-border);
+  border-radius: var(--radius-lg);
+  animation: skeletonPulse var(--duration-slow) var(--ease-out) infinite alternate;
+}
+
+.skeletonThumb {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  background-color: var(--color-raised);
+}
+
+.skeletonMeta {
+  height: var(--space-3);
+  margin: var(--space-4) auto 0;
+  width: 70%;
+  background-color: var(--color-hover);
+  border-radius: var(--radius-sm);
+}
+
+@keyframes skeletonPulse {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0.55;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Empty & error states                                                */
+/* ------------------------------------------------------------------ */
+.statePanel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-16) var(--space-8);
+  text-align: center;
+  background-color: var(--color-card);
+  border: 1px solid var(--color-raised-border);
+  border-radius: var(--radius-xl);
+}
+
+.emptyIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-12);
+  height: var(--space-12);
+  color: var(--color-accent-muted);
+  background-color: var(--color-accent-tint);
+  border-radius: var(--radius-full);
+}
+
+.stateText {
+  margin: 0;
+  max-width: 40ch;
+  color: var(--color-text-primary);
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
+}
+
+.mutedText {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-body-md);
+}
+
+.errorText {
+  color: var(--color-warning);
+}
+
+.retryButton {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text-primary);
+  background-color: transparent;
+  font-family: inherit;
+  font-size: var(--text-body-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  transition:
+    background-color var(--duration-instant) var(--ease-out),
+    border-color var(--duration-instant) var(--ease-out);
+}
+
+.retryButton:hover {
+  background-color: var(--color-hover);
+  border-color: var(--color-subtle);
+}
+
+.retryButton:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .skeletonCard,
+  .retryButton {
+    animation: none;
+    transition: none;
+  }
+}
