@@ -1,4 +1,9 @@
+/* Full-track flex column so every card fills its grid cell evenly (Opus parity). */
 .card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
   overflow: hidden;
   background-color: var(--color-card);
   border: 1px solid var(--color-raised-border);
@@ -11,9 +16,11 @@
 }
 
 .card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
   border-color: var(--color-accent-border);
-  box-shadow: var(--shadow-3);
+  box-shadow:
+    0 12px 24px -8px hsl(220, 25%, 3% / 0.6),
+    0 0 0 1px var(--color-accent-tint);
 }
 
 .thumb {
@@ -23,38 +30,45 @@
   object-fit: cover;
 }
 
-/* No thumbnail yet — icon placeholder on a subtle gradient (Rule 2). */
+/* No thumbnail yet — centered icon on a subtle accent tint (Rule 2). */
 .placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
   aspect-ratio: 16 / 10;
-  color: var(--color-text-tertiary);
-  background: linear-gradient(135deg, var(--color-raised), var(--color-card));
+  color: var(--color-accent-muted);
+  background: linear-gradient(135deg, var(--color-accent-tint), transparent 60%);
 }
 
+/* Meta pinned to the card bottom so rows stay aligned across the grid. */
 .meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: auto;
   padding: var(--space-3) var(--space-4);
 }
 
 .name {
   overflow: hidden;
   color: var(--color-text-primary);
+  font-family: var(--font-display);
   font-size: var(--text-body-md);
   font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-tight);
   line-height: var(--leading-ui);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .details {
-  margin-top: var(--space-1);
   color: var(--color-text-tertiary);
   font-size: var(--text-body-sm);
   line-height: var(--leading-ui);
 }
 
+/* Asset type gets the accent treatment (Opus parity). */
 .type {
-  color: var(--color-text-secondary);
+  color: var(--color-accent);
 }

@@ -3,7 +3,7 @@
  * Presentational (Rule 3): renders whatever status/assets props it is given,
  * including skeleton loading, empty and error states.
  */
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 import type { Asset } from '../../../../core/types';
 import { SparklesIcon } from '../../../../shared/ui/icons';
@@ -74,8 +74,12 @@ export function RecentAssets({
         <span className={styles.count}>{assets.length}</span>
       </header>
       <ul className={styles.grid}>
-        {assets.map((asset) => (
-          <li key={asset.id} className={styles.gridItem}>
+        {assets.map((asset, assetIndex) => (
+          <li
+            key={asset.id}
+            className={styles.gridItem}
+            style={{ '--grid-index': assetIndex } as CSSProperties}
+          >
             <AssetCard asset={asset} />
           </li>
         ))}
