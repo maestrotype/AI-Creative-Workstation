@@ -31,7 +31,7 @@ export interface Asset {
 /* ─── Navigation types ──────────────────────────────────────────────── */
 
 /** Identifiers for primary sidebar navigation items. */
-export type NavId = 'home' | 'create' | 'projects' | 'assets' | 'studio';
+export type NavId = 'home' | 'create' | 'projects' | 'assets' | 'studio' | 'settings';
 
 /** A primary navigation entry (pure data — no UI concerns). */
 export interface NavItem {

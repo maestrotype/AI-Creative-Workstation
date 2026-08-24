@@ -2,30 +2,6 @@
    HomePage — start page layout and composition.
    ========================================================================== */
 
-.page {
-  display: flex;
-  min-height: 100dvh;
-}
-
-/* ─── Main content area ─────────────────────────────────────────────── */
-
-.main {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  padding: var(--space-12) var(--space-8);
-  /* Very subtle ambient glow — cinematic, NOT garish */
-  background-image:
-    radial-gradient(
-      ellipse 600px 400px at 30% -5%,
-      var(--color-accent-glow),
-      transparent 70%
-    );
-  background-repeat: no-repeat;
-  background-attachment: fixed;
-}
-
 /* ─── Content column ────────────────────────────────────────────────── */
 
 .content {

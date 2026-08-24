@@ -12,6 +12,7 @@ import {
   FolderIcon,
   HomeIcon,
   LayersIcon,
+  SettingsIcon,
   SlidersIcon,
   SparklesIcon,
 } from '../../../shared/ui/icons';
@@ -32,6 +33,7 @@ export const NAVIGATION_ITEMS: readonly NavigationEntry[] = [
   { id: 'projects', label: 'Projects', Icon: FolderIcon },
   { id: 'assets',   label: 'Assets',   Icon: LayersIcon },
   { id: 'studio',   label: 'Studio',   Icon: SlidersIcon },
+  { id: 'settings', label: 'Settings', Icon: SettingsIcon },
 ] satisfies NavigationEntry[];
 
 /** Type guard to validate a NavId at runtime. */
