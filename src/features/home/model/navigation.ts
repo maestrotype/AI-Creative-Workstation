@@ -21,15 +21,16 @@ export interface NavigationEntry extends CoreNavItem {
 }
 
 /** Primary navigation order per docs/ux/INFORMATION_ARCHITECTURE.md. */
-const NAVIGATION_MODEL = new Map<NavItemId, NavigationEntry>([
-  ['home', { id: 'home', label: 'Home', Icon: HomeIcon }],
-  ['create', { id: 'create', label: 'Create', Icon: SparklesIcon }],
-  ['projects', { id: 'projects', label: 'Projects', Icon: FolderIcon }],
-  ['assets', { id: 'assets', label: 'Assets', Icon: LayersIcon }],
-  ['studio', { id: 'studio', label: 'Studio', Icon: SlidersIcon }],
-  ['settings', { id: 'settings', label: 'Settings', Icon: SettingsIcon }],
-]);
+export const NAVIGATION_ITEMS = [
+  { id: 'home', label: 'Home', Icon: HomeIcon },
+  { id: 'create', label: 'Create', Icon: SparklesIcon },
+  { id: 'projects', label: 'Projects', Icon: FolderIcon },
+  { id: 'assets', label: 'Assets', Icon: LayersIcon },
+  { id: 'studio', label: 'Studio', Icon: SlidersIcon },
+  { id: 'settings', label: 'Settings', Icon: SettingsIcon },
+] satisfies readonly NavigationEntry[];
 
-export const NAVIGATION_ITEMS: readonly NavigationEntry[] = [
-  ...NAVIGATION_MODEL.values(),
-];
+/** Type guard to validate a `NavItemId` at runtime (e.g. from URL or storage). */
+export function isValidNavId(id: string): id is NavItemId {
+  return NAVIGATION_ITEMS.some((item) => item.id === id);
+}
