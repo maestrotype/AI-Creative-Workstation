@@ -1,0 +1,54 @@
+import type { ReactNode } from 'react';
+
+import { useCreateStore } from '../../store/createStore';
+import { ImageIcon, RefreshIcon, UserIcon, DownloadIcon } from '../../../../shared/ui/icons';
+import styles from './ResultStep.module.css';
+import { cx } from '../../../../shared/lib/cx';
+
+export function ResultStep(): ReactNode {
+  const result = useCreateStore((s) => s.result);
+  const tryVariation = useCreateStore((s) => s.tryVariation);
+
+  if (!result) return null;
+
+  return (
+    <div className={styles.container}>
+      <div className={styles.imageArea}>
+        {/* Placeholder for the generated image */}
+        <div className={styles.placeholderContent}>
+          <ImageIcon size={48} />
+          <span>Generation successful</span>
+        </div>
+      </div>
+
+      <p className={styles.prompt}>
+        "{result.prompt}"
+      </p>
+
+      <div className={styles.actions}>
+        <button
+          type="button"
+          className={cx(styles.actionButton, styles.primaryAction)}
+          onClick={tryVariation}
+        >
+          <RefreshIcon size={18} />
+          Try variations
+        </button>
+        
+        <button type="button" className={styles.actionButton}>
+          Edit this
+        </button>
+
+        <button type="button" className={styles.actionButton}>
+          <UserIcon size={18} />
+          Save as character
+        </button>
+
+        <button type="button" className={styles.actionButton}>
+          <DownloadIcon size={18} />
+          Export
+        </button>
+      </div>
+    </div>
+  );
+}

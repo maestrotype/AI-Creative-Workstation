@@ -15,12 +15,13 @@
 - [x] **Continue Working Component:** Build the UI to display recent projects.
 - [x] **Inspiration Component:** Build a gallery of curated generation examples.
 - [x] **Integrate into HomePage:** Update `HomePage.tsx` to render all sections in the correct order.
+- [x] **CreatePage Implementation:** Built the core generation flow (`intent` → `generating` → `result`) with a robust Zustand state machine and realistic mock progress. Resulting mock images now correctly appear in the `HomePage`'s recent assets!
 
 ## Immediate Next Steps (Pending)
-- [ ] Connect `Inspiration` click handler to actually set the intent and transition to the Create page automatically.
-- [ ] Implement placeholders for `CreatePage`, `ProjectsPage`, `AssetsPage`.
+- [ ] Connect `Inspiration` click handler to transition to the `CreatePage` automatically instead of just filling the draft.
+- [ ] Implement placeholders for `ProjectsPage`, `AssetsPage`.
 
 ## Known Issues / Technical Debt
-- `CreatePage`, `ProjectsPage`, `AssetsPage`, `StudioPage`, `SettingsPage` are currently just placeholders and need implementation.
+- `ProjectsPage`, `AssetsPage`, `StudioPage`, `SettingsPage` are currently just placeholders and need implementation.
 - `IntentInput` attach button is wired but not yet fully functional (needs file picker logic).
 - API is entirely mocked (waiting for SQLite + Drizzle layer integration).

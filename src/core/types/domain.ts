@@ -28,6 +28,20 @@ export interface Asset {
   readonly updatedAt: string;
 }
 
+/* ─── Generation types ──────────────────────────────────────────────── */
+
+/** The result of a single generation run. */
+export interface GenerationResult {
+  /** Stable unique identifier. */
+  readonly id: string;
+  /** The prompt used for this generation. */
+  readonly prompt: string;
+  /** Thumbnail source. `null` in mock/MVP — shows gradient placeholder. */
+  readonly thumbnailUrl: string | null;
+  /** ISO-8601 creation timestamp. */
+  readonly createdAt: string;
+}
+
 /* ─── Navigation types ──────────────────────────────────────────────── */
 
 /** Identifiers for primary sidebar navigation items. */

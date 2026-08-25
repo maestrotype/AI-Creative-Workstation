@@ -6,7 +6,7 @@
  */
 import { create } from 'zustand';
 
-import type { Asset, NavId } from '../../../core/types';
+import type { Asset, GenerationResult, NavId } from '../../../core/types';
 import {
   fetchRecentAssets,
   fetchRecentProjects,
@@ -32,6 +32,7 @@ interface HomeState {
   assetsStatus: LoadingStatus;
   recentAssets: readonly Asset[];
   loadRecentAssets: () => Promise<void>;
+  addGeneratedAsset: (result: GenerationResult) => void;
 
   /* Inspiration */
   inspirationStatus: LoadingStatus;
@@ -90,6 +91,23 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
       if (get().assetsStatus !== 'loading') return;
       set({ assetsStatus: 'error', recentAssets: [] });
     }
+  },
+
+  addGeneratedAsset: (result) => {
+    set((state) => {
+      const newAsset: Asset = {
+        id: result.id,
+        name: result.prompt.length > 48 ? `${result.prompt.slice(0, 45)}…` : result.prompt,
+        kind: 'image',
+        thumbnailUrl: result.thumbnailUrl,
+        updatedAt: result.createdAt,
+      };
+      
+      return {
+        assetsStatus: 'ready',
+        recentAssets: [newAsset, ...state.recentAssets].slice(0, 6),
+      };
+    });
   },
 
   /* ── Inspiration ───────────────────────────────────────────────── */
