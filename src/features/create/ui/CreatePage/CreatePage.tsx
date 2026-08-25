@@ -7,6 +7,7 @@
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 import { useHomeStore } from '../../../home/store/homeStore';
 import { useCreateStore } from '../../store/createStore';
@@ -18,6 +19,8 @@ import styles from './CreatePage.module.css';
 
 export function CreatePage(): ReactNode {
   const navigate = useNavigate();
+  const { t } = useTranslation();
+  
   const step = useCreateStore((s) => s.step);
   const reset = useCreateStore((s) => s.reset);
   const setPrompt = useCreateStore((s) => s.setPrompt);
@@ -54,7 +57,7 @@ export function CreatePage(): ReactNode {
           onClick={() => navigate('/')}
         >
           <ChevronLeftIcon size={20} />
-          Back to Home
+          {t('create.back_to_home')}
         </button>
       </header>
 

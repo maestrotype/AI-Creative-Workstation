@@ -5,6 +5,7 @@
  */
 import type { ReactNode } from 'react';
 
+import { useTranslation } from 'react-i18next';
 import type { InspirationItem } from '../../api/assetApi';
 import { ImageIcon } from '../../../../shared/ui/icons';
 import styles from './Inspiration.module.css';
@@ -22,11 +23,13 @@ export function Inspiration({
   items,
   onSelect,
 }: InspirationProps): ReactNode {
+  const { t } = useTranslation();
+
   if (status === 'idle' || status === 'loading') {
     return (
       <section className={styles.section} aria-label="Loading inspiration">
         <header className={styles.header}>
-          <h2 className={styles.title}>Inspiration</h2>
+          <h2 className={styles.title}>{t('home.inspiration')}</h2>
         </header>
         <div className={styles.skeletonGrid} aria-hidden="true">
           {Array.from({ length: SKELETON_COUNT }).map((_, i) => (
@@ -47,7 +50,7 @@ export function Inspiration({
   return (
     <section className={styles.section} aria-label="Inspiration gallery">
       <header className={styles.header}>
-        <h2 className={styles.title}>Inspiration</h2>
+        <h2 className={styles.title}>{t('home.inspiration')}</h2>
       </header>
 
       <ul className={styles.grid}>

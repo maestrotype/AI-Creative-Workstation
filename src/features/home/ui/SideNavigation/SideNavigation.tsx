@@ -6,6 +6,7 @@
  */
 import type { ReactNode } from 'react';
 
+import { useTranslation } from 'react-i18next';
 import type { NavId } from '../../../../core/types';
 import { cx } from '../../../../shared/lib/cx';
 import { SparklesIcon, UserIcon } from '../../../../shared/ui/icons';
@@ -30,6 +31,8 @@ export function SideNavigation({
   activeId,
   onSelect,
 }: SideNavigationProps): ReactNode {
+  const { t } = useTranslation();
+
   return (
     <nav className={styles.nav} aria-label="Primary navigation">
       {/* Brand */}
@@ -42,7 +45,7 @@ export function SideNavigation({
 
       {/* Navigation items */}
       <ul className={styles.list}>
-        {items.map(({ id, label, Icon }) => {
+        {items.map(({ id, Icon }) => {
           const isActive = activeId === id;
           return (
             <li key={id}>
@@ -53,7 +56,7 @@ export function SideNavigation({
                 onClick={() => onSelect(id)}
               >
                 <Icon size={18} />
-                <span className={styles.itemLabel}>{label}</span>
+                <span className={styles.itemLabel}>{t(`nav.${id}`)}</span>
               </button>
             </li>
           );
@@ -66,10 +69,10 @@ export function SideNavigation({
           <UserIcon size={14} />
         </span>
         <span className={styles.accountMeta}>
-          <span className={styles.accountName}>Local workspace</span>
+          <span className={styles.accountName}>{t('nav.local_workspace')}</span>
           <span className={styles.accountStatus}>
             <span className={styles.statusDot} aria-hidden="true" />
-            Offline-ready
+            {t('nav.offline_ready')}
           </span>
         </span>
       </div>

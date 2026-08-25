@@ -16,12 +16,14 @@
 - [x] **Inspiration Component:** Build a gallery of curated generation examples.
 - [x] **Integrate into HomePage:** Update `HomePage.tsx` to render all sections in the correct order.
 - [x] **CreatePage Implementation:** Built the core generation flow (`intent` → `generating` → `result`) with a robust Zustand state machine and realistic mock progress. Resulting mock images now correctly appear in the `HomePage`'s recent assets!
+- [x] **Мультиязычность (i18n)**: Установлен `i18next`, переведены все основные страницы и боковое меню на английский и русский языки. На странице `Settings` добавлен переключатель языков.
+- [x] **Базовые заглушки экранов**: Сверстаны структурные макеты для `ProjectsPage`, `AssetsPage`, `StudioPage` и `SettingsPage`.
 
 ## Immediate Next Steps (Pending)
-- [ ] Connect `Inspiration` click handler to transition to the `CreatePage` automatically instead of just filling the draft.
-- [ ] Implement placeholders for `ProjectsPage`, `AssetsPage`.
+- [ ] **Electron Shell**: Настройка Electron и интеграция Vite (например, через `electron-vite`).
+- [ ] **Python Sidecar**: Создание базового Python-процесса на FastAPI для оркестрации инференса.
+- [ ] Connect `Inspiration` click handler to transition to the `CreatePage` автоматически.
 
 ## Known Issues / Technical Debt
-- `ProjectsPage`, `AssetsPage`, `StudioPage`, `SettingsPage` are currently just placeholders and need implementation.
 - `IntentInput` attach button is wired but not yet fully functional (needs file picker logic).
-- API is entirely mocked (waiting for SQLite + Drizzle layer integration).
+- API is entirely mocked (waiting for Python layer).

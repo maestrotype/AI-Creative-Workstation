@@ -14,6 +14,7 @@ import '@fontsource/inter/600.css';
 import './shared/styles/tokens.css';
 import './shared/styles/global.css';
 
+import './core/i18n'; // Initialize i18n before rendering App
 import { App } from './app/App';
 
 const rootElement = document.getElementById('root');

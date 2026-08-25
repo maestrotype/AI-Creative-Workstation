@@ -1,14 +1,20 @@
 import type { ReactNode } from 'react';
 
+import { useTranslation } from 'react-i18next';
 import { useCreateStore } from '../../store/createStore';
 import styles from './GeneratingStep.module.css';
 
 export function GeneratingStep(): ReactNode {
+  const { t } = useTranslation();
   const progress = useCreateStore((s) => s.generationProgress);
   const cancelGeneration = useCreateStore((s) => s.cancelGeneration);
 
   const percent = progress ? Math.round(progress.progress * 100) : 0;
-  const message = progress?.message ?? 'Starting generation...';
+  
+  // NOTE: progress.message comes from the mock pipeline API, which is in English.
+  // In a real app, the API could return translation keys or localized strings.
+  // For now we'll just display it, but translate the fallback.
+  const message = progress?.message ?? t('create.status.starting');
   const estimated = progress?.estimatedSecondsLeft ?? 0;
 
   return (
@@ -28,10 +34,12 @@ export function GeneratingStep(): ReactNode {
 
       <div className={styles.meta}>
         <span className={styles.privacy}>
-          🔒 Running locally on your Mac
+          {t('create.status.running_locally')}
         </span>
         <span>
-          {estimated > 0 ? `Estimated: ${estimated}s` : 'Finishing up...'}
+          {estimated > 0 
+            ? t('create.status.estimated', { seconds: estimated }) 
+            : t('create.status.finishing')}
         </span>
       </div>
 
@@ -40,7 +48,7 @@ export function GeneratingStep(): ReactNode {
         className={styles.cancelButton}
         onClick={cancelGeneration}
       >
-        Cancel
+        {t('create.btn_cancel')}
       </button>
     </div>
   );

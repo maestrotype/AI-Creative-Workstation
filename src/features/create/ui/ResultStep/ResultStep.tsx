@@ -1,11 +1,13 @@
 import type { ReactNode } from 'react';
 
+import { useTranslation } from 'react-i18next';
 import { useCreateStore } from '../../store/createStore';
 import { ImageIcon, RefreshIcon, UserIcon, DownloadIcon } from '../../../../shared/ui/icons';
 import styles from './ResultStep.module.css';
 import { cx } from '../../../../shared/lib/cx';
 
 export function ResultStep(): ReactNode {
+  const { t } = useTranslation();
   const result = useCreateStore((s) => s.result);
   const tryVariation = useCreateStore((s) => s.tryVariation);
 
@@ -17,7 +19,7 @@ export function ResultStep(): ReactNode {
         {/* Placeholder for the generated image */}
         <div className={styles.placeholderContent}>
           <ImageIcon size={48} />
-          <span>Generation successful</span>
+          <span>{t('create.status.generation_successful')}</span>
         </div>
       </div>
 
@@ -32,21 +34,21 @@ export function ResultStep(): ReactNode {
           onClick={tryVariation}
         >
           <RefreshIcon size={18} />
-          Try variations
+          {t('create.btn_try_variations')}
         </button>
         
         <button type="button" className={styles.actionButton}>
-          Edit this
+          {t('create.btn_edit_this')}
         </button>
 
         <button type="button" className={styles.actionButton}>
           <UserIcon size={18} />
-          Save as character
+          {t('create.btn_save_character')}
         </button>
 
         <button type="button" className={styles.actionButton}>
           <DownloadIcon size={18} />
-          Export
+          {t('create.btn_export')}
         </button>
       </div>
     </div>

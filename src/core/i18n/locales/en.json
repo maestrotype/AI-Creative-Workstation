@@ -1,0 +1,78 @@
+{
+  "nav": {
+    "home": "Home",
+    "create": "Create",
+    "projects": "Projects",
+    "assets": "Assets",
+    "studio": "Studio",
+    "settings": "Settings",
+    "local_workspace": "Local workspace",
+    "offline_ready": "Offline-ready"
+  },
+  "home": {
+    "hero_heading": "Create something new",
+    "hero_subheading": "Describe the result you want — Canvas takes care of the rest.",
+    "intent_placeholder": "A cinematic portrait with dramatic lighting…",
+    "continue_working": "Continue Working",
+    "recent_assets": "Recent Assets",
+    "inspiration": "Inspiration",
+    "no_projects_yet": "No projects yet",
+    "no_projects_desc": "Projects you create or work on will appear here.",
+    "no_assets_yet": "No assets yet",
+    "no_assets_desc": "Images and characters you generate will appear here.",
+    "something_went_wrong": "Something went wrong",
+    "could_not_load_projects": "Could not load your recent projects.",
+    "could_not_load_assets": "Could not load your recent assets.",
+    "try_again": "Try again"
+  },
+  "create": {
+    "back_to_home": "Back to Home",
+    "what_to_create": "What do you want to create?",
+    "intent_placeholder": "Describe your vision...",
+    "format": "Format",
+    "style_intensity": "Style Intensity",
+    "formats": {
+      "square": "Square",
+      "portrait": "Portrait",
+      "wide": "Wide"
+    },
+    "styles": {
+      "subtle": "Subtle",
+      "cinematic": "Cinematic",
+      "bold": "Bold"
+    },
+    "btn_create": "Create",
+    "status": {
+      "starting": "Starting generation...",
+      "running_locally": "🔒 Running locally on your Mac",
+      "estimated": "Estimated: {{seconds}}s",
+      "finishing": "Finishing up...",
+      "generation_successful": "Generation successful"
+    },
+    "btn_cancel": "Cancel",
+    "btn_try_variations": "Try variations",
+    "btn_edit_this": "Edit this",
+    "btn_save_character": "Save as character",
+    "btn_export": "Export"
+  },
+  "projects": {
+    "title": "Projects",
+    "new_project": "New Project",
+    "placeholder": "Projects management flow placeholder"
+  },
+  "assets": {
+    "title": "Assets",
+    "placeholder": "Assets management flow placeholder"
+  },
+  "studio": {
+    "title": "Studio",
+    "placeholder": "Studio hardware and models placeholder"
+  },
+  "settings": {
+    "title": "Settings",
+    "placeholder": "Settings placeholder",
+    "language": "Language",
+    "en": "English",
+    "ru": "Русский"
+  }
+}

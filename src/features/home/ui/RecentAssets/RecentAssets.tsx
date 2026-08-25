@@ -6,6 +6,7 @@
  */
 import type { ReactNode } from 'react';
 
+import { useTranslation } from 'react-i18next';
 import type { Asset } from '../../../../core/types';
 import { SparklesIcon } from '../../../../shared/ui/icons';
 import { AssetCard } from '../AssetCard/AssetCard';
@@ -33,6 +34,8 @@ export function RecentAssets({
   assets,
   onRetry,
 }: RecentAssetsProps): ReactNode {
+  const { t } = useTranslation();
+
   /* Loading / idle → skeleton */
   if (status === 'idle' || status === 'loading') {
     return (
@@ -54,9 +57,9 @@ export function RecentAssets({
         aria-label="Recent creations unavailable"
       >
         <div className={styles.statePanel}>
-          <p className={styles.stateHeading}>Something went wrong</p>
+          <p className={styles.stateHeading}>{t('home.something_went_wrong')}</p>
           <p className={`${styles.stateText} ${styles.errorText}`}>
-            Could not load your recent creations.
+            {t('home.could_not_load_assets')}
           </p>
           {onRetry ? (
             <button
@@ -64,7 +67,7 @@ export function RecentAssets({
               className={styles.retryButton}
               onClick={onRetry}
             >
-              Try again
+              {t('home.try_again')}
             </button>
           ) : null}
         </div>
@@ -83,9 +86,9 @@ export function RecentAssets({
           <span className={styles.emptyIcon} aria-hidden="true">
             <SparklesIcon size={24} />
           </span>
-          <p className={styles.stateHeading}>Nothing here yet</p>
+          <p className={styles.stateHeading}>{t('home.no_assets_yet')}</p>
           <p className={styles.stateText}>
-            Describe what you want to create above and your work will appear here.
+            {t('home.no_assets_desc')}
           </p>
         </div>
       </section>
@@ -96,7 +99,7 @@ export function RecentAssets({
   return (
     <section className={styles.section} aria-label="Recent creations">
       <header className={styles.header}>
-        <h2 className={styles.title}>Recent</h2>
+        <h2 className={styles.title}>{t('home.recent_assets')}</h2>
         <span className={styles.count}>{assets.length}</span>
       </header>
 

@@ -1,0 +1,78 @@
+{
+  "nav": {
+    "home": "Главная",
+    "create": "Создать",
+    "projects": "Проекты",
+    "assets": "Ассеты",
+    "studio": "Студия",
+    "settings": "Настройки",
+    "local_workspace": "Локальное пространство",
+    "offline_ready": "Готов к работе офлайн"
+  },
+  "home": {
+    "hero_heading": "Создай что-то новое",
+    "hero_subheading": "Опиши желаемый результат — Canvas позаботится об остальном.",
+    "intent_placeholder": "Кинематографичный портрет с драматичным освещением…",
+    "continue_working": "Продолжить работу",
+    "recent_assets": "Недавние ассеты",
+    "inspiration": "Вдохновение",
+    "no_projects_yet": "Пока нет проектов",
+    "no_projects_desc": "Созданные вами проекты будут отображаться здесь.",
+    "no_assets_yet": "Пока нет ассетов",
+    "no_assets_desc": "Сгенерированные изображения и персонажи будут отображаться здесь.",
+    "something_went_wrong": "Что-то пошло не так",
+    "could_not_load_projects": "Не удалось загрузить недавние проекты.",
+    "could_not_load_assets": "Не удалось загрузить недавние ассеты.",
+    "try_again": "Попробовать снова"
+  },
+  "create": {
+    "back_to_home": "На главную",
+    "what_to_create": "Что вы хотите создать?",
+    "intent_placeholder": "Опишите ваше видение...",
+    "format": "Формат",
+    "style_intensity": "Интенсивность стиля",
+    "formats": {
+      "square": "Квадрат",
+      "portrait": "Портрет",
+      "wide": "Широкий"
+    },
+    "styles": {
+      "subtle": "Сдержанный",
+      "cinematic": "Кинематографичный",
+      "bold": "Выраженный"
+    },
+    "btn_create": "Создать",
+    "status": {
+      "starting": "Начинаем генерацию...",
+      "running_locally": "🔒 Выполняется локально на Mac",
+      "estimated": "Осталось: {{seconds}}с",
+      "finishing": "Завершаем...",
+      "generation_successful": "Генерация завершена"
+    },
+    "btn_cancel": "Отмена",
+    "btn_try_variations": "Попробовать варианты",
+    "btn_edit_this": "Редактировать",
+    "btn_save_character": "Сохранить как персонажа",
+    "btn_export": "Экспорт"
+  },
+  "projects": {
+    "title": "Проекты",
+    "new_project": "Новый проект",
+    "placeholder": "Заглушка управления проектами"
+  },
+  "assets": {
+    "title": "Ассеты",
+    "placeholder": "Заглушка управления ассетами"
+  },
+  "studio": {
+    "title": "Студия",
+    "placeholder": "Заглушка управления оборудованием и моделями"
+  },
+  "settings": {
+    "title": "Настройки",
+    "placeholder": "Заглушка настроек",
+    "language": "Язык",
+    "en": "English",
+    "ru": "Русский"
+  }
+}

@@ -12,6 +12,7 @@
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 import { IntentInput } from '../../../../shared/ui/IntentInput/IntentInput';
 import { QUICK_SUGGESTIONS } from '../../api/assetApi';
@@ -25,6 +26,7 @@ import styles from './HomePage.module.css';
 
 export function HomePage(): ReactNode {
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   /* Store selectors */
   const intentDraft = useHomeStore((s) => s.intentDraft);
@@ -68,10 +70,8 @@ export function HomePage(): ReactNode {
     <div className={styles.content}>
       {/* Hero heading */}
       <header className={styles.header}>
-        <h1 className={styles.heading}>Create something new</h1>
-        <p className={styles.subheading}>
-          Describe the result you want — Canvas takes care of the rest.
-        </p>
+        <h1 className={styles.heading}>{t('home.hero_heading')}</h1>
+        <p className={styles.subheading}>{t('home.hero_subheading')}</p>
       </header>
 
       {/* Intent bar — the centrepiece */}
@@ -81,7 +81,8 @@ export function HomePage(): ReactNode {
           onChange={setIntentDraft}
           onSubmit={handleSubmit}
           isDisabled={isCreating}
-          placeholder="A cinematic portrait with dramatic lighting…"
+          placeholder={t('home.intent_placeholder')}
+
           onAttach={() => {
             /* Attach handler — wired in a future milestone. */
           }}

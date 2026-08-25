@@ -6,6 +6,7 @@
  */
 import type { ReactNode } from 'react';
 
+import { useTranslation } from 'react-i18next';
 import type { Asset } from '../../../../core/types';
 import { FolderIcon } from '../../../../shared/ui/icons';
 import { AssetCard } from '../AssetCard/AssetCard';
@@ -33,6 +34,8 @@ export function ContinueWorking({
   projects,
   onRetry,
 }: ContinueWorkingProps): ReactNode {
+  const { t } = useTranslation();
+
   /* Loading / idle → skeleton */
   if (status === 'idle' || status === 'loading') {
     return (
@@ -42,7 +45,7 @@ export function ContinueWorking({
         aria-label="Loading recent projects"
       >
         <header className={styles.header}>
-          <h2 className={styles.title}>Continue Working</h2>
+          <h2 className={styles.title}>{t('home.continue_working')}</h2>
         </header>
         <SkeletonGrid count={SKELETON_COUNT} />
       </section>
@@ -57,12 +60,12 @@ export function ContinueWorking({
         aria-label="Recent projects unavailable"
       >
         <header className={styles.header}>
-          <h2 className={styles.title}>Continue Working</h2>
+          <h2 className={styles.title}>{t('home.continue_working')}</h2>
         </header>
         <div className={styles.statePanel}>
-          <p className={styles.stateHeading}>Something went wrong</p>
+          <p className={styles.stateHeading}>{t('home.something_went_wrong')}</p>
           <p className={`${styles.stateText} ${styles.errorText}`}>
-            Could not load your recent projects.
+            {t('home.could_not_load_projects')}
           </p>
           {onRetry ? (
             <button
@@ -70,7 +73,7 @@ export function ContinueWorking({
               className={styles.retryButton}
               onClick={onRetry}
             >
-              Try again
+              {t('home.try_again')}
             </button>
           ) : null}
         </div>
@@ -86,15 +89,15 @@ export function ContinueWorking({
         aria-label="No recent projects yet"
       >
         <header className={styles.header}>
-          <h2 className={styles.title}>Continue Working</h2>
+          <h2 className={styles.title}>{t('home.continue_working')}</h2>
         </header>
         <div className={styles.statePanel}>
           <span className={styles.emptyIcon} aria-hidden="true">
             <FolderIcon size={24} />
           </span>
-          <p className={styles.stateHeading}>No projects yet</p>
+          <p className={styles.stateHeading}>{t('home.no_projects_yet')}</p>
           <p className={styles.stateText}>
-            Projects you create or work on will appear here.
+            {t('home.no_projects_desc')}
           </p>
         </div>
       </section>
@@ -105,7 +108,7 @@ export function ContinueWorking({
   return (
     <section className={styles.section} aria-label="Recent projects">
       <header className={styles.header}>
-        <h2 className={styles.title}>Continue Working</h2>
+        <h2 className={styles.title}>{t('home.continue_working')}</h2>
         <span className={styles.count}>{projects.length}</span>
       </header>
 
