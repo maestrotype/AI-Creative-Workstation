@@ -1,9 +1,19 @@
 import { contextBridge } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
 
+import { ipcRenderer } from 'electron';
+
 // Custom APIs for renderer
 const api = {
-  // We'll add our custom IPC methods here later (e.g. for Python sidecar)
+  getModels: () => ipcRenderer.invoke('get-models'),
+  addModel: (model: any) => ipcRenderer.invoke('add-model', model),
+  downloadModel: (model: any) => ipcRenderer.invoke('download-model', model),
+  onModelsUpdated: (callback: () => void) => {
+    ipcRenderer.on('models-updated', callback);
+    return () => {
+      ipcRenderer.removeListener('models-updated', callback);
+    };
+  }
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to

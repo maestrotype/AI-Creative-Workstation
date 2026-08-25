@@ -66,7 +66,12 @@
   },
   "studio": {
     "title": "Studio",
-    "placeholder": "Studio hardware and models placeholder"
+    "placeholder": "Studio hardware and models placeholder",
+    "my_models": "My Models",
+    "no_models": "No models downloaded yet.",
+    "discover": "Discover",
+    "download": "Download",
+    "installed": "Installed"
   },
   "settings": {
     "title": "Settings",

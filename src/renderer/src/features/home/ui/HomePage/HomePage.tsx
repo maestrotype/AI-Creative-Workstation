@@ -60,6 +60,9 @@ export function HomePage(): ReactNode {
 
   const handleInspirationSelect = (prompt: string) => {
     setIntentDraft(prompt);
+    // Since setIntentDraft updates the store and we immediately navigate, 
+    // CreatePage will pick it up on mount.
+    navigate('/create');
   };
 
   /* Suggestion chips are an idle-state affordance: they disappear

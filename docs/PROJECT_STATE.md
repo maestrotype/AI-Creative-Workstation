@@ -19,11 +19,17 @@
 - [x] **Мультиязычность (i18n)**: Установлен `i18next`, переведены все основные страницы и боковое меню на английский и русский языки. На странице `Settings` добавлен переключатель языков.
 - [x] **Базовые заглушки экранов**: Сверстаны структурные макеты для `ProjectsPage`, `AssetsPage`, `StudioPage` и `SettingsPage`.
 
+- [x] **Electron Shell**: Настройка Electron и интеграция Vite (через `electron-vite`). Приложение теперь работает как нативное десктопное.
+- [x] **Python Sidecar**: Создан Python-процесс на FastAPI для оркестрации инференса. Установлены библиотеки `mlx` и `mlx-lm`. Написан моковый эндпоинт генерации.
+
 ## Immediate Next Steps (Pending)
-- [ ] **Electron Shell**: Настройка Electron и интеграция Vite (например, через `electron-vite`).
-- [ ] **Python Sidecar**: Создание базового Python-процесса на FastAPI для оркестрации инференса.
-- [ ] Connect `Inspiration` click handler to transition to the `CreatePage` автоматически.
+- [x] **База Данных**: Интеграция `better-sqlite3` и `drizzle-orm` в Main-процесс Electron.
+- [x] **Studio Page (Менеджер моделей)**: Создание интерфейса для скачивания/подключения локальных моделей (как в LM Studio).
+- [x] Connect `Inspiration` click handler to transition to the `CreatePage` автоматически.
+
+## What's Next?
+- [ ] Подключить реальную Python-генерацию на MLX к `CreatePage`.
 
 ## Known Issues / Technical Debt
 - `IntentInput` attach button is wired but not yet fully functional (needs file picker logic).
-- API is entirely mocked (waiting for Python layer).
+- API is entirely mocked (waiting for SQLite + реальный MLX).

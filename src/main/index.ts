@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow } from 'electron';
+import { app, shell, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'path';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 // import icon from '../../resources/icon.png?asset'
@@ -52,12 +52,102 @@ function startSidecar() {
   });
 }
 
+import { initDb, getDb } from './db';
+import { models } from './db/schema';
+import { eq } from 'drizzle-orm';
+
+function broadcast(channel: string, ...args: any[]) {
+  BrowserWindow.getAllWindows().forEach((win) => {
+    win.webContents.send(channel, ...args);
+  });
+}
+
+function setupIpc() {
+  ipcMain.handle('get-models', async () => {
+    const db = getDb();
+    return db.select().from(models).all();
+  });
+
+  ipcMain.handle('add-model', async (_, model) => {
+    // We keep this for adding custom local models manually if needed
+    const db = getDb();
+    db.insert(models).values({
+      id: model.id,
+      name: model.name,
+      type: model.type,
+      status: 'ready',
+      createdAt: new Date(),
+    }).run();
+    return true;
+  });
+
+  ipcMain.handle('download-model', async (_, model) => {
+    const db = getDb();
+    
+    // 1. Save as downloading
+    db.insert(models).values({
+      id: model.id,
+      name: model.name,
+      type: model.type,
+      status: 'downloading',
+      createdAt: new Date(),
+    }).onConflictDoUpdate({
+      target: models.id,
+      set: { status: 'downloading' }
+    }).run();
+
+    // Notify UI immediately so it shows 'downloading'
+    broadcast('models-updated');
+
+    // 2. Spawn Python downloader
+    const downloadScript = join(__dirname, '../../sidecar/download.py');
+    const dlProcess = spawn('python3', [downloadScript, model.id]);
+
+    let finalPath = '';
+
+    dlProcess.stdout.on('data', (data) => {
+      const output = data.toString();
+      console.log(`[Download] ${output}`);
+      if (output.includes('DONE:')) {
+        finalPath = output.split('DONE:')[1].trim();
+      }
+    });
+
+    dlProcess.stderr.on('data', (data) => {
+      console.error(`[Download Error] ${data.toString()}`);
+    });
+
+    dlProcess.on('close', (code) => {
+      if (code === 0 && finalPath) {
+        db.update(models)
+          .set({ status: 'ready', path: finalPath })
+          .where(eq(models.id, model.id))
+          .run();
+        console.log(`Model ${model.id} marked as ready.`);
+      } else {
+        db.update(models)
+          .set({ status: 'error' })
+          .where(eq(models.id, model.id))
+          .run();
+        console.error(`Model ${model.id} failed to download.`);
+      }
+      broadcast('models-updated');
+    });
+
+    return true;
+  });
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.canvas.app');
+
+  // Initialize SQLite database
+  initDb();
+  setupIpc();
 
   startSidecar();
 

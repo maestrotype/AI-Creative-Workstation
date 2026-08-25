@@ -2,7 +2,12 @@ from fastapi import FastAPI
 import platform
 import psutil
 
+# Импортируем наши роутеры
+from api import generation
+
 app = FastAPI(title="Canvas Inference Sidecar")
+
+app.include_router(generation.router, prefix="/api")
 
 @app.get("/health")
 def health_check():
@@ -19,5 +24,4 @@ def get_hardware():
 
 if __name__ == "__main__":
     import uvicorn
-    # Start on port 57291 as defined in SYSTEM_ARCHITECTURE.md
     uvicorn.run("main:app", host="127.0.0.1", port=57291, reload=True)
