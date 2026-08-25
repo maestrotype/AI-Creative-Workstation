@@ -3,14 +3,17 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Canvas — local-first AI Creative Workstation (UI layer)",
+  "main": "./out/main/index.js",
+  "description": "Canvas — local-first AI Creative Workstation",
   "scripts": {
-    "dev": "vite",
-    "build": "npm run typecheck && vite build",
-    "preview": "vite preview",
+    "dev": "electron-vite dev",
+    "build": "npm run typecheck && electron-vite build",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@electron-toolkit/utils": "^4.0.0",
     "@fontsource/inter": "^5.2.5",
     "@fontsource/sora": "^5.2.5",
     "i18next": "^26.4.0",
@@ -21,9 +24,15 @@
     "zustand": "^5.0.5"
   },
   "devDependencies": {
+    "@electron-toolkit/preload": "^3.0.2",
+    "@electron-toolkit/tsconfig": "^2.0.0",
+    "@types/node": "^26.3.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.5.2",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
     "typescript": "^5.8.3",
     "vite": "^6.3.5"
   }
