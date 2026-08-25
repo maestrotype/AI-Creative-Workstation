@@ -1,7 +1,7 @@
 /**
- * Home feature — mock data source for recent assets.
+ * Home feature — mock data source for recent assets, projects, and inspiration.
  *
- * This is the only module that "fetches" asset records. In production
+ * This is the only module that "fetches" records. In production
  * it will be swapped for a local-first SQLite repository without
  * touching any store or UI code.
  */
@@ -16,6 +16,30 @@ const hoursAgo = (h: number): string =>
 const LATENCY_MS = 800;
 
 /* ─── Mock data ─────────────────────────────────────────────────────── */
+
+const MOCK_PROJECTS: readonly Asset[] = [
+  {
+    id: 'project-01',
+    name: 'MacBook Pro Review — November',
+    kind: 'project',
+    thumbnailUrl: null,
+    updatedAt: hoursAgo(2),
+  },
+  {
+    id: 'project-02',
+    name: 'Neon City Asset Build',
+    kind: 'project',
+    thumbnailUrl: null,
+    updatedAt: hoursAgo(22),
+  },
+  {
+    id: 'project-03',
+    name: 'Social Media Pack',
+    kind: 'project',
+    thumbnailUrl: null,
+    updatedAt: hoursAgo(120),
+  },
+];
 
 const MOCK_ASSETS: readonly Asset[] = [
   {
@@ -33,13 +57,6 @@ const MOCK_ASSETS: readonly Asset[] = [
     updatedAt: hoursAgo(4),
   },
   {
-    id: 'asset-03',
-    name: 'Project: Driftwood',
-    kind: 'project',
-    thumbnailUrl: null,
-    updatedAt: hoursAgo(22),
-  },
-  {
     id: 'asset-04',
     name: 'Kael — Antagonist v3',
     kind: 'character',
@@ -53,24 +70,54 @@ const MOCK_ASSETS: readonly Asset[] = [
     thumbnailUrl: null,
     updatedAt: hoursAgo(72),
   },
+];
+
+export interface InspirationItem {
+  id: string;
+  prompt: string;
+  thumbnailUrl: string | null;
+}
+
+const MOCK_INSPIRATION: readonly InspirationItem[] = [
   {
-    id: 'asset-06',
-    name: 'Project: Night Market',
-    kind: 'project',
+    id: 'insp-01',
+    prompt: 'A cinematic portrait in Tokyo at night',
+    thumbnailUrl: null, // We'll use CSS gradients for placeholders
+  },
+  {
+    id: 'insp-02',
+    prompt: 'Concept art for a sci-fi mech suit',
     thumbnailUrl: null,
-    updatedAt: hoursAgo(120),
+  },
+  {
+    id: 'insp-03',
+    prompt: 'Cozy isometric coffee shop',
+    thumbnailUrl: null,
+  },
+  {
+    id: 'insp-04',
+    prompt: '3D stylized character rendered in clay',
+    thumbnailUrl: null,
   },
 ];
 
 /* ─── Public API ────────────────────────────────────────────────────── */
 
-/**
- * Fetches the user's most recent assets.
- * Resolves after simulated latency to exercise loading states.
- */
+export function fetchRecentProjects(limit = 3): Promise<Asset[]> {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve(MOCK_PROJECTS.slice(0, limit)), LATENCY_MS);
+  });
+}
+
 export function fetchRecentAssets(limit = 6): Promise<Asset[]> {
   return new Promise((resolve) => {
     setTimeout(() => resolve(MOCK_ASSETS.slice(0, limit)), LATENCY_MS);
+  });
+}
+
+export function fetchInspirationItems(limit = 4): Promise<InspirationItem[]> {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve(MOCK_INSPIRATION.slice(0, limit)), LATENCY_MS);
   });
 }
 

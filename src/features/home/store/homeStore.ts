@@ -3,29 +3,40 @@
  *
  * All business logic lives here, NOT in React components.
  * Components select slices of this store and call its actions.
- *
- * State machine:
- *   assets: idle → loading → ready | error
- *   intent: draft ↔ creating → idle
  */
 import { create } from 'zustand';
 
 import type { Asset, NavId } from '../../../core/types';
-import { fetchRecentAssets } from '../api/assetApi';
+import {
+  fetchRecentAssets,
+  fetchRecentProjects,
+  fetchInspirationItems,
+  type InspirationItem,
+} from '../api/assetApi';
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
 
-export type AssetsStatus = 'idle' | 'loading' | 'ready' | 'error';
+export type LoadingStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 interface HomeState {
   /* Navigation */
   activeNavId: NavId;
   setActiveNavId: (id: NavId) => void;
 
+  /* Recent projects (Continue Working) */
+  projectsStatus: LoadingStatus;
+  recentProjects: readonly Asset[];
+  loadRecentProjects: () => Promise<void>;
+
   /* Recent assets */
-  assetsStatus: AssetsStatus;
+  assetsStatus: LoadingStatus;
   recentAssets: readonly Asset[];
   loadRecentAssets: () => Promise<void>;
+
+  /* Inspiration */
+  inspirationStatus: LoadingStatus;
+  inspirationItems: readonly InspirationItem[];
+  loadInspirationItems: () => Promise<void>;
 
   /* Intent bar */
   intentDraft: string;
@@ -40,8 +51,26 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
   /* ── Navigation ────────────────────────────────────────────────── */
   activeNavId: 'home',
   setActiveNavId: (id) => {
-    // Only "Home" is functional in this milestone.
     if (id === 'home') set({ activeNavId: id });
+  },
+
+  /* ── Recent projects ───────────────────────────────────────────── */
+  projectsStatus: 'idle',
+  recentProjects: [],
+
+  loadRecentProjects: async () => {
+    const { projectsStatus } = get();
+    if (projectsStatus === 'loading' || projectsStatus === 'ready') return;
+
+    set({ projectsStatus: 'loading' });
+    try {
+      const projects = await fetchRecentProjects();
+      if (get().projectsStatus !== 'loading') return;
+      set({ recentProjects: projects, projectsStatus: 'ready' });
+    } catch {
+      if (get().projectsStatus !== 'loading') return;
+      set({ projectsStatus: 'error', recentProjects: [] });
+    }
   },
 
   /* ── Recent assets ─────────────────────────────────────────────── */
@@ -55,12 +84,30 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
     set({ assetsStatus: 'loading' });
     try {
       const assets = await fetchRecentAssets();
-      // Guard: only apply if we're still in the loading state.
       if (get().assetsStatus !== 'loading') return;
       set({ recentAssets: assets, assetsStatus: 'ready' });
     } catch {
       if (get().assetsStatus !== 'loading') return;
       set({ assetsStatus: 'error', recentAssets: [] });
+    }
+  },
+
+  /* ── Inspiration ───────────────────────────────────────────────── */
+  inspirationStatus: 'idle',
+  inspirationItems: [],
+
+  loadInspirationItems: async () => {
+    const { inspirationStatus } = get();
+    if (inspirationStatus === 'loading' || inspirationStatus === 'ready') return;
+
+    set({ inspirationStatus: 'loading' });
+    try {
+      const items = await fetchInspirationItems();
+      if (get().inspirationStatus !== 'loading') return;
+      set({ inspirationItems: items, inspirationStatus: 'ready' });
+    } catch {
+      if (get().inspirationStatus !== 'loading') return;
+      set({ inspirationStatus: 'error', inspirationItems: [] });
     }
   },
 

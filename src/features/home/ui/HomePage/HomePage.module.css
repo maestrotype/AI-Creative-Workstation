@@ -117,6 +117,10 @@
   animation: recentReveal var(--duration-slow) var(--ease-out) 240ms both;
 }
 
+.inspirationSection {
+  animation: recentReveal var(--duration-slow) var(--ease-out) 320ms both;
+}
+
 @keyframes recentReveal {
   from {
     opacity: 0;
@@ -146,7 +150,8 @@
   .header,
   .intentSection,
   .suggestions,
-  .recentSection {
+  .recentSection,
+  .inspirationSection {
     animation: none;
   }
 }
