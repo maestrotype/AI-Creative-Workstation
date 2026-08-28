@@ -2,6 +2,7 @@
   "nav": {
     "home": "Home",
     "create": "Create",
+    "video": "Video",
     "projects": "Projects",
     "assets": "Assets",
     "studio": "Studio",
@@ -15,7 +16,7 @@
   },
   "home": {
     "hero_heading": "Create something new",
-    "hero_subheading": "Describe the result you want — Canvas takes care of the rest.",
+    "hero_subheading": "Describe the result you want — AI Creative Workstation takes care of the rest.",
     "intent_placeholder": "A cinematic portrait with dramatic lighting…",
     "continue_working": "Continue Working",
     "recent_assets": "Recent Assets",
@@ -69,6 +70,33 @@
       "generation_failed": "The model returned an error:",
       "no_model": "No active model. Open Studio, download a model, and click Use."
     }
+  },
+  "video": {
+    "title": "YouTube videos",
+    "lead": "Plan a storyboard, generate stills with your active image model, then assemble an MP4. Full motion models come next — this already produces a watchable cut.",
+    "topic": "Topic",
+    "topic_placeholder": "e.g. Why local AI image models finally work on a Mac…",
+    "format": "Format",
+    "format_landscape": "YouTube 16:9",
+    "format_shorts": "Shorts 9:16",
+    "length": "Length",
+    "plan": "Plan storyboard",
+    "storyboard": "{{count}} scenes",
+    "generate_scenes": "Generate scenes",
+    "assemble": "Assemble MP4",
+    "generating_scene": "Generating scene {{current}} / {{total}}",
+    "assembling": "Assembling video with ffmpeg…",
+    "need_all_scenes": "Generate every scene before assembling.",
+    "saved": "Saved:",
+    "clean_title": "Clean a screen recording",
+    "clean_lead": "Drop in a capture. The prompt tells the app what chrome to strip — browser UI, player controls, the stop button at the end.",
+    "clean_choose": "Choose video",
+    "clean_prompt": "What to remove",
+    "clean_prompt_placeholder": "Remove browser chrome, playback buttons, and the stop-recording UI at the end",
+    "clean_preview": "Preview plan",
+    "clean_run": "Clean video",
+    "clean_no_file": "Choose a video first.",
+    "clean_working": "Cleaning video…"
   },
   "projects": {
     "title": "Projects",

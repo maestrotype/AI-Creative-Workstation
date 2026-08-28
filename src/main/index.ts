@@ -1,22 +1,26 @@
-import { app, shell, BrowserWindow, ipcMain, protocol, net } from 'electron';
+import { app, shell, BrowserWindow, ipcMain, protocol, net, dialog } from 'electron';
 import { join } from 'path';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 // import icon from '../../resources/icon.png?asset'
 
 import { spawn, ChildProcess } from 'child_process';
+import { existsSync } from 'fs';
+import { initDb, getDb } from './db';
+import { models, settings } from './db/schema';
+import { eq } from 'drizzle-orm';
 
-// Prevent EPIPE crashes from console.log when stdout is closed
+app.setName('AI Creative Workstation');
+const legacyUserData = join(app.getPath('appData'), 'canvas');
+if (existsSync(legacyUserData)) {
+  app.setPath('userData', legacyUserData);
+}
+
 process.on('uncaughtException', (err) => {
   if (err.message.includes('EPIPE')) {
-    // Ignore EPIPE errors
     return;
   }
   console.error('Uncaught Exception:', err);
 });
-
-import { initDb, getDb } from './db';
-import { models, settings } from './db/schema';
-import { eq } from 'drizzle-orm';
 
 const SIDECAR_URL = 'http://127.0.0.1:57291';
 const SIDECAR_PORT = 57291;
@@ -26,13 +30,10 @@ let engineStatus: 'stopped' | 'starting' | 'ready' | 'error' = 'stopped';
 let engineDetail = '';
 let ignoreSidecarExit = false;
 
-// Реестр активных процессов скачивания по model.id. Раньше dlProcess жил только
-// внутри setupDownload как локальная переменная: при удалении модели / перезапуске
-// приложения дочерний python (download.py) умирал в сироты (PPID=1) и продолжал
-// держать RAM (3-4GB) и качать — отсюда своп и дублирующиеся загрузки.
+// Active download.py processes keyed by model id. If the handle is dropped,
+// killing/retrying leaves orphans (PPID=1) that keep using RAM and writing disk.
 const activeDownloads: Map<string, ChildProcess> = new Map();
 
-// Гарантированно завершает процесс скачивания для модели (если он запущен).
 function killDownload(modelId: string | null): void {
   if (!modelId) return;
   const proc = activeDownloads.get(modelId);
@@ -279,6 +280,68 @@ function setupIpc() {
     return { job_id: body.job_id, file_path: body.file_path ?? null, model_id: modelId };
   });
 
+  ipcMain.handle('assemble-video', async (_, payload: {
+    image_paths: string[];
+    durations: number[];
+    width: number;
+    height: number;
+    output_name: string;
+  }) => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) {
+      throw new Error(ready.error || 'Sidecar unavailable');
+    }
+    const res = await net.fetch(`${SIDECAR_URL}/api/video/assemble`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10 * 60 * 1000),
+    });
+    const body = (await res.json().catch(() => ({}))) as { detail?: unknown; file_path?: string };
+    if (!res.ok) {
+      throw new Error(body.detail != null ? String(body.detail).slice(0, 400) : `HTTP ${res.status}`);
+    }
+    return { file_path: body.file_path as string };
+  });
+
+  ipcMain.handle('pick-video', async () => {
+    const win = BrowserWindow.getFocusedWindow();
+    const result = await dialog.showOpenDialog(win ?? undefined, {
+      title: 'Choose a screen recording',
+      properties: ['openFile'],
+      filters: [{ name: 'Video', extensions: ['mp4', 'mov', 'm4v', 'webm', 'mkv'] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle('clean-screencast', async (_, payload: { input_path: string; prompt: string; dry_run?: boolean }) => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) {
+      throw new Error(ready.error || 'Sidecar unavailable');
+    }
+    const res = await net.fetch(`${SIDECAR_URL}/api/video/clean-screencast`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30 * 60 * 1000),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      detail?: unknown;
+      file_path?: string | null;
+      plan?: unknown;
+    };
+    if (!res.ok) {
+      throw new Error(body.detail != null ? String(body.detail).slice(0, 400) : `HTTP ${res.status}`);
+    }
+    return body;
+  });
+
+  ipcMain.handle('open-path', async (_, filePath: string) => {
+    await shell.openPath(filePath);
+    return true;
+  });
+
   ipcMain.handle('add-model', async (_, model) => {
     // We keep this for adding custom local models manually if needed
     const db = getDb();
@@ -298,8 +361,7 @@ function setupIpc() {
     return setupDownload(db, model);
   });
   ipcMain.handle('retry-download', async (_, model) => {
-    // Убиваем возможный незавершённый процесс скачивания той же модели,
-    // иначе получим два download.py на одну папку (дубликат в RAM/диске).
+    // Stop an in-flight download so we do not run two download.py on one folder.
     killDownload(model.id);
     const db = getDb();
     // Keep any partial download: huggingface_hub resumes .incomplete files,
@@ -312,11 +374,9 @@ function setupIpc() {
     const db = getDb();
     db.delete(models).where(eq(models.id, modelId)).run();
 
-    // Убиваем активный процесс скачивания (если качается) — иначе он станет
-    // сиротой, зависнет в RAM и продолжит писать файлы удалённой модели.
+    // Kill an in-flight download, then unload RAM, then delete files.
     killDownload(modelId);
 
-    // Сначала выгружаем из ОЗУ, потом стираем файлы на SSD.
     await unloadFromSidecar(modelId);
 
     const fs = require('fs');
@@ -379,8 +439,7 @@ function setupDownload(db: ReturnType<typeof getDb>, model: any): boolean {
         : process.env,
     });
 
-    // Держим handle процесса, чтобы delete-model/retry-download могли его убить,
-    // а не ждать, пока python уйдёт в сироты и зависнет в RAM со свопом.
+    // Keep the process handle so delete/retry can kill it instead of leaking orphans.
     activeDownloads.set(model.id, dlProcess);
 
     let finalPath = '';
@@ -410,7 +469,7 @@ function setupDownload(db: ReturnType<typeof getDb>, model: any): boolean {
     });
 
     dlProcess.on('close', (code) => {
-      // Процесс завершился (естественно или через killDownload) — убираем из реестра.
+      // Finished (success, error, or killed) — drop the handle.
       activeDownloads.delete(model.id);
 
       if (code === 0 && finalPath) {
@@ -446,6 +505,7 @@ function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    title: 'AI Creative Workstation',
     show: false,
     autoHideMenuBar: true,
     webPreferences: {
@@ -471,7 +531,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.canvas.app');
+  electronApp.setAppUserModelId('com.aicreativeworkstation.app');
 
   // Handle custom asset:// protocol to load generated images
   protocol.handle('asset', (request) => {
@@ -485,7 +545,6 @@ app.whenReady().then(() => {
   initDb();
   setupIpc();
 
-  // Не блокируем создание окна: sidecar стартует в фоне, readiness проверяется поллингом.
   void bootSidecar();
 
   app.on('browser-window-created', (_, window) => {
@@ -507,8 +566,7 @@ app.on('window-all-closed', () => {
 
 app.on('quit', () => {
   engineStatus = 'stopped';
-  // Убиваем все незавершённые процессы скачивания — иначе python download.py
-  // переживут приложение как сироты (PPID=1) и будут держать RAM + качать впустую.
+  // Kill leftover download.py so they do not survive as orphans after quit.
   for (const [modelId, proc] of Array.from(activeDownloads.entries())) {
     if (proc && !proc.killed) proc.kill('SIGTERM');
     activeDownloads.delete(modelId);

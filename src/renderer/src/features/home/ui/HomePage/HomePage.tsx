@@ -1,5 +1,5 @@
 /**
- * HomePage — container component for the Canvas start page.
+ * HomePage — start page container.
  *
  * Architecture: Container / Smart component.
  * - Wires Zustand store slices to presentational children.

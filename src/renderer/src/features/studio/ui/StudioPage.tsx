@@ -24,7 +24,7 @@ const RECOMMENDED_MODELS: RecommendedModel[] = [
   // Open — no token needed
   { id: 'stabilityai/sdxl-turbo', name: 'SDXL Turbo', type: 'image', gated: false, size: '~7 ГБ', note: 'Быстрая, 1-4 шага' },
   { id: 'stabilityai/stable-diffusion-xl-base-1.0', name: 'SDXL Base 1.0', type: 'image', gated: false, size: '~14 ГБ', note: 'Лучшее качество среди SD' },
-  // Gated — нужен HF Token + принять лицензию на сайте HF
+  // Gated — Hugging Face token + license acceptance required
   { id: 'black-forest-labs/FLUX.1-schnell', name: 'FLUX.1 Schnell', type: 'image', gated: true, size: '~32 ГБ', note: 'Топ качество, 4 шага' },
   { id: 'black-forest-labs/FLUX.1-dev', name: 'FLUX.1 Dev', type: 'image', gated: true, size: '~32 ГБ', note: 'Лучшее качество' },
 ];

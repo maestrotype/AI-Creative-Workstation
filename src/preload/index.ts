@@ -17,6 +17,17 @@ const api = {
   getEngineStatus: () => ipcRenderer.invoke('get-engine-status'),
   generateImage: (payload: { prompt: string; format: string; style: string; model_id?: string; image_base64?: string }) =>
     ipcRenderer.invoke('generate-image', payload),
+  assembleVideo: (payload: {
+    image_paths: string[];
+    durations: number[];
+    width: number;
+    height: number;
+    output_name: string;
+  }) => ipcRenderer.invoke('assemble-video', payload),
+  pickVideo: () => ipcRenderer.invoke('pick-video'),
+  cleanScreencast: (payload: { input_path: string; prompt: string; dry_run?: boolean }) =>
+    ipcRenderer.invoke('clean-screencast', payload),
+  openPath: (filePath: string) => ipcRenderer.invoke('open-path', filePath),
   getSetting: (key: string) => ipcRenderer.invoke('get-setting', key),
   setSetting: (key: string, value: string) => ipcRenderer.invoke('set-setting', key, value),
   onModelsUpdated: (callback: () => void) => {

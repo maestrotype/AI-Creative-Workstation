@@ -26,7 +26,7 @@ import type { ReferenceImage } from '../../../shared/ui/IntentInput/IntentInput'
 
 export type CreateStep = 'intent' | 'generating' | 'result' | 'error';
 
-/** Ошибка генерации, показываемая в ErrorStep. */
+/** Error shown on ErrorStep. */
 export interface GenerationErrorState {
   message: string;
   kind: 'sidecar_unavailable' | 'generation_failed' | 'no_model';
@@ -116,7 +116,7 @@ export const useCreateStore = create<CreateState>()((set, get) => ({
       if (err instanceof DOMException && err.name === 'AbortError') {
         set({ step: 'intent', generationProgress: null, cancel: null });
       } else {
-        // Реальные ошибки показываем пользователю, а не имитируем успех
+        // Surface real failures; do not fake a successful result.
         const state: GenerationErrorState =
           err instanceof GenerationError
             ? { message: err.message, kind: err.kind }

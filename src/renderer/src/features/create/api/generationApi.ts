@@ -24,13 +24,13 @@ export interface GenerationProgress {
   /** 0–1 */
   readonly progress: number;
   readonly message: string;
-  /** >0 — оценка оставшегося времени; 0 — неизвестно (UI показывает прошедшее) */
+  /** Remaining seconds estimate; 0 means unknown (UI shows elapsed). */
   readonly estimatedSecondsLeft: number;
-  /** Секунд с момента отправки запроса */
+  /** Seconds since the request was sent. */
   readonly elapsedSeconds: number;
 }
 
-/** Ошибка генерации с типом, чтобы UI мог показать подходящий текст. */
+/** Generation failure shown on ErrorStep. */
 export class GenerationError extends Error {
   constructor(
     message: string,

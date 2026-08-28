@@ -1,5 +1,5 @@
 /**
- * Canvas — Domain types (single source of truth).
+ * AI Creative Workstation — domain types (single source of truth).
  *
  * These types define the data contracts for the entire application.
  * UI layers import from here; they never redeclare their own copies.
@@ -8,7 +8,7 @@
 
 /* ─── Asset types ───────────────────────────────────────────────────── */
 
-/** The kinds of creative entities Canvas surfaces in the UI. */
+/** The kinds of creative entities the app surfaces in the UI. */
 export type AssetKind = 'character' | 'image' | 'project';
 
 /**
@@ -45,7 +45,7 @@ export interface GenerationResult {
 /* ─── Navigation types ──────────────────────────────────────────────── */
 
 /** Identifiers for primary sidebar navigation items. */
-export type NavId = 'home' | 'create' | 'projects' | 'assets' | 'studio' | 'settings';
+export type NavId = 'home' | 'create' | 'video' | 'projects' | 'assets' | 'studio' | 'settings';
 
 /** A primary navigation entry (pure data — no UI concerns). */
 export interface NavItem {

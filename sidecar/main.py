@@ -4,13 +4,13 @@ import faulthandler
 import platform
 import psutil
 
-# Даём Python дамп стека при C++-крашах (Metal assertion, SIGABRT/SIGSEGV)
+# Dump Python stacks on native crashes (Metal assertions, SIGABRT/SIGSEGV).
 faulthandler.enable()
 
-# Импортируем наши роутеры
 from api import generation
+from api import video as video_api
 
-app = FastAPI(title="Canvas Inference Sidecar")
+app = FastAPI(title="AI Creative Workstation Inference Sidecar")
 
 # Allow renderer (localhost:5173) to call the sidecar
 app.add_middleware(
@@ -22,10 +22,11 @@ app.add_middleware(
 )
 
 app.include_router(generation.router, prefix="/api")
+app.include_router(video_api.router, prefix="/api")
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "service": "canvas-sidecar"}
+    return {"status": "ok", "service": "acw-sidecar"}
 
 @app.get("/hardware")
 def get_hardware():
@@ -39,9 +40,7 @@ def get_hardware():
 if __name__ == "__main__":
     import uvicorn
 
-    # Без reload=True: он спавнит reloader + worker и оставляет сиротские процессы
-    # при выходе (порт остаётся занятым). Один процесс закрывается чисто по SIGTERM,
-    # который Electron шлёт при завершении приложения.
-    # Передаём объект app, не строку "main:app": иначе uvicorn заново импортирует
-    # модуль из cwd Electron и /health снова блокируется на тяжёлых импортах.
+    # No reload=True: the reloader leaves orphan workers holding the port.
+    # Pass the app object, not "main:app", so uvicorn does not re-import from
+    # Electron's cwd and block /health on heavy ML imports.
     uvicorn.run(app, host="127.0.0.1", port=57291, log_level="info")
