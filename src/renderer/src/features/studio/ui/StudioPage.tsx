@@ -23,7 +23,7 @@ interface RecommendedModel {
 const RECOMMENDED_MODELS: RecommendedModel[] = [
   // Open — no token needed
   { id: 'stabilityai/sdxl-turbo', name: 'SDXL Turbo', type: 'image', gated: false, size: '~7 ГБ', note: 'Быстрая, 1-4 шага' },
-  { id: 'stabilityai/stable-diffusion-xl-base-1.0', name: 'SDXL Base 1.0', type: 'image', gated: false, size: '~7 ГБ', note: 'Лучшее качество среди SD' },
+  { id: 'stabilityai/stable-diffusion-xl-base-1.0', name: 'SDXL Base 1.0', type: 'image', gated: false, size: '~14 ГБ', note: 'Лучшее качество среди SD' },
   // Gated — нужен HF Token + принять лицензию на сайте HF
   { id: 'black-forest-labs/FLUX.1-schnell', name: 'FLUX.1 Schnell', type: 'image', gated: true, size: '~32 ГБ', note: 'Топ качество, 4 шага' },
   { id: 'black-forest-labs/FLUX.1-dev', name: 'FLUX.1 Dev', type: 'image', gated: true, size: '~32 ГБ', note: 'Лучшее качество' },
@@ -33,11 +33,26 @@ export function StudioPage(): ReactNode {
   const { t } = useTranslation();
   const [models, setModels] = useState<Model[]>([]);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
+  const [loadedCacheKeys, setLoadedCacheKeys] = useState<string[]>([]);
+  const [activeModelId, setActiveModelId] = useState<string | null>(null);
+
+  const toCacheKey = (modelId: string) => modelId.replaceAll('/', '__');
 
   const loadModels = async () => {
     if (window.api) {
       const dbModels = await window.api.getModels();
       setModels(dbModels);
+      try {
+        const loaded = await window.api.getLoadedModels();
+        setLoadedCacheKeys(loaded);
+      } catch {
+        setLoadedCacheKeys([]);
+      }
+      try {
+        setActiveModelId(await window.api.getActiveModel());
+      } catch {
+        setActiveModelId(null);
+      }
     }
   };
 
@@ -71,10 +86,24 @@ export function StudioPage(): ReactNode {
     }
   };
 
-  const handleDelete = async (modelId: string) => {
+  const handleUse = async (modelId: string) => {
     if (window.api) {
-      await window.api.deleteModel(modelId);
+      await window.api.setActiveModel(modelId);
+      await loadModels();
     }
+  };
+
+  const handleUnload = async (modelId: string) => {
+    if (window.api) {
+      await window.api.unloadModel(modelId);
+      await loadModels();
+    }
+  };
+
+  const handleDelete = async (modelId: string) => {
+    if (!window.api) return;
+    if (!window.confirm(t('studio.delete_confirm'))) return;
+    await window.api.deleteModel(modelId);
   };
 
   return (
@@ -82,6 +111,10 @@ export function StudioPage(): ReactNode {
       <header className={styles.header}>
         <h1 className={styles.title}>{t('studio.title')}</h1>
       </header>
+
+      <p style={{ color: 'var(--color-text-secondary)', margin: 0 }}>
+        {t('studio.prompt_language_hint')}
+      </p>
 
       <div>
         <h3>{t('studio.my_models')}</h3>
@@ -95,34 +128,51 @@ export function StudioPage(): ReactNode {
                   <span className={styles.modelName}>{m.name}</span>
                   <span className={styles.modelType}>{m.type}</span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <div className={styles.modelActions}>
                   <span className={styles.status} style={{
                     color: m.status === 'error' ? '#e53e3e' : m.status === 'ready' ? '#48bb78' : undefined
                   }}>
                     {m.status === 'ready' ? '✓ ready' : m.status === 'error' ? '✗ error' : m.status}
                   </span>
+                  {m.status === 'ready' && activeModelId === m.id && (
+                    <span className={styles.status}>{t('studio.using')}</span>
+                  )}
+                  {m.status === 'ready' && loadedCacheKeys.includes(toCacheKey(m.id)) && (
+                    <span className={styles.status}>{t('studio.in_ram')}</span>
+                  )}
                   {m.status === 'error' && m.errorMessage && (
                     <span style={{ fontSize: '11px', color: '#e53e3e', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.errorMessage ?? undefined}>
                       {m.errorMessage}
                     </span>
                   )}
+                  {m.status === 'ready' && activeModelId !== m.id && (
+                    <button
+                      type="button"
+                      className={styles.textButton}
+                      onClick={() => handleUse(m.id)}
+                      title={t('studio.use_title')}
+                    >
+                      {t('studio.use')}
+                    </button>
+                  )}
+                  {m.status === 'ready' && (
+                    <button
+                      type="button"
+                      className={styles.textButton}
+                      onClick={() => handleUnload(m.id)}
+                      disabled={!loadedCacheKeys.includes(toCacheKey(m.id))}
+                      title={loadedCacheKeys.includes(toCacheKey(m.id)) ? t('studio.unload_title') : t('studio.unload_idle_title')}
+                    >
+                      {t('studio.unload')}
+                    </button>
+                  )}
                   <button
+                    type="button"
+                    className={styles.textButtonDanger}
                     onClick={() => handleDelete(m.id)}
-                    style={{
-                      background: 'transparent',
-                      border: '1px solid var(--color-border-default)',
-                      color: 'var(--color-text-secondary)',
-                      borderRadius: '50%',
-                      width: '24px',
-                      height: '24px',
-                      cursor: 'pointer',
-                      fontSize: '14px',
-                      lineHeight: 1,
-                      padding: 0,
-                    }}
-                    title="Remove from list"
+                    title={t('studio.delete_title')}
                   >
-                    ×
+                    {t('studio.delete_disk')}
                   </button>
                 </div>
               </li>

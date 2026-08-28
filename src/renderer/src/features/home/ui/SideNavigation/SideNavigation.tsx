@@ -22,6 +22,7 @@ export interface SideNavigationProps {
   readonly activeId: NavId;
   /** Called when the user selects a navigation item. */
   readonly onSelect: (id: NavId) => void;
+  readonly engineStatus?: 'stopped' | 'starting' | 'ready' | 'error';
 }
 
 /* ─── Component ─────────────────────────────────────────────────────── */
@@ -30,8 +31,18 @@ export function SideNavigation({
   items,
   activeId,
   onSelect,
+  engineStatus = 'stopped',
 }: SideNavigationProps): ReactNode {
   const { t } = useTranslation();
+
+  const statusLabel =
+    engineStatus === 'ready'
+      ? t('nav.engine_ready')
+      : engineStatus === 'starting'
+        ? t('nav.engine_starting')
+        : engineStatus === 'error'
+          ? t('nav.engine_error')
+          : t('nav.engine_offline');
 
   return (
     <nav className={styles.nav} aria-label="Primary navigation">
@@ -71,8 +82,16 @@ export function SideNavigation({
         <span className={styles.accountMeta}>
           <span className={styles.accountName}>{t('nav.local_workspace')}</span>
           <span className={styles.accountStatus}>
-            <span className={styles.statusDot} aria-hidden="true" />
-            {t('nav.offline_ready')}
+            <span
+              className={cx(
+                styles.statusDot,
+                engineStatus === 'ready' && styles.statusDotReady,
+                engineStatus === 'starting' && styles.statusDotStarting,
+                (engineStatus === 'error' || engineStatus === 'stopped') && styles.statusDotDown,
+              )}
+              aria-hidden="true"
+            />
+            {statusLabel}
           </span>
         </span>
       </div>

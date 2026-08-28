@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 
 import type { Asset, GenerationResult, NavId } from '../../../core/types';
+import type { ReferenceImage } from '../../../shared/ui/IntentInput/IntentInput';
 import {
   fetchRecentAssets,
   fetchRecentProjects,
@@ -41,8 +42,10 @@ interface HomeState {
 
   /* Intent bar */
   intentDraft: string;
+  referenceDraft: ReferenceImage | null;
   isCreating: boolean;
   setIntentDraft: (draft: string) => void;
+  setReferenceDraft: (image: ReferenceImage | null) => void;
   submitIntent: () => void;
 }
 
@@ -131,9 +134,11 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
 
   /* ── Intent bar ────────────────────────────────────────────────── */
   intentDraft: '',
+  referenceDraft: null,
   isCreating: false,
 
   setIntentDraft: (draft) => set({ intentDraft: draft }),
+  setReferenceDraft: (image) => set({ referenceDraft: image }),
 
   submitIntent: () => {
     const draft = get().intentDraft.trim();

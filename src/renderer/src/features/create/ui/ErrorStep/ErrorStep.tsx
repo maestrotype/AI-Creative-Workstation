@@ -14,6 +14,12 @@ export function ErrorStep(): ReactNode {
   if (!error) return null;
 
   const isSidecarDown = error.kind === 'sidecar_unavailable';
+  const isNoModel = error.kind === 'no_model';
+  const messageKey = isSidecarDown
+    ? 'create.error.sidecar_unavailable'
+    : isNoModel
+      ? 'create.error.no_model'
+      : 'create.error.generation_failed';
 
   return (
     <div className={styles.container}>
@@ -21,10 +27,10 @@ export function ErrorStep(): ReactNode {
 
       <h2 className={styles.title}>{t('create.error.title')}</h2>
       <p className={styles.message}>
-        {isSidecarDown ? t('create.error.sidecar_unavailable') : t('create.error.generation_failed')}
+        {t(messageKey)}
       </p>
 
-      {!isSidecarDown && <pre className={styles.detail}>{error.message}</pre>}
+      {!isSidecarDown && !isNoModel && <pre className={styles.detail}>{error.message}</pre>}
 
       <div className={styles.actions}>
         <button

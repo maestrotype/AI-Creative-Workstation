@@ -150,8 +150,20 @@
 .statusDot {
   width: 6px;
   height: 6px;
-  background-color: var(--color-success);
+  background-color: var(--color-text-tertiary);
   border-radius: var(--radius-full);
+}
+
+.statusDotReady {
+  background-color: var(--color-success);
+}
+
+.statusDotStarting {
+  background-color: var(--color-accent);
+}
+
+.statusDotDown {
+  background-color: #e53e3e;
 }
 
 /* ─── Collapsed rail on narrow screens ──────────────────────────────── */

@@ -25,19 +25,23 @@ export function CreatePage(): ReactNode {
   const step = useCreateStore((s) => s.step);
   const reset = useCreateStore((s) => s.reset);
   const setPrompt = useCreateStore((s) => s.setPrompt);
+  const setReferenceImage = useCreateStore((s) => s.setReferenceImage);
   const setOnResultReady = useCreateStore((s) => s.setOnResultReady);
   
-  // Need to read from home store and write back to it
   const homeDraft = useHomeStore((s) => s.intentDraft);
+  const homeReference = useHomeStore((s) => s.referenceDraft);
   const addGeneratedAsset = useHomeStore((s) => s.addGeneratedAsset);
   const setIntentDraft = useHomeStore((s) => s.setIntentDraft);
+  const setReferenceDraft = useHomeStore((s) => s.setReferenceDraft);
 
-  // Initialize on mount
   useEffect(() => {
-    // If the user came from Home page with a draft, seed the prompt
     if (homeDraft) {
       setPrompt(homeDraft);
-      setIntentDraft(''); // clear it so we don't carry it around forever
+      setIntentDraft('');
+    }
+    if (homeReference) {
+      setReferenceImage(homeReference);
+      setReferenceDraft(null);
     }
     
     // Tell createStore how to save results globally
@@ -47,7 +51,7 @@ export function CreatePage(): ReactNode {
       // Clean up when unmounting (e.g. user navigates away)
       reset();
     };
-  }, [homeDraft, setPrompt, setIntentDraft, setOnResultReady, addGeneratedAsset, reset]);
+  }, [homeDraft, homeReference, setPrompt, setIntentDraft, setReferenceImage, setReferenceDraft, setOnResultReady, addGeneratedAsset, reset]);
 
   return (
     <div className={styles.page}>

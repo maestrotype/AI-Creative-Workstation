@@ -7,7 +7,11 @@
     "studio": "Studio",
     "settings": "Settings",
     "local_workspace": "Local workspace",
-    "offline_ready": "Offline-ready"
+    "offline_ready": "Offline-ready",
+    "engine_ready": "Engine online",
+    "engine_starting": "Engine starting",
+    "engine_error": "Engine unavailable",
+    "engine_offline": "Engine offline"
   },
   "home": {
     "hero_heading": "Create something new",
@@ -42,6 +46,8 @@
       "bold": "Bold"
     },
     "btn_create": "Create",
+    "model": "Model",
+    "no_model_installed": "Download a model in Studio first.",
     "status": {
       "starting": "Starting generation...",
       "running_locally": "🔒 Running locally on your Mac",
@@ -59,8 +65,9 @@
     "btn_back": "Back",
     "error": {
       "title": "Generation failed",
-      "sidecar_unavailable": "The local AI engine is not responding. It may still be starting (the first launch takes up to a minute) — try again in a few seconds.",
-      "generation_failed": "The model returned an error:"
+      "sidecar_unavailable": "The local AI engine is not responding. Restart the app and wait until the sidebar says Engine online.",
+      "generation_failed": "The model returned an error:",
+      "no_model": "No active model. Open Studio, download a model, and click Use."
     }
   },
   "projects": {
@@ -79,7 +86,18 @@
     "no_models": "No models downloaded yet.",
     "discover": "Discover",
     "download": "Download",
-    "installed": "Installed"
+    "installed": "Installed",
+    "in_ram": "in RAM",
+    "unload": "Unload",
+    "unload_title": "Unload from RAM. Files stay on disk and will reload on the next generation.",
+    "unload_idle_title": "Not in RAM — nothing to unload. Files stay on disk.",
+    "use": "Use",
+    "use_title": "Use this model for generation",
+    "using": "active",
+    "delete_disk": "Delete",
+    "delete_title": "Delete files from disk and unload from RAM",
+    "delete_confirm": "Delete this model from disk? You will need to download it again.",
+    "prompt_language_hint": "SDXL follows English prompts more reliably. FLUX handles Russian better."
   },
   "settings": {
     "title": "Settings",

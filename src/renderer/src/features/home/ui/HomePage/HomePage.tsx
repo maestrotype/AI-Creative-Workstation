@@ -32,6 +32,8 @@ export function HomePage(): ReactNode {
   const intentDraft = useHomeStore((s) => s.intentDraft);
   const isCreating = useHomeStore((s) => s.isCreating);
   const setIntentDraft = useHomeStore((s) => s.setIntentDraft);
+  const referenceDraft = useHomeStore((s) => s.referenceDraft);
+  const setReferenceDraft = useHomeStore((s) => s.setReferenceDraft);
 
   const projectsStatus = useHomeStore((s) => s.projectsStatus);
   const recentProjects = useHomeStore((s) => s.recentProjects);
@@ -85,10 +87,8 @@ export function HomePage(): ReactNode {
           onSubmit={handleSubmit}
           isDisabled={isCreating}
           placeholder={t('home.intent_placeholder')}
-
-          onAttach={() => {
-            /* Attach handler — wired in a future milestone. */
-          }}
+          reference={referenceDraft}
+          onReferenceChange={setReferenceDraft}
         />
 
         {/* Quick-start suggestion chips */}

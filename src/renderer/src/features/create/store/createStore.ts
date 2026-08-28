@@ -20,6 +20,7 @@ import {
   type GenerationStyle,
   type GenerationProgress,
 } from '../api/generationApi';
+import type { ReferenceImage } from '../../../shared/ui/IntentInput/IntentInput';
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
 
@@ -28,7 +29,7 @@ export type CreateStep = 'intent' | 'generating' | 'result' | 'error';
 /** Ошибка генерации, показываемая в ErrorStep. */
 export interface GenerationErrorState {
   message: string;
-  kind: 'sidecar_unavailable' | 'generation_failed';
+  kind: 'sidecar_unavailable' | 'generation_failed' | 'no_model';
 }
 
 interface CreateState {
@@ -39,9 +40,11 @@ interface CreateState {
   prompt: string;
   format: GenerationFormat;
   style: GenerationStyle;
+  referenceImage: ReferenceImage | null;
   setPrompt: (prompt: string) => void;
   setFormat: (format: GenerationFormat) => void;
   setStyle: (style: GenerationStyle) => void;
+  setReferenceImage: (image: ReferenceImage | null) => void;
 
   /* ── Generating step ─────────────────────────────────────────── */
   generationProgress: GenerationProgress | null;
@@ -68,12 +71,13 @@ interface CreateState {
 
 const INITIAL: Pick<
   CreateState,
-  'step' | 'prompt' | 'format' | 'style' | 'generationProgress' | 'cancel' | 'result' | 'error'
+  'step' | 'prompt' | 'format' | 'style' | 'referenceImage' | 'generationProgress' | 'cancel' | 'result' | 'error'
 > = {
   step: 'intent',
   prompt: '',
   format: 'portrait',
   style: 'cinematic',
+  referenceImage: null,
   generationProgress: null,
   cancel: null,
   result: null,
@@ -90,14 +94,15 @@ export const useCreateStore = create<CreateState>()((set, get) => ({
   setPrompt: (prompt) => set({ prompt }),
   setFormat: (format) => set({ format }),
   setStyle: (style) => set({ style }),
+  setReferenceImage: (image) => set({ referenceImage: image }),
 
   /* ── Generation ─────────────────────────────────────────────── */
   startGeneration: () => {
-    const { prompt, format, style, onResultReady } = get();
+    const { prompt, format, style, referenceImage, onResultReady } = get();
     if (!prompt.trim()) return;
 
     const { promise, cancel } = runGeneration(
-      { prompt, format, style },
+      { prompt, format, style, imageDataUrl: referenceImage?.dataUrl },
       (generationProgress) => set({ generationProgress }),
     );
 

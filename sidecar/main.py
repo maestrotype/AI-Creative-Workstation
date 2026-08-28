@@ -42,4 +42,6 @@ if __name__ == "__main__":
     # Без reload=True: он спавнит reloader + worker и оставляет сиротские процессы
     # при выходе (порт остаётся занятым). Один процесс закрывается чисто по SIGTERM,
     # который Electron шлёт при завершении приложения.
-    uvicorn.run("main:app", host="127.0.0.1", port=57291)
+    # Передаём объект app, не строку "main:app": иначе uvicorn заново импортирует
+    # модуль из cwd Electron и /health снова блокируется на тяжёлых импортах.
+    uvicorn.run(app, host="127.0.0.1", port=57291, log_level="info")

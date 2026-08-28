@@ -84,6 +84,35 @@
   transition: opacity 0.2s;
 }
 
-.downloadButton:hover {
-  opacity: 0.9;
+.modelActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.textButton,
+.textButtonDanger {
+  background: transparent;
+  border: 1px solid var(--color-border-default);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-md);
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.textButton:hover:not(:disabled) {
+  color: var(--color-text-primary);
+}
+
+.textButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.textButtonDanger:hover {
+  color: #e53e3e;
+  border-color: #e53e3e;
 }

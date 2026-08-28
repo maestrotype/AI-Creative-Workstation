@@ -33,7 +33,52 @@
     var(--shadow-glow);
 }
 
-/* ─── Screen-reader label ───────────────────────────────────────────── */
+.fieldDrop {
+  border-color: var(--color-accent-border);
+  box-shadow:
+    var(--shadow-lg),
+    var(--shadow-glow);
+}
+
+.previewRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.previewThumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.previewName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+}
+
+.previewRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-btn-size);
+  height: var(--icon-btn-size);
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  border-radius: var(--radius-full);
+}
+
+.previewRemove:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
 
 .srOnly {
   position: absolute;

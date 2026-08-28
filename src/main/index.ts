@@ -19,7 +19,28 @@ import { models, settings } from './db/schema';
 import { eq } from 'drizzle-orm';
 
 const SIDECAR_URL = 'http://127.0.0.1:57291';
+const SIDECAR_PORT = 57291;
+const ACTIVE_MODEL_KEY = 'active_model_id';
 let sidecarProcess: ChildProcess | null = null;
+let engineStatus: 'stopped' | 'starting' | 'ready' | 'error' = 'stopped';
+let engineDetail = '';
+let ignoreSidecarExit = false;
+
+// Реестр активных процессов скачивания по model.id. Раньше dlProcess жил только
+// внутри setupDownload как локальная переменная: при удалении модели / перезапуске
+// приложения дочерний python (download.py) умирал в сироты (PPID=1) и продолжал
+// держать RAM (3-4GB) и качать — отсюда своп и дублирующиеся загрузки.
+const activeDownloads: Map<string, ChildProcess> = new Map();
+
+// Гарантированно завершает процесс скачивания для модели (если он запущен).
+function killDownload(modelId: string | null): void {
+  if (!modelId) return;
+  const proc = activeDownloads.get(modelId);
+  if (proc && !proc.killed) {
+    proc.kill('SIGTERM');
+    activeDownloads.delete(modelId);
+  }
+}
 
 async function isSidecarAlive(): Promise<boolean> {
   try {
@@ -30,41 +51,124 @@ async function isSidecarAlive(): Promise<boolean> {
   }
 }
 
-async function startSidecar(): Promise<void> {
-  // Если живой sidecar уже слушает порт (например, сирота после прошлого запуска) —
-  // не спавним новый процесс, а используем существующий.
-  if (await isSidecarAlive()) {
-    console.warn('Sidecar already running on port 57291 — reusing the existing process.');
-    return;
+function setEngineStatus(status: typeof engineStatus, detail = ''): void {
+  engineStatus = status;
+  engineDetail = detail;
+  broadcast('engine-status', { status, detail });
+}
+
+function killProcessOnSidecarPort(): void {
+  const { execSync } = require('child_process') as typeof import('child_process');
+  try {
+    const pids = execSync(`lsof -ti tcp:${SIDECAR_PORT}`, { encoding: 'utf8' }).trim();
+    for (const pid of pids.split('\n').filter(Boolean)) {
+      const n = Number(pid);
+      if (!n || n === process.pid) continue;
+      try {
+        process.kill(n, 'SIGTERM');
+      } catch {
+        /* already gone */
+      }
+    }
+  } catch {
+    /* lsof exits 1 when nothing is listening */
   }
+}
 
-  const sidecarPath = join(__dirname, '../../sidecar/main.py');
+function getSettingValue(key: string): string | null {
+  const db = getDb();
+  const result = db.select().from(settings).where(eq(settings.key, key)).get();
+  return result ? result.value : null;
+}
+
+function putSettingValue(key: string, value: string): void {
+  const db = getDb();
+  db.insert(settings)
+    .values({ key, value })
+    .onConflictDoUpdate({ target: settings.key, set: { value } })
+    .run();
+}
+
+function listReadyModels(): { id: string; name: string }[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(models)
+    .all()
+    .filter((m) => m.status === 'ready')
+    .map((m) => ({ id: m.id, name: m.name }));
+}
+
+function resolveActiveModelId(): string | null {
+  const ready = listReadyModels();
+  if (ready.length === 0) return null;
+  const stored = getSettingValue(ACTIVE_MODEL_KEY);
+  if (stored && ready.some((m) => m.id === stored)) return stored;
+  putSettingValue(ACTIVE_MODEL_KEY, ready[0].id);
+  return ready[0].id;
+}
+
+function startSidecar(): void {
+  const sidecarDir = join(__dirname, '../../sidecar');
+  const sidecarPath = join(sidecarDir, 'main.py');
   console.log('Starting Python Sidecar:', sidecarPath);
+  setEngineStatus('starting');
 
-  sidecarProcess = spawn('python3', [sidecarPath], {
-    stdio: 'inherit'
+  sidecarProcess = spawn('python3', ['-u', sidecarPath], {
+    cwd: sidecarDir,
+    env: { ...process.env, PYTHONUNBUFFERED: '1' },
+    stdio: 'inherit',
   });
 
   sidecarProcess.on('error', (err) => {
     console.error('Failed to start sidecar:', err);
+    setEngineStatus('error', err.message);
   });
 
   sidecarProcess.on('exit', (code) => {
-    console.error(`Sidecar exited with code ${code}`);
-  });
-
-  // Импорты torch/diffusers занимают 10-30 c — поллим /health, пока sidecar не готов.
-  // До этого момента запросы на генерацию будут получать честную ошибку "движок недоступен".
-  const startedAt = Date.now();
-  const poll = setInterval(async () => {
-    if (await isSidecarAlive()) {
-      clearInterval(poll);
-      console.log(`Sidecar ready in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
-    } else if (Date.now() - startedAt > 120_000) {
-      clearInterval(poll);
-      console.error('Sidecar failed to become ready within 120s — check the logs above.');
+    sidecarProcess = null;
+    if (ignoreSidecarExit) {
+      ignoreSidecarExit = false;
+      return;
     }
-  }, 1000);
+    if (engineStatus !== 'stopped') {
+      console.error(`Sidecar exited with code ${code}`);
+      setEngineStatus('error', `exited ${code ?? 'unknown'}`);
+    }
+  });
+}
+
+async function bootSidecar(timeoutMs = 20_000): Promise<{ ok: boolean; error?: string }> {
+  if (sidecarProcess && !sidecarProcess.killed) {
+    ignoreSidecarExit = true;
+    sidecarProcess.kill('SIGTERM');
+    sidecarProcess = null;
+  }
+  killProcessOnSidecarPort();
+  await new Promise((r) => setTimeout(r, 400));
+
+  startSidecar();
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await isSidecarAlive()) {
+      setEngineStatus('ready');
+      return { ok: true };
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+
+  const msg = 'Sidecar did not become ready. Check that python3 can import fastapi/uvicorn.';
+  setEngineStatus('error', msg);
+  return { ok: false, error: msg };
+}
+
+async function ensureSidecarReady(timeoutMs = 20_000): Promise<{ ok: boolean; error?: string }> {
+  if (await isSidecarAlive() && sidecarProcess && !sidecarProcess.killed) {
+    setEngineStatus('ready');
+    return { ok: true };
+  }
+  return bootSidecar(timeoutMs);
 }
 
 function broadcast(channel: string, ...args: any[]) {
@@ -73,10 +177,106 @@ function broadcast(channel: string, ...args: any[]) {
   });
 }
 
+function toCacheKey(modelId: string): string {
+  return modelId.replaceAll('/', '__');
+}
+
+function modelDirFor(modelId: string): string {
+  const os = require('os');
+  return join(os.homedir(), 'Documents/Canvas/Models', toCacheKey(modelId));
+}
+
+async function unloadFromSidecar(modelId: string): Promise<{ unloaded: boolean; reason?: string }> {
+  const cacheKey = toCacheKey(modelId);
+  try {
+    const res = await net.fetch(
+      `${SIDECAR_URL}/api/models/${encodeURIComponent(cacheKey)}/unload`,
+      { method: 'POST', signal: AbortSignal.timeout(120_000) },
+    );
+    if (!res.ok) {
+      console.warn(`unload-model: sidecar returned ${res.status} for ${cacheKey}`);
+      return { unloaded: false, reason: `http-${res.status}` };
+    }
+    const body = (await res.json()) as { unloaded?: boolean; reason?: string };
+    return { unloaded: Boolean(body.unloaded), reason: body.reason };
+  } catch (e) {
+    console.warn(`unload-model: could not unload ${cacheKey} from sidecar memory:`, e);
+    return { unloaded: false, reason: 'sidecar-unavailable' };
+  }
+}
+
 function setupIpc() {
   ipcMain.handle('get-models', async () => {
     const db = getDb();
     return db.select().from(models).all();
+  });
+
+  ipcMain.handle('get-loaded-models', async () => {
+    try {
+      const res = await net.fetch(`${SIDECAR_URL}/api/models/loaded`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!res.ok) return [];
+      const body = (await res.json()) as { loaded?: string[] };
+      return body.loaded ?? [];
+    } catch {
+      return [];
+    }
+  });
+
+  ipcMain.handle('get-engine-status', async () => {
+    if (engineStatus !== 'ready' && (await isSidecarAlive())) {
+      setEngineStatus('ready');
+    }
+    return { status: engineStatus, detail: engineDetail };
+  });
+
+  ipcMain.handle('get-active-model', async () => resolveActiveModelId());
+
+  ipcMain.handle('set-active-model', async (_, modelId: string) => {
+    const ready = listReadyModels();
+    if (!ready.some((m) => m.id === modelId)) {
+      throw new Error('Model is not installed');
+    }
+    putSettingValue(ACTIVE_MODEL_KEY, modelId);
+    broadcast('models-updated');
+    return true;
+  });
+
+  ipcMain.handle('generate-image', async (_, payload: { prompt: string; format: string; style: string; model_id?: string; image_base64?: string }) => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) {
+      throw new Error(ready.error || 'Sidecar unavailable');
+    }
+
+    const modelId = payload.model_id || resolveActiveModelId();
+    if (!modelId) {
+      throw new Error('NO_MODEL');
+    }
+
+    const res = await net.fetch(`${SIDECAR_URL}/api/generate/image`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: payload.prompt,
+        format: payload.format,
+        style: payload.style,
+        model_id: modelId,
+        image_base64: payload.image_base64 || null,
+      }),
+      signal: AbortSignal.timeout(15 * 60 * 1000),
+    });
+
+    const body = (await res.json().catch(() => ({}))) as {
+      detail?: unknown;
+      job_id?: string;
+      file_path?: string | null;
+    };
+    if (!res.ok) {
+      const detail = body.detail != null ? String(body.detail).slice(0, 400) : `HTTP ${res.status}`;
+      throw new Error(detail);
+    }
+    return { job_id: body.job_id, file_path: body.file_path ?? null, model_id: modelId };
   });
 
   ipcMain.handle('add-model', async (_, model) => {
@@ -98,6 +298,9 @@ function setupIpc() {
     return setupDownload(db, model);
   });
   ipcMain.handle('retry-download', async (_, model) => {
+    // Убиваем возможный незавершённый процесс скачивания той же модели,
+    // иначе получим два download.py на одну папку (дубликат в RAM/диске).
+    killDownload(model.id);
     const db = getDb();
     // Keep any partial download: huggingface_hub resumes .incomplete files,
     // so retrying continues from where the previous attempt stopped.
@@ -108,13 +311,24 @@ function setupIpc() {
   ipcMain.handle('delete-model', async (_, modelId: string) => {
     const db = getDb();
     db.delete(models).where(eq(models.id, modelId)).run();
-    
-    // Удаляем физические файлы модели
+
+    // Убиваем активный процесс скачивания (если качается) — иначе он станет
+    // сиротой, зависнет в RAM и продолжит писать файлы удалённой модели.
+    killDownload(modelId);
+
+    // Сначала выгружаем из ОЗУ, потом стираем файлы на SSD.
+    await unloadFromSidecar(modelId);
+
     const fs = require('fs');
-    const os = require('os');
-    const modelDir = join(os.homedir(), 'Documents/Canvas/Models', modelId.replace('/', '__'));
+    const modelDir = modelDirFor(modelId);
     if (fs.existsSync(modelDir)) {
       fs.rmSync(modelDir, { recursive: true, force: true });
+    }
+
+    if (getSettingValue(ACTIVE_MODEL_KEY) === modelId) {
+      const next = listReadyModels()[0];
+      if (next) putSettingValue(ACTIVE_MODEL_KEY, next.id);
+      else getDb().delete(settings).where(eq(settings.key, ACTIVE_MODEL_KEY)).run();
     }
 
     broadcast('models-updated');
@@ -165,6 +379,10 @@ function setupDownload(db: ReturnType<typeof getDb>, model: any): boolean {
         : process.env,
     });
 
+    // Держим handle процесса, чтобы delete-model/retry-download могли его убить,
+    // а не ждать, пока python уйдёт в сироты и зависнет в RAM со свопом.
+    activeDownloads.set(model.id, dlProcess);
+
     let finalPath = '';
     let sidecarError = '';
 
@@ -192,11 +410,17 @@ function setupDownload(db: ReturnType<typeof getDb>, model: any): boolean {
     });
 
     dlProcess.on('close', (code) => {
+      // Процесс завершился (естественно или через killDownload) — убираем из реестра.
+      activeDownloads.delete(model.id);
+
       if (code === 0 && finalPath) {
         db.update(models)
           .set({ status: 'ready', path: finalPath, errorMessage: null })
           .where(eq(models.id, model.id))
           .run();
+        if (!getSettingValue(ACTIVE_MODEL_KEY)) {
+          putSettingValue(ACTIVE_MODEL_KEY, model.id);
+        }
       } else {
         const errorMsg = sidecarError || `Download failed with exit code ${code}`;
         db.update(models)
@@ -262,7 +486,7 @@ app.whenReady().then(() => {
   setupIpc();
 
   // Не блокируем создание окна: sidecar стартует в фоне, readiness проверяется поллингом.
-  void startSidecar();
+  void bootSidecar();
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window);
@@ -282,8 +506,16 @@ app.on('window-all-closed', () => {
 });
 
 app.on('quit', () => {
+  engineStatus = 'stopped';
+  // Убиваем все незавершённые процессы скачивания — иначе python download.py
+  // переживут приложение как сироты (PPID=1) и будут держать RAM + качать впустую.
+  for (const [modelId, proc] of Array.from(activeDownloads.entries())) {
+    if (proc && !proc.killed) proc.kill('SIGTERM');
+    activeDownloads.delete(modelId);
+  }
   if (sidecarProcess) {
     sidecarProcess.kill();
+    sidecarProcess = null;
   }
 });
 

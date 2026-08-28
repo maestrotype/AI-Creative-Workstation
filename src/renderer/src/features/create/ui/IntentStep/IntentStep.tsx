@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { useTranslation } from 'react-i18next';
@@ -9,6 +10,11 @@ import styles from './IntentStep.module.css';
 const FORMATS: GenerationFormat[] = ['square', 'portrait', 'wide'];
 const STYLES: GenerationStyle[] = ['subtle', 'cinematic', 'bold'];
 
+interface ReadyModel {
+  id: string;
+  name: string;
+}
+
 export function IntentStep(): ReactNode {
   const { t } = useTranslation();
   const prompt = useCreateStore((s) => s.prompt);
@@ -17,21 +23,70 @@ export function IntentStep(): ReactNode {
   const setPrompt = useCreateStore((s) => s.setPrompt);
   const setFormat = useCreateStore((s) => s.setFormat);
   const setStyle = useCreateStore((s) => s.setStyle);
+  const referenceImage = useCreateStore((s) => s.referenceImage);
+  const setReferenceImage = useCreateStore((s) => s.setReferenceImage);
   const startGeneration = useCreateStore((s) => s.startGeneration);
+  const [readyModels, setReadyModels] = useState<ReadyModel[]>([]);
+  const [activeModelId, setActiveModelId] = useState<string>('');
+
+  const refreshModels = async () => {
+    if (!window.api) return;
+    const models = await window.api.getModels();
+    const ready = models
+      .filter((m: { status: string }) => m.status === 'ready')
+      .map((m: { id: string; name: string }) => ({ id: m.id, name: m.name }));
+    setReadyModels(ready);
+    const active = await window.api.getActiveModel();
+    const nextId = active && ready.some((m) => m.id === active) ? active : ready[0]?.id ?? '';
+    setActiveModelId(nextId);
+    if (nextId && nextId !== active) {
+      await window.api.setActiveModel(nextId);
+    }
+  };
+
+  useEffect(() => {
+    void refreshModels();
+    return window.api?.onModelsUpdated(() => { void refreshModels(); }) ?? (() => {});
+  }, []);
+
+  const handleModelChange = async (modelId: string) => {
+    setActiveModelId(modelId);
+    await window.api?.setActiveModel(modelId);
+  };
+
+  const canCreate = prompt.trim().length > 0 && Boolean(activeModelId);
 
   return (
     <div className={styles.container}>
       <h2 className={styles.title}>{t('create.what_to_create')}</h2>
-      
+
       <IntentInput
         value={prompt}
         onChange={setPrompt}
-        onSubmit={startGeneration}
+        onSubmit={() => { if (canCreate) startGeneration(); }}
         placeholder={t('create.intent_placeholder')}
-        onAttach={() => {}}
+        reference={referenceImage}
+        onReferenceChange={setReferenceImage}
       />
 
       <div className={styles.options}>
+        <div className={styles.field}>
+          <span className={styles.label}>{t('create.model')}</span>
+          {readyModels.length === 0 ? (
+            <p className={styles.hint}>{t('create.no_model_installed')}</p>
+          ) : (
+            <select
+              className={styles.select}
+              value={activeModelId}
+              onChange={(e) => { void handleModelChange(e.target.value); }}
+            >
+              {readyModels.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          )}
+        </div>
+
         <div className={styles.field}>
           <span className={styles.label}>{t('create.format')}</span>
           <div className={styles.radioGroup}>
@@ -83,7 +138,7 @@ export function IntentStep(): ReactNode {
             type="button"
             className={styles.createButton}
             onClick={startGeneration}
-            disabled={prompt.trim().length === 0}
+            disabled={!canCreate}
           >
             {t('create.btn_create')}
           </button>

@@ -4,11 +4,32 @@ import sys
 import threading
 from huggingface_hub import HfApi, snapshot_download
 
-# Formats we never use on Apple Silicon (diffusers loads safetensors/.bin only)
-IGNORE_PATTERNS = ["flax_model*", "tf_model*", "*.onnx", "*.msgpack", "rust_model.ot"]
+# Formats we never use on Apple Silicon (diffusers loads the default safetensors shards).
+# SDXL Base 1.0's Hugging Face repo is ~77 GB because it ships the same UNet 4+ times
+# (fp32, fp16, ONNX, OpenVINO) plus two ~7 GB single-file checkpoints. Without these
+# ignores a "7 GB" model takes hours. Diffusers only needs the default shards + configs.
+IGNORE_PATTERNS = [
+    "flax_model*",
+    "tf_model*",
+    "*.onnx",
+    "*.onnx_data",
+    "*onnx*",
+    "*.msgpack",
+    "rust_model.ot",
+    "openvino*",
+    "*openvino*",
+    "*.fp16.safetensors",
+    "*.fp16.bin",
+    # Single-file SDXL checkpoints — unused when loading the diffusers folder layout.
+    "sd_xl_*.safetensors",
+    "vae_decoder/*",
+    "vae_encoder/*",
+    "vae_1_0/*",
+]
 # FLUX repos also ship the transformer weights as one monolithic file that duplicates
 # the sharded transformer/ files diffusers actually loads. Skipping it saves ~24 GB.
 FLUX_MONOLITHIC_DUPES = ["flux1-dev.safetensors", "flux1-schnell.safetensors"]
+ALL_IGNORE_PATTERNS = IGNORE_PATTERNS + FLUX_MONOLITHIC_DUPES
 
 
 def _friendly_error(exc: Exception) -> str:
@@ -45,7 +66,8 @@ def _total_repo_size(repo_id: str, ignore_patterns) -> int:
 
 def _report_progress(repo_id: str, target_dir: str, stop_event: threading.Event) -> None:
     """Print byte-based PROGRESS:<percent> lines every 10 seconds until stopped."""
-    total = _total_repo_size(repo_id, IGNORE_PATTERNS + FLUX_MONOLITHIC_DUPES)
+    total = _total_repo_size(repo_id, ALL_IGNORE_PATTERNS)
+    print("PROGRESS:0", flush=True)
     if not total:
         return
     while not stop_event.is_set():
@@ -61,7 +83,7 @@ def _report_progress(repo_id: str, target_dir: str, stop_event: threading.Event)
                 except OSError:
                     pass
         print(f"PROGRESS:{min(99, int(downloaded * 100 / total))}", flush=True)
-        stop_event.wait(10)
+        stop_event.wait(2)
 
 
 def download_model(repo_id: str):
@@ -90,7 +112,7 @@ def download_model(repo_id: str):
             # Skip large redundant formats — keep safetensors AND .bin (some models only have .bin).
             # Only skip flax/tf/onnx which we never use on Apple Silicon, plus the
             # monolithic FLUX transformer file (duplicate of the sharded transformer/).
-            ignore_patterns=IGNORE_PATTERNS + FLUX_MONOLITHIC_DUPES,
+            ignore_patterns=ALL_IGNORE_PATTERNS,
         )
         print(f"DONE:{target_dir}", flush=True)
     except Exception as e:
