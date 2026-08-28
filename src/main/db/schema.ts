@@ -5,7 +5,8 @@ export const models = sqliteTable('models', {
   name: text('name').notNull(), // e.g., "FLUX.1 Schnell"
   type: text('type').notNull(), // "image", "llm"
   path: text('path'), // local file path if downloaded
-  status: text('status').notNull().default('available'), // "available", "downloading", "ready"
+  status: text('status').notNull().default('available'), // "available", "downloading", "ready", "error"
+  errorMessage: text('error_message'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 });
 
@@ -19,7 +20,12 @@ export const assets = sqliteTable('assets', {
   id: text('id').primaryKey(),
   projectId: text('project_id').references(() => projects.id),
   prompt: text('prompt').notNull(),
-  imageUrl: text('image_url').notNull(),
+  imageUrl: text('image_url').notNull(), // local file path or custom protocol url
   modelId: text('model_id'),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+});
+
+export const settings = sqliteTable('settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
 });

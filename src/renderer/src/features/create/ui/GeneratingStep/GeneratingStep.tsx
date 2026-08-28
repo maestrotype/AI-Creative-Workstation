@@ -10,12 +10,12 @@ export function GeneratingStep(): ReactNode {
   const cancelGeneration = useCreateStore((s) => s.cancelGeneration);
 
   const percent = progress ? Math.round(progress.progress * 100) : 0;
-  
-  // NOTE: progress.message comes from the mock pipeline API, which is in English.
+
+  // NOTE: progress.message comes from the generation API and is in English.
   // In a real app, the API could return translation keys or localized strings.
-  // For now we'll just display it, but translate the fallback.
   const message = progress?.message ?? t('create.status.starting');
   const estimated = progress?.estimatedSecondsLeft ?? 0;
+  const elapsed = progress?.elapsedSeconds ?? 0;
 
   return (
     <div className={styles.container}>
@@ -39,7 +39,9 @@ export function GeneratingStep(): ReactNode {
         <span>
           {estimated > 0 
             ? t('create.status.estimated', { seconds: estimated }) 
-            : t('create.status.finishing')}
+            : elapsed > 0
+              ? t('create.status.elapsed', { seconds: elapsed })
+              : t('create.status.finishing')}
         </span>
       </div>
 

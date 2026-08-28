@@ -8,17 +8,31 @@ interface Model {
   name: string;
   type: string;
   status: string;
+  errorMessage?: string | null;
 }
 
-const RECOMMENDED_MODELS = [
-  { id: 'mlx-community/FLUX.1-schnell-4bit', name: 'FLUX.1 Schnell (4-bit)', type: 'image' },
-  { id: 'mlx-community/sdxl-turbo-4bit', name: 'SDXL Turbo (4-bit)', type: 'image' },
-  { id: 'mlx-community/Llama-3.2-3B-Instruct-4bit', name: 'Llama 3.2 3B Instruct (4-bit)', type: 'llm' }
+interface RecommendedModel {
+  id: string;
+  name: string;
+  type: string;
+  gated: boolean;
+  size: string;
+  note: string;
+}
+
+const RECOMMENDED_MODELS: RecommendedModel[] = [
+  // Open — no token needed
+  { id: 'stabilityai/sdxl-turbo', name: 'SDXL Turbo', type: 'image', gated: false, size: '~7 ГБ', note: 'Быстрая, 1-4 шага' },
+  { id: 'stabilityai/stable-diffusion-xl-base-1.0', name: 'SDXL Base 1.0', type: 'image', gated: false, size: '~7 ГБ', note: 'Лучшее качество среди SD' },
+  // Gated — нужен HF Token + принять лицензию на сайте HF
+  { id: 'black-forest-labs/FLUX.1-schnell', name: 'FLUX.1 Schnell', type: 'image', gated: true, size: '~32 ГБ', note: 'Топ качество, 4 шага' },
+  { id: 'black-forest-labs/FLUX.1-dev', name: 'FLUX.1 Dev', type: 'image', gated: true, size: '~32 ГБ', note: 'Лучшее качество' },
 ];
 
 export function StudioPage(): ReactNode {
   const { t } = useTranslation();
   const [models, setModels] = useState<Model[]>([]);
+  const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
 
   const loadModels = async () => {
     if (window.api) {
@@ -30,18 +44,36 @@ export function StudioPage(): ReactNode {
   useEffect(() => {
     loadModels();
     
-    let cleanup = () => {};
-    if (window.api && window.api.onModelsUpdated) {
-      cleanup = window.api.onModelsUpdated(() => {
-        loadModels();
-      });
-    }
-    return cleanup;
+    const cleanupModels = window.api?.onModelsUpdated(() => loadModels()) ?? (() => {});
+    const cleanupProgress = window.api?.onDownloadProgress(({ modelId, percent }) => {
+      setDownloadProgress(prev => ({ ...prev, [modelId]: percent }));
+    }) ?? (() => {});
+
+    return () => { cleanupModels(); cleanupProgress(); };
   }, []);
 
   const handleDownload = async (model: any) => {
     if (window.api) {
-      await window.api.downloadModel(model);
+      try {
+        await window.api.downloadModel(model);
+      } catch (err: any) {
+        alert("Download error: " + err.message);
+        console.error(err);
+      }
+    } else {
+      alert("window.api is not available!");
+    }
+  };
+
+  const handleRetry = async (model: any) => {
+    if (window.api) {
+      await window.api.retryDownload(model);
+    }
+  };
+
+  const handleDelete = async (modelId: string) => {
+    if (window.api) {
+      await window.api.deleteModel(modelId);
     }
   };
 
@@ -63,7 +95,36 @@ export function StudioPage(): ReactNode {
                   <span className={styles.modelName}>{m.name}</span>
                   <span className={styles.modelType}>{m.type}</span>
                 </div>
-                <span className={styles.status}>{m.status}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span className={styles.status} style={{
+                    color: m.status === 'error' ? '#e53e3e' : m.status === 'ready' ? '#48bb78' : undefined
+                  }}>
+                    {m.status === 'ready' ? '✓ ready' : m.status === 'error' ? '✗ error' : m.status}
+                  </span>
+                  {m.status === 'error' && m.errorMessage && (
+                    <span style={{ fontSize: '11px', color: '#e53e3e', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.errorMessage ?? undefined}>
+                      {m.errorMessage}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => handleDelete(m.id)}
+                    style={{
+                      background: 'transparent',
+                      border: '1px solid var(--color-border-default)',
+                      color: 'var(--color-text-secondary)',
+                      borderRadius: '50%',
+                      width: '24px',
+                      height: '24px',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      lineHeight: 1,
+                      padding: 0,
+                    }}
+                    title="Remove from list"
+                  >
+                    ×
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -77,12 +138,18 @@ export function StudioPage(): ReactNode {
             const localModel = models.find(local => local.id === m.id);
             const isDownloading = localModel?.status === 'downloading';
             const isReady = localModel?.status === 'ready';
+            const isError = localModel?.status === 'error';
 
             return (
               <li key={m.id} className={styles.modelCard}>
                 <div className={styles.modelInfo}>
-                  <span className={styles.modelName}>{m.name}</span>
-                  <span className={styles.modelType}>{m.type}</span>
+                  <span className={styles.modelName}>
+                    {m.name}
+                    {m.gated && <span style={{ fontSize: '11px', marginLeft: '6px', color: 'var(--color-text-secondary)', opacity: 0.7 }}>🔒 HF Token</span>}
+                  </span>
+                  <span className={styles.modelType}>
+                    {m.type} · {m.size} · <span style={{ opacity: 0.7 }}>{m.note}</span>
+                  </span>
                 </div>
                 {!localModel && (
                   <button 
@@ -92,8 +159,39 @@ export function StudioPage(): ReactNode {
                     {t('studio.download')}
                   </button>
                 )}
-                {isDownloading && <span className={styles.status}>Downloading...</span>}
-                {isReady && <span className={styles.status}>{t('studio.installed')}</span>}
+                {isDownloading && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', minWidth: '120px' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--color-accent)' }}>
+                      {downloadProgress[m.id] != null ? `${downloadProgress[m.id]}%` : '⏳ Подготовка...'}
+                    </span>
+                    <div style={{ width: '120px', height: '4px', background: 'var(--color-bg-elevated)', borderRadius: '2px', overflow: 'hidden' }}>
+                      <div style={{
+                        width: `${downloadProgress[m.id] ?? 0}%`,
+                        height: '100%',
+                        background: 'var(--color-accent)',
+                        borderRadius: '2px',
+                        transition: 'width 0.3s ease'
+                      }} />
+                    </div>
+                  </div>
+                )}
+                {isReady && <span className={styles.status}>✓ {t('studio.installed')}</span>}
+                {isError && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', minWidth: '120px' }}>
+                    {localModel?.errorMessage && (
+                      <span style={{ fontSize: '11px', color: '#e53e3e', maxWidth: '200px', textAlign: 'right', wordBreak: 'break-word' }}>
+                        {localModel.errorMessage}
+                      </span>
+                    )}
+                    <button 
+                      className={styles.downloadButton}
+                      style={{ background: 'var(--color-error, #e53e3e)' }}
+                      onClick={() => handleRetry(m)}
+                    >
+                      ↺ Retry
+                    </button>
+                  </div>
+                )}
               </li>
             );
           })}

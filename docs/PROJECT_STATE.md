@@ -28,8 +28,9 @@
 - [x] Connect `Inspiration` click handler to transition to the `CreatePage` автоматически.
 
 ## What's Next?
-- [ ] Подключить реальную Python-генерацию на MLX к `CreatePage`.
+- [x] Подключить реальную Python-генерацию на MLX (через `diffusers` / `mps`) к `CreatePage`.
+- [x] Зарегистрировать `asset://` протокол в Electron для отображения сгенерированных локальных картинок в React-компонентах.
 
 ## Known Issues / Technical Debt
 - `IntentInput` attach button is wired but not yet fully functional (needs file picker logic).
-- API is entirely mocked (waiting for SQLite + реальный MLX).
+- Обработка ошибок загрузки весов в MLX требует более изящного UI/UX.

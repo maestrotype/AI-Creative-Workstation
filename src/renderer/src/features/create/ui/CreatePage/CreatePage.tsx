@@ -14,6 +14,7 @@ import { useCreateStore } from '../../store/createStore';
 import { IntentStep } from '../IntentStep/IntentStep';
 import { GeneratingStep } from '../GeneratingStep/GeneratingStep';
 import { ResultStep } from '../ResultStep/ResultStep';
+import { ErrorStep } from '../ErrorStep/ErrorStep';
 import { ChevronLeftIcon } from '../../../../shared/ui/icons';
 import styles from './CreatePage.module.css';
 
@@ -65,6 +66,7 @@ export function CreatePage(): ReactNode {
         {step === 'intent' && <IntentStep />}
         {step === 'generating' && <GeneratingStep />}
         {step === 'result' && <ResultStep />}
+        {step === 'error' && <ErrorStep />}
       </div>
     </div>
   );

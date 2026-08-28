@@ -28,15 +28,27 @@ export function initDb() {
       type TEXT NOT NULL,
       path TEXT,
       status TEXT NOT NULL DEFAULT 'available',
+      error_message TEXT,
       created_at INTEGER NOT NULL
     );
+  `);
 
+  // Migrate existing DBs created before error_message was added
+  const modelCols = sqlite.prepare(`PRAGMA table_info(models)`).all() as { name: string }[];
+  if (!modelCols.some((c) => c.name === 'error_message')) {
+    console.log('Migrating models table: adding error_message column');
+    sqlite.exec(`ALTER TABLE models ADD COLUMN error_message TEXT`);
+  }
+
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
+  `);
 
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS assets (
       id TEXT PRIMARY KEY,
       project_id TEXT,
@@ -45,6 +57,13 @@ export function initDb() {
       model_id TEXT,
       created_at INTEGER NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id)
+    );
+  `);
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
     );
   `);
 

@@ -46,6 +46,7 @@
       "starting": "Starting generation...",
       "running_locally": "🔒 Running locally on your Mac",
       "estimated": "Estimated: {{seconds}}s",
+      "elapsed": "Working… {{seconds}}s",
       "finishing": "Finishing up...",
       "generation_successful": "Generation successful"
     },
@@ -53,7 +54,14 @@
     "btn_try_variations": "Try variations",
     "btn_edit_this": "Edit this",
     "btn_save_character": "Save as character",
-    "btn_export": "Export"
+    "btn_export": "Export",
+    "btn_retry": "Try again",
+    "btn_back": "Back",
+    "error": {
+      "title": "Generation failed",
+      "sidecar_unavailable": "The local AI engine is not responding. It may still be starting (the first launch takes up to a minute) — try again in a few seconds.",
+      "generation_failed": "The model returned an error:"
+    }
   },
   "projects": {
     "title": "Projects",

@@ -8,11 +8,18 @@ const api = {
   getModels: () => ipcRenderer.invoke('get-models'),
   addModel: (model: any) => ipcRenderer.invoke('add-model', model),
   downloadModel: (model: any) => ipcRenderer.invoke('download-model', model),
+  retryDownload: (model: any) => ipcRenderer.invoke('retry-download', model),
+  deleteModel: (modelId: string) => ipcRenderer.invoke('delete-model', modelId),
+  getSetting: (key: string) => ipcRenderer.invoke('get-setting', key),
+  setSetting: (key: string, value: string) => ipcRenderer.invoke('set-setting', key, value),
   onModelsUpdated: (callback: () => void) => {
     ipcRenderer.on('models-updated', callback);
-    return () => {
-      ipcRenderer.removeListener('models-updated', callback);
-    };
+    return () => { ipcRenderer.removeListener('models-updated', callback); };
+  },
+  onDownloadProgress: (callback: (data: { modelId: string; percent: number }) => void) => {
+    const handler = (_: any, data: any) => callback(data);
+    ipcRenderer.on('download-progress', handler);
+    return () => { ipcRenderer.removeListener('download-progress', handler); };
   }
 };
 

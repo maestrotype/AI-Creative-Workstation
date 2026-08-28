@@ -16,11 +16,18 @@ export function ResultStep(): ReactNode {
   return (
     <div className={styles.container}>
       <div className={styles.imageArea}>
-        {/* Placeholder for the generated image */}
-        <div className={styles.placeholderContent}>
-          <ImageIcon size={48} />
-          <span>{t('create.status.generation_successful')}</span>
-        </div>
+        {result.thumbnailUrl ? (
+          <img 
+            src={result.thumbnailUrl} 
+            alt={result.prompt} 
+            className={styles.generatedImage} 
+          />
+        ) : (
+          <div className={styles.placeholderContent}>
+            <ImageIcon size={48} />
+            <span>{t('create.status.generation_successful')}</span>
+          </div>
+        )}
       </div>
 
       <p className={styles.prompt}>

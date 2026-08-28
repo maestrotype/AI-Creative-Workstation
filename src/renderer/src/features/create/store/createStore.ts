@@ -5,6 +5,7 @@
  *   step: 'intent' → 'generating' → 'result'
  *                                       ↓ (Try variations)
  *                                    'generating'
+ *   step: 'intent' → 'generating' → 'error' (retry / back)
  *
  * All business logic and side-effects live here.
  * UI components select slices and call actions only.
@@ -14,6 +15,7 @@ import { create } from 'zustand';
 import type { GenerationResult } from '../../../core/types';
 import {
   runGeneration,
+  GenerationError,
   type GenerationFormat,
   type GenerationStyle,
   type GenerationProgress,
@@ -21,7 +23,13 @@ import {
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
 
-export type CreateStep = 'intent' | 'generating' | 'result';
+export type CreateStep = 'intent' | 'generating' | 'result' | 'error';
+
+/** Ошибка генерации, показываемая в ErrorStep. */
+export interface GenerationErrorState {
+  message: string;
+  kind: 'sidecar_unavailable' | 'generation_failed';
+}
 
 interface CreateState {
   /* ── Current step ────────────────────────────────────────────── */
@@ -41,6 +49,10 @@ interface CreateState {
   startGeneration: () => void;
   cancelGeneration: () => void;
 
+  /* ── Error step ─────────────────────────────────────────────── */
+  error: GenerationErrorState | null;
+  retryGeneration: () => void;
+
   /* ── Result step ──────────────────────────────────────────────── */
   result: GenerationResult | null;
   /** Callback injected by HomePage to push result into recentAssets. */
@@ -56,7 +68,7 @@ interface CreateState {
 
 const INITIAL: Pick<
   CreateState,
-  'step' | 'prompt' | 'format' | 'style' | 'generationProgress' | 'cancel' | 'result'
+  'step' | 'prompt' | 'format' | 'style' | 'generationProgress' | 'cancel' | 'result' | 'error'
 > = {
   step: 'intent',
   prompt: '',
@@ -65,6 +77,7 @@ const INITIAL: Pick<
   generationProgress: null,
   cancel: null,
   result: null,
+  error: null,
 };
 
 /* ─── Store ─────────────────────────────────────────────────────────── */
@@ -88,7 +101,7 @@ export const useCreateStore = create<CreateState>()((set, get) => ({
       (generationProgress) => set({ generationProgress }),
     );
 
-    set({ step: 'generating', generationProgress: null, cancel, result: null });
+    set({ step: 'generating', generationProgress: null, cancel, result: null, error: null });
 
     promise.then((result) => {
       set({ step: 'result', result, generationProgress: null, cancel: null });
@@ -97,8 +110,19 @@ export const useCreateStore = create<CreateState>()((set, get) => ({
       // AbortError means the user cancelled — go back to intent
       if (err instanceof DOMException && err.name === 'AbortError') {
         set({ step: 'intent', generationProgress: null, cancel: null });
+      } else {
+        // Реальные ошибки показываем пользователю, а не имитируем успех
+        const state: GenerationErrorState =
+          err instanceof GenerationError
+            ? { message: err.message, kind: err.kind }
+            : { message: String(err), kind: 'generation_failed' };
+        set({ step: 'error', error: state, generationProgress: null, cancel: null });
       }
     });
+  },
+
+  retryGeneration: () => {
+    get().startGeneration();
   },
 
   cancelGeneration: () => {
