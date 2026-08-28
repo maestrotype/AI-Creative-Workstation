@@ -1,0 +1,225 @@
+/* ==========================================================================
+   IntentInput — the centrepiece command bar.
+   Every value is a token reference. Zero hardcoded colours or fonts.
+   ========================================================================== */
+
+.wrapper {
+  position: relative;
+  width: 100%;
+  max-width: var(--input-bar-max);
+}
+
+/* ─── Outer container ───────────────────────────────────────────────── */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-5) var(--space-4);
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  transition:
+    border-color var(--duration-normal) var(--ease-out),
+    box-shadow   var(--duration-normal) var(--ease-out);
+}
+
+/* Focus-within state — subtle warm glow, not garish neon */
+.field:focus-within {
+  border-color: var(--color-accent-border);
+  box-shadow:
+    var(--shadow-lg),
+    var(--shadow-glow);
+}
+
+.fieldDrop {
+  border-color: var(--color-accent-border);
+  box-shadow:
+    var(--shadow-lg),
+    var(--shadow-glow);
+}
+
+.previewRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.previewThumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.previewName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+}
+
+.previewRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-btn-size);
+  height: var(--icon-btn-size);
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  border-radius: var(--radius-full);
+}
+
+.previewRemove:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ─── Textarea ──────────────────────────────────────────────────────── */
+
+.textarea {
+  width: 100%;
+  min-height: var(--space-8);
+  max-height: 200px;
+  overflow-y: auto;
+  resize: none;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: var(--text-body-lg);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-body);
+  letter-spacing: var(--tracking-normal);
+  caret-color: var(--color-accent);
+}
+
+.textarea::placeholder {
+  color: var(--color-text-tertiary);
+  transition: color var(--duration-normal) var(--ease-out);
+}
+
+.textarea:focus::placeholder {
+  color: var(--color-text-disabled);
+}
+
+.textarea:focus {
+  outline: none;
+}
+
+/* ─── Bottom actions row ────────────────────────────────────────────── */
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Attach button (ghost icon) */
+.attachButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-btn-size);
+  height: var(--icon-btn-size);
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  border-radius: var(--radius-full);
+  transition:
+    background-color var(--duration-instant) var(--ease-out),
+    color            var(--duration-instant) var(--ease-out);
+}
+
+.attachButton:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+
+.attachButton:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+/* Keyboard hint (fades on narrow screens) */
+.hint {
+  margin-left: auto;
+  color: var(--color-text-disabled);
+  font-size: var(--text-caption);
+  letter-spacing: var(--tracking-normal);
+  user-select: none;
+  white-space: nowrap;
+}
+
+/* Submit button — accent CTA */
+.submitButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--submit-btn-size);
+  height: var(--submit-btn-size);
+  flex-shrink: 0;
+  color: var(--color-text-inverse);
+  background-color: var(--color-accent);
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-sm);
+  transition:
+    background-color var(--duration-instant) var(--ease-out),
+    transform        var(--duration-instant) var(--ease-out),
+    box-shadow       var(--duration-normal)  var(--ease-out),
+    opacity          var(--duration-fast)    var(--ease-out);
+}
+
+.submitButton:hover:enabled {
+  background-color: var(--color-accent-hover);
+  box-shadow: var(--shadow-glow);
+}
+
+.submitButton:active:enabled {
+  background-color: var(--color-accent-active);
+  transform: scale(0.94);
+}
+
+.submitButton:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus), var(--shadow-md);
+}
+
+.submitButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Disable attach button during busy state */
+.field[aria-busy='true'] .attachButton {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* ─── Responsive ────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .hint {
+    display: none;
+  }
+
+  .field {
+    padding: var(--space-4);
+  }
+}
