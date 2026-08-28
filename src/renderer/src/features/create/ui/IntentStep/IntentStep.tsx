@@ -23,8 +23,8 @@ export function IntentStep(): ReactNode {
   const setPrompt = useCreateStore((s) => s.setPrompt);
   const setFormat = useCreateStore((s) => s.setFormat);
   const setStyle = useCreateStore((s) => s.setStyle);
-  const referenceImage = useCreateStore((s) => s.referenceImage);
-  const setReferenceImage = useCreateStore((s) => s.setReferenceImage);
+  const referenceImages = useCreateStore((s) => s.referenceImages);
+  const setReferenceImages = useCreateStore((s) => s.setReferenceImages);
   const startGeneration = useCreateStore((s) => s.startGeneration);
   const [readyModels, setReadyModels] = useState<ReadyModel[]>([]);
   const [activeModelId, setActiveModelId] = useState<string>('');
@@ -59,14 +59,16 @@ export function IntentStep(): ReactNode {
   return (
     <div className={styles.container}>
       <h2 className={styles.title}>{t('create.what_to_create')}</h2>
+      <p className={styles.lead}>{t('create.photos_lead')}</p>
 
       <IntentInput
         value={prompt}
         onChange={setPrompt}
         onSubmit={() => { if (canCreate) startGeneration(); }}
         placeholder={t('create.intent_placeholder')}
-        reference={referenceImage}
-        onReferenceChange={setReferenceImage}
+        hint={t('create.intent_hint')}
+        references={referenceImages}
+        onReferencesChange={setReferenceImages}
       />
 
       <div className={styles.options}>

@@ -18,6 +18,7 @@ interface Window {
       style: string;
       model_id?: string;
       image_base64?: string;
+      images_base64?: string[];
     }) => Promise<{ job_id: string; file_path: string | null; model_id: string }>;
     assembleVideo: (payload: {
       image_paths: string[];

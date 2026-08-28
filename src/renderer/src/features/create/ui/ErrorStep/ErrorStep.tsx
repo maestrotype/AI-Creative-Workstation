@@ -15,11 +15,14 @@ export function ErrorStep(): ReactNode {
 
   const isSidecarDown = error.kind === 'sidecar_unavailable';
   const isNoModel = error.kind === 'no_model';
+  const isGpuMemory = error.kind === 'gpu_memory';
   const messageKey = isSidecarDown
     ? 'create.error.sidecar_unavailable'
     : isNoModel
       ? 'create.error.no_model'
-      : 'create.error.generation_failed';
+      : isGpuMemory
+        ? 'create.error.mps_memory'
+        : 'create.error.generation_failed';
 
   return (
     <div className={styles.container}>
@@ -30,7 +33,7 @@ export function ErrorStep(): ReactNode {
         {t(messageKey)}
       </p>
 
-      {!isSidecarDown && !isNoModel && <pre className={styles.detail}>{error.message}</pre>}
+      {!isSidecarDown && !isNoModel && !isGpuMemory && <pre className={styles.detail}>{error.message}</pre>}
 
       <div className={styles.actions}>
         <button

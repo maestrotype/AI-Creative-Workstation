@@ -116,3 +116,9 @@
   color: #e53e3e;
   border-color: #e53e3e;
 }
+
+.unloadError {
+  margin: 0;
+  color: #e53e3e;
+  font-size: var(--text-body-sm);
+}

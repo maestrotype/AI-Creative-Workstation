@@ -10,6 +10,7 @@ import { models, settings } from './db/schema';
 import { eq } from 'drizzle-orm';
 
 app.setName('AI Creative Workstation');
+process.title = 'AI Creative Workstation';
 const legacyUserData = join(app.getPath('appData'), 'canvas');
 if (existsSync(legacyUserData)) {
   app.setPath('userData', legacyUserData);
@@ -117,7 +118,12 @@ function startSidecar(): void {
 
   sidecarProcess = spawn('python3', ['-u', sidecarPath], {
     cwd: sidecarDir,
-    env: { ...process.env, PYTHONUNBUFFERED: '1' },
+    env: {
+      ...process.env,
+      PYTHONUNBUFFERED: '1',
+      PYTORCH_ENABLE_MPS_FALLBACK: '1',
+      PYTORCH_MPS_HIGH_WATERMARK_RATIO: '0.0',
+    },
     stdio: 'inherit',
   });
 
@@ -190,16 +196,20 @@ function modelDirFor(modelId: string): string {
 async function unloadFromSidecar(modelId: string): Promise<{ unloaded: boolean; reason?: string }> {
   const cacheKey = toCacheKey(modelId);
   try {
-    const res = await net.fetch(
-      `${SIDECAR_URL}/api/models/${encodeURIComponent(cacheKey)}/unload`,
-      { method: 'POST', signal: AbortSignal.timeout(120_000) },
-    );
+    const res = await net.fetch(`${SIDECAR_URL}/api/models/unload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_id: modelId, cache_key: cacheKey }),
+      signal: AbortSignal.timeout(180_000),
+    });
     if (!res.ok) {
       console.warn(`unload-model: sidecar returned ${res.status} for ${cacheKey}`);
       return { unloaded: false, reason: `http-${res.status}` };
     }
-    const body = (await res.json()) as { unloaded?: boolean; reason?: string };
-    return { unloaded: Boolean(body.unloaded), reason: body.reason };
+    const body = (await res.json()) as { unloaded?: boolean; reason?: string; loaded?: string[] };
+    const loaded = body.loaded ?? [];
+    const gone = !loaded.includes(cacheKey);
+    return { unloaded: Boolean(body.unloaded) || gone, reason: body.reason };
   } catch (e) {
     console.warn(`unload-model: could not unload ${cacheKey} from sidecar memory:`, e);
     return { unloaded: false, reason: 'sidecar-unavailable' };
@@ -232,6 +242,12 @@ function setupIpc() {
     return { status: engineStatus, detail: engineDetail };
   });
 
+  ipcMain.handle('unload-model', async (_, modelId: string) => {
+    const result = await unloadFromSidecar(modelId);
+    broadcast('models-updated');
+    return result;
+  });
+
   ipcMain.handle('get-active-model', async () => resolveActiveModelId());
 
   ipcMain.handle('set-active-model', async (_, modelId: string) => {
@@ -244,7 +260,14 @@ function setupIpc() {
     return true;
   });
 
-  ipcMain.handle('generate-image', async (_, payload: { prompt: string; format: string; style: string; model_id?: string; image_base64?: string }) => {
+  ipcMain.handle('generate-image', async (_, payload: {
+    prompt: string;
+    format: string;
+    style: string;
+    model_id?: string;
+    image_base64?: string;
+    images_base64?: string[];
+  }) => {
     const ready = await ensureSidecarReady();
     if (!ready.ok) {
       throw new Error(ready.error || 'Sidecar unavailable');
@@ -264,6 +287,7 @@ function setupIpc() {
         style: payload.style,
         model_id: modelId,
         image_base64: payload.image_base64 || null,
+        images_base64: payload.images_base64 || null,
       }),
       signal: AbortSignal.timeout(15 * 60 * 1000),
     });
@@ -535,9 +559,8 @@ app.whenReady().then(() => {
 
   // Handle custom asset:// protocol to load generated images
   protocol.handle('asset', (request) => {
-    const url = request.url.slice('asset://'.length);
-    const decodedPath = decodeURIComponent(url);
-    // On Mac/Unix absolute paths start with /
+    const stripped = request.url.replace(/^asset:\/\//, '').split('?')[0];
+    const decodedPath = decodeURIComponent(stripped);
     const absolutePath = decodedPath.startsWith('/') ? decodedPath : `/${decodedPath}`;
     return net.fetch(`file://${absolutePath}`);
   });

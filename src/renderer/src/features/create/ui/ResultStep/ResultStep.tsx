@@ -18,6 +18,7 @@ export function ResultStep(): ReactNode {
       <div className={styles.imageArea}>
         {result.thumbnailUrl ? (
           <img 
+            key={result.id}
             src={result.thumbnailUrl} 
             alt={result.prompt} 
             className={styles.generatedImage} 

@@ -18,6 +18,7 @@
     "hero_heading": "Create something new",
     "hero_subheading": "Describe the result you want — AI Creative Workstation takes care of the rest.",
     "intent_placeholder": "A cinematic portrait with dramatic lighting…",
+    "intent_hint": "Paperclip or paste photos · Enter to continue",
     "continue_working": "Continue Working",
     "recent_assets": "Recent Assets",
     "inspiration": "Inspiration",
@@ -33,7 +34,9 @@
   "create": {
     "back_to_home": "Back to Home",
     "what_to_create": "What do you want to create?",
-    "intent_placeholder": "Describe your vision...",
+    "photos_lead": "Add photos plus a scene description. Several photos cannot be glued into one frame yet — the model paints the scene from the prompt (faces will be similar in type, not a 1:1 copy).",
+    "intent_placeholder": "e.g. Two boxers facing each other — keep the people from the photos",
+    "intent_hint": "Clip or paste photos · Enter to send",
     "format": "Format",
     "style_intensity": "Style Intensity",
     "formats": {
@@ -68,6 +71,7 @@
       "title": "Generation failed",
       "sidecar_unavailable": "The local AI engine is not responding. Restart the app and wait until the sidebar says Engine online.",
       "generation_failed": "The model returned an error:",
+      "mps_memory": "The Mac GPU ran out of buffer for this job. Unload the model in Studio, pick Square, or attach fewer photos, then try again.",
       "no_model": "No active model. Open Studio, download a model, and click Use."
     }
   },
@@ -117,6 +121,8 @@
     "installed": "Installed",
     "in_ram": "in RAM",
     "unload": "Unload",
+    "unloading": "Unloading…",
+    "unload_failed": "Could not unload from RAM ({{reason}}). Restart the app if the badge stays on.",
     "unload_title": "Unload from RAM. Files stay on disk and will reload on the next generation.",
     "unload_idle_title": "Not in RAM — nothing to unload. Files stay on disk.",
     "use": "Use",

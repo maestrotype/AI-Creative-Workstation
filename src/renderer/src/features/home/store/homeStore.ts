@@ -42,10 +42,10 @@ interface HomeState {
 
   /* Intent bar */
   intentDraft: string;
-  referenceDraft: ReferenceImage | null;
+  referenceDrafts: ReferenceImage[];
   isCreating: boolean;
   setIntentDraft: (draft: string) => void;
-  setReferenceDraft: (image: ReferenceImage | null) => void;
+  setReferenceDrafts: (images: ReferenceImage[]) => void;
   submitIntent: () => void;
 }
 
@@ -134,11 +134,11 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
 
   /* ── Intent bar ────────────────────────────────────────────────── */
   intentDraft: '',
-  referenceDraft: null,
+  referenceDrafts: [],
   isCreating: false,
 
   setIntentDraft: (draft) => set({ intentDraft: draft }),
-  setReferenceDraft: (image) => set({ referenceDraft: image }),
+  setReferenceDrafts: (images) => set({ referenceDrafts: images }),
 
   submitIntent: () => {
     const draft = get().intentDraft.trim();

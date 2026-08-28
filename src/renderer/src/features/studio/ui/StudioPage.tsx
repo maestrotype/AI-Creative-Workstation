@@ -35,6 +35,8 @@ export function StudioPage(): ReactNode {
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
   const [loadedCacheKeys, setLoadedCacheKeys] = useState<string[]>([]);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
+  const [unloadingId, setUnloadingId] = useState<string | null>(null);
+  const [unloadError, setUnloadError] = useState<string | null>(null);
 
   const toCacheKey = (modelId: string) => modelId.replaceAll('/', '__');
 
@@ -94,9 +96,19 @@ export function StudioPage(): ReactNode {
   };
 
   const handleUnload = async (modelId: string) => {
-    if (window.api) {
-      await window.api.unloadModel(modelId);
+    if (!window.api) return;
+    setUnloadError(null);
+    setUnloadingId(modelId);
+    try {
+      const result = await window.api.unloadModel(modelId);
       await loadModels();
+      if (!result.unloaded) {
+        setUnloadError(t('studio.unload_failed', { reason: result.reason ?? 'unknown' }));
+      }
+    } catch (err) {
+      setUnloadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUnloadingId(null);
     }
   };
 
@@ -115,6 +127,7 @@ export function StudioPage(): ReactNode {
       <p style={{ color: 'var(--color-text-secondary)', margin: 0 }}>
         {t('studio.prompt_language_hint')}
       </p>
+      {unloadError ? <p className={styles.unloadError}>{unloadError}</p> : null}
 
       <div>
         <h3>{t('studio.my_models')}</h3>
@@ -159,11 +172,11 @@ export function StudioPage(): ReactNode {
                     <button
                       type="button"
                       className={styles.textButton}
-                      onClick={() => handleUnload(m.id)}
-                      disabled={!loadedCacheKeys.includes(toCacheKey(m.id))}
+                      onClick={() => { void handleUnload(m.id); }}
+                      disabled={unloadingId === m.id || !loadedCacheKeys.includes(toCacheKey(m.id))}
                       title={loadedCacheKeys.includes(toCacheKey(m.id)) ? t('studio.unload_title') : t('studio.unload_idle_title')}
                     >
-                      {t('studio.unload')}
+                      {unloadingId === m.id ? t('studio.unloading') : t('studio.unload')}
                     </button>
                   )}
                   <button

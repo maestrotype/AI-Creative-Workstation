@@ -15,8 +15,14 @@ const api = {
   getActiveModel: () => ipcRenderer.invoke('get-active-model'),
   setActiveModel: (modelId: string) => ipcRenderer.invoke('set-active-model', modelId),
   getEngineStatus: () => ipcRenderer.invoke('get-engine-status'),
-  generateImage: (payload: { prompt: string; format: string; style: string; model_id?: string; image_base64?: string }) =>
-    ipcRenderer.invoke('generate-image', payload),
+  generateImage: (payload: {
+    prompt: string;
+    format: string;
+    style: string;
+    model_id?: string;
+    image_base64?: string;
+    images_base64?: string[];
+  }) => ipcRenderer.invoke('generate-image', payload),
   assembleVideo: (payload: {
     image_paths: string[];
     durations: number[];
