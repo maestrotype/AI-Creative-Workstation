@@ -101,6 +101,7 @@
   padding: 4px 10px;
   cursor: pointer;
   font-size: 12px;
+  text-decoration: none;
 }
 
 .textButton:hover:not(:disabled) {

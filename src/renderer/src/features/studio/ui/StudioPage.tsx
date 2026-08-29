@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 import styles from './StudioPage.module.css';
 
 interface Model {
@@ -37,6 +38,8 @@ export function StudioPage(): ReactNode {
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [unloadingId, setUnloadingId] = useState<string | null>(null);
   const [unloadError, setUnloadError] = useState<string | null>(null);
+  const [voiceHas, setVoiceHas] = useState(false);
+  const [ttsReady, setTtsReady] = useState(false);
 
   const toCacheKey = (modelId: string) => modelId.replaceAll('/', '__');
 
@@ -60,7 +63,11 @@ export function StudioPage(): ReactNode {
 
   useEffect(() => {
     loadModels();
-    
+    void window.api?.getVoiceProfile?.().then((profile) => {
+      setVoiceHas(profile.has_sample);
+      setTtsReady(profile.tts_ready);
+    }).catch(() => {});
+
     const cleanupModels = window.api?.onModelsUpdated(() => loadModels()) ?? (() => {});
     const cleanupProgress = window.api?.onDownloadProgress(({ modelId, percent }) => {
       setDownloadProgress(prev => ({ ...prev, [modelId]: percent }));
@@ -127,6 +134,17 @@ export function StudioPage(): ReactNode {
       <p style={{ color: 'var(--color-text-secondary)', margin: 0 }}>
         {t('studio.prompt_language_hint')}
       </p>
+      <div className={styles.modelCard}>
+        <div className={styles.modelInfo}>
+          <span className={styles.modelName}>{t('studio.voice_engine')}</span>
+          <span className={styles.modelType}>
+            {voiceHas ? t('studio.voice_sample_on') : t('studio.voice_sample_off')}
+            {' · '}
+            {ttsReady ? t('studio.tts_on') : t('studio.tts_off')}
+          </span>
+        </div>
+        <Link className={styles.textButton} to="/assets">{t('studio.voice_record_in_assets')}</Link>
+      </div>
       {unloadError ? <p className={styles.unloadError}>{unloadError}</p> : null}
 
       <div>

@@ -1,10 +1,11 @@
-import { app, shell, BrowserWindow, ipcMain, protocol, net, dialog } from 'electron';
-import { join } from 'path';
+import { app, shell, BrowserWindow, ipcMain, protocol, net, dialog, desktopCapturer, session } from 'electron';
+import { extname, join } from 'path';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 // import icon from '../../resources/icon.png?asset'
 
-import { spawn, ChildProcess } from 'child_process';
-import { existsSync } from 'fs';
+import { spawn, ChildProcess, execFileSync } from 'child_process';
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'fs';
+import { homedir } from 'os';
 import { initDb, getDb } from './db';
 import { models, settings } from './db/schema';
 import { eq } from 'drizzle-orm';
@@ -34,6 +35,34 @@ let ignoreSidecarExit = false;
 // Active download.py processes keyed by model id. If the handle is dropped,
 // killing/retrying leaves orphans (PPID=1) that keep using RAM and writing disk.
 const activeDownloads: Map<string, ChildProcess> = new Map();
+let micRecorder: ChildProcess | null = null;
+let micOutPath: string | null = null;
+
+function ffmpegBin(): string {
+  try {
+    return execFileSync('which', ['ffmpeg'], { encoding: 'utf8' }).trim();
+  } catch {
+    throw new Error('ffmpeg is not installed (brew install ffmpeg)');
+  }
+}
+
+async function sidecarJson(path: string, body: unknown, timeoutMs = 120_000): Promise<Record<string, unknown>> {
+  const ready = await ensureSidecarReady();
+  if (!ready.ok) {
+    throw new Error(ready.error || 'Sidecar unavailable');
+  }
+  const res = await net.fetch(`${SIDECAR_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const data = (await res.json().catch(() => ({}))) as { detail?: unknown };
+  if (!res.ok) {
+    throw new Error(data.detail != null ? String(data.detail).slice(0, 400) : `HTTP ${res.status}`);
+  }
+  return data as Record<string, unknown>;
+}
 
 function killDownload(modelId: string | null): void {
   if (!modelId) return;
@@ -361,6 +390,116 @@ function setupIpc() {
     return body;
   });
 
+  ipcMain.handle('pick-audio', async () => {
+    const win = BrowserWindow.getFocusedWindow();
+    const result = await dialog.showOpenDialog(win ?? undefined, {
+      title: 'Choose an audio file',
+      properties: ['openFile'],
+      filters: [{ name: 'Audio', extensions: ['wav', 'mp3', 'flac', 'm4a', 'aac', 'ogg', 'webm'] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle('list-media-library', async () => {
+    const audioDir = join(homedir(), 'Documents/Canvas/Generated/Audio');
+    const voicePath = join(homedir(), 'Documents/Canvas/Voice/speaker.wav');
+    const audioExt = new Set(['wav', 'mp3', 'flac', 'm4a', 'aac', 'ogg', 'webm']);
+    const audio: { path: string; name: string; mtime: number }[] = [];
+    if (existsSync(audioDir)) {
+      for (const name of readdirSync(audioDir)) {
+        const ext = extname(name).slice(1).toLowerCase();
+        if (!audioExt.has(ext)) continue;
+        const filePath = join(audioDir, name);
+        try {
+          audio.push({ path: filePath, name, mtime: statSync(filePath).mtimeMs });
+        } catch {
+          // skip unreadable entries
+        }
+      }
+      audio.sort((a, b) => b.mtime - a.mtime);
+    }
+    return {
+      audio,
+      voice_path: existsSync(voicePath) ? voicePath : null,
+    };
+  });
+
+  ipcMain.handle('start-mic-record', async (_, format: string = 'wav') => {
+    if (micRecorder && !micRecorder.killed) {
+      throw new Error('Already recording');
+    }
+    const ext = ['wav', 'mp3', 'flac'].includes(format) ? format : 'wav';
+    const dir = join(homedir(), 'Documents/Canvas/Generated/Audio');
+    mkdirSync(dir, { recursive: true });
+    micOutPath = join(dir, `mic-${Date.now()}.${ext}`);
+    const ffmpeg = ffmpegBin();
+    micRecorder = spawn(ffmpeg, [
+      '-y',
+      '-f', 'avfoundation',
+      '-i', ':0',
+      '-ac', '1',
+      '-ar', '48000',
+      ...(ext === 'mp3' ? ['-c:a', 'libmp3lame', '-q:a', '2'] : ext === 'flac' ? ['-c:a', 'flac'] : ['-c:a', 'pcm_s16le']),
+      micOutPath,
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    micRecorder.on('exit', () => {
+      micRecorder = null;
+    });
+    return { file_path: micOutPath };
+  });
+
+  ipcMain.handle('stop-mic-record', async () => {
+    const out = micOutPath;
+    const proc = micRecorder;
+    micRecorder = null;
+    micOutPath = null;
+    if (proc && !proc.killed) {
+      proc.kill('SIGINT');
+      await new Promise((resolve) => setTimeout(resolve, 800));
+    }
+    if (!out || !existsSync(out)) {
+      throw new Error('Recording did not produce a file. Allow microphone access in System Settings.');
+    }
+    return { file_path: out };
+  });
+
+  ipcMain.handle('save-audio-buffer', async (_, payload: { data: ArrayBuffer; format: string; name?: string }) => {
+    const dir = join(homedir(), 'Documents/Canvas/Generated/Audio');
+    mkdirSync(dir, { recursive: true });
+    const webm = join(dir, `capture-${Date.now()}.webm`);
+    writeFileSync(webm, Buffer.from(payload.data));
+    const fmt = payload.format || 'wav';
+    const converted = await sidecarJson('/api/audio/convert', {
+      input_path: webm,
+      format: fmt,
+      output_name: payload.name || `system-${Date.now()}`,
+    });
+    return { file_path: converted.file_path as string };
+  });
+
+  ipcMain.handle('get-voice-profile', async () => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) {
+      throw new Error(ready.error || 'Sidecar unavailable');
+    }
+    const res = await net.fetch(`${SIDECAR_URL}/api/audio/voice`, { signal: AbortSignal.timeout(5000) });
+    return res.json();
+  });
+
+  ipcMain.handle('save-voice-sample', async (_, inputPath: string) => sidecarJson('/api/audio/voice', { input_path: inputPath }));
+
+  ipcMain.handle('synthesize-voice', async (_, payload: { text: string; language?: string }) =>
+    sidecarJson('/api/audio/tts', payload, 10 * 60 * 1000),
+  );
+
+  ipcMain.handle('apply-video-timeline', async (_, payload: {
+    prompt: string;
+    video_path?: string;
+    audio_path?: string;
+    dry_run?: boolean;
+  }) => sidecarJson('/api/video/timeline', payload, 20 * 60 * 1000));
+
   ipcMain.handle('open-path', async (_, filePath: string) => {
     await shell.openPath(filePath);
     return true;
@@ -557,6 +696,17 @@ function createWindow(): void {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.aicreativeworkstation.app');
 
+  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+    desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
+      const source = sources[0];
+      if (!source) {
+        callback({});
+        return;
+      }
+      callback({ video: source, audio: 'loopback' });
+    }).catch(() => callback({}));
+  });
+
   // Handle custom asset:// protocol to load generated images
   protocol.handle('asset', (request) => {
     const stripped = request.url.replace(/^asset:\/\//, '').split('?')[0];
@@ -593,6 +743,10 @@ app.on('quit', () => {
   for (const [modelId, proc] of Array.from(activeDownloads.entries())) {
     if (proc && !proc.killed) proc.kill('SIGTERM');
     activeDownloads.delete(modelId);
+  }
+  if (micRecorder && !micRecorder.killed) {
+    micRecorder.kill('SIGINT');
+    micRecorder = null;
   }
   if (sidecarProcess) {
     sidecarProcess.kill();

@@ -77,7 +77,12 @@
   },
   "video": {
     "title": "YouTube videos",
-    "lead": "Plan a storyboard, generate stills with your active image model, then assemble an MP4. Full motion models come next — this already produces a watchable cut.",
+    "lead": "One job at a time. Start from an idea and build a storyboard, or take a screen recording and mix audio from your library.",
+    "mode_idea": "From scratch",
+    "mode_recording": "From a recording",
+    "go_assets": "Record audio in Assets",
+    "use_library_track": "Audio from Assets",
+    "no_library_audio": "No tracks yet. Record or import them in Assets.",
     "topic": "Topic",
     "topic_placeholder": "e.g. Why local AI image models finally work on a Mac…",
     "format": "Format",
@@ -100,7 +105,14 @@
     "clean_preview": "Preview plan",
     "clean_run": "Clean video",
     "clean_no_file": "Choose a video first.",
-    "clean_working": "Cleaning video…"
+    "clean_working": "Cleaning video…",
+    "timeline_title": "Prompt edit",
+    "timeline_lead": "Describe timestamps: at 0:15 add the captured track; at 1:20 voiceover: your line.",
+    "timeline_pick_video": "Choose video",
+    "timeline_prompt": "Edit prompt",
+    "timeline_placeholder": "at 0:05 add captured audio\nна 1:20 озвучка: Привет",
+    "timeline_apply": "Apply to video",
+    "timeline_working": "Working…"
   },
   "projects": {
     "title": "Projects",
@@ -109,7 +121,28 @@
   },
   "assets": {
     "title": "Assets",
-    "placeholder": "Assets management flow placeholder"
+    "lead": "Library of captures, voice sample, and source clips. Video mixes these tracks; Studio only shows whether a voice engine is ready.",
+    "capture_title": "Capture audio",
+    "capture_lead": "Record what the Mac is playing or the microphone. Saves WAV, MP3, or FLAC.",
+    "audio_record_system": "Record system audio",
+    "audio_record_mic": "Record microphone",
+    "audio_stop": "Stop",
+    "audio_pick": "Import audio file",
+    "audio_no_loopback": "macOS did not attach system audio. Allow Screen Recording for this app, play sound, then try again. A virtual device like BlackHole also works.",
+    "voice_title": "Your voice",
+    "voice_lead": "Record 10 seconds of your speech. Generate a voiceover in that voice (needs Coqui TTS in the sidecar).",
+    "voice_record": "Record 10s voice sample",
+    "voice_saved": "Voice sample saved",
+    "voice_missing": "No voice sample yet",
+    "voice_tts_ready": "TTS installed",
+    "voice_tts_missing": "TTS not installed (pip3 install TTS)",
+    "voice_prompt": "Voiceover text",
+    "voice_prompt_placeholder": "What should your voice say?",
+    "voice_generate": "Generate voiceover",
+    "library_title": "Audio library",
+    "empty_library": "Nothing here yet. Record system audio, the mic, or import a file.",
+    "open": "Open",
+    "working": "Working…"
   },
   "studio": {
     "title": "Studio",
@@ -131,7 +164,13 @@
     "delete_disk": "Delete",
     "delete_title": "Delete files from disk and unload from RAM",
     "delete_confirm": "Delete this model from disk? You will need to download it again.",
-    "prompt_language_hint": "SDXL follows English prompts more reliably. FLUX handles Russian better."
+    "prompt_language_hint": "SDXL follows English prompts more reliably. FLUX handles Russian better.",
+    "voice_engine": "Voice / TTS",
+    "voice_sample_on": "Voice sample saved",
+    "voice_sample_off": "No voice sample",
+    "tts_on": "TTS installed",
+    "tts_off": "TTS not installed",
+    "voice_record_in_assets": "Record in Assets"
   },
   "settings": {
     "title": "Settings",

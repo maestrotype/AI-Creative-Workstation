@@ -44,6 +44,17 @@
   letter-spacing: var(--tracking-wide);
 }
 
+.select {
+  width: 100%;
+  max-width: 36rem;
+  padding: var(--space-3);
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  font: inherit;
+}
+
 .textarea {
   width: 100%;
   resize: vertical;

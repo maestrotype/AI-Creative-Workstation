@@ -15,6 +15,7 @@ faulthandler.enable()
 
 from api import generation
 from api import video as video_api
+from api import audio as audio_api
 
 app = FastAPI(title="AI Creative Workstation Inference Sidecar")
 
@@ -29,6 +30,7 @@ app.add_middleware(
 
 app.include_router(generation.router, prefix="/api")
 app.include_router(video_api.router, prefix="/api")
+app.include_router(audio_api.router, prefix="/api")
 
 @app.get("/health")
 def health_check():
