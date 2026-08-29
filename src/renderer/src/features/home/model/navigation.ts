@@ -9,6 +9,7 @@ import type { ComponentType } from 'react';
 import type { NavId, NavItem } from '../../../core/types';
 import type { IconProps } from '../../../shared/ui/icons';
 import {
+  CubeIcon,
   FilmIcon,
   FolderIcon,
   HomeIcon,
@@ -31,6 +32,7 @@ export interface NavigationEntry extends NavItem {
 export const NAVIGATION_ITEMS: readonly NavigationEntry[] = [
   { id: 'home',     label: 'Home',     Icon: HomeIcon },
   { id: 'create',   label: 'Create',   Icon: SparklesIcon },
+  { id: 'threed',   label: '3D',       Icon: CubeIcon },
   { id: 'video',    label: 'Video',    Icon: FilmIcon },
   { id: 'projects', label: 'Projects', Icon: FolderIcon },
   { id: 'assets',   label: 'Assets',   Icon: LayersIcon },

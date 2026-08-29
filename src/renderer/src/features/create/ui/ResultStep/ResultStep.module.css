@@ -68,6 +68,7 @@
   border-radius: var(--radius-full);
   cursor: pointer;
   transition: all var(--duration-fast) var(--ease-out);
+  text-decoration: none;
 }
 
 .actionButton:hover {

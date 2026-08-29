@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { WorkspaceFlow } from '../../studio/ui/WorkspaceFlow';
 import { useMediaLibraryStore } from '../store/mediaLibraryStore';
 import ui from '../../video/ui/VideoPage.module.css';
 import styles from './AssetsPage.module.css';
@@ -155,6 +156,8 @@ export function AssetsPage(): ReactNode {
           <p className={ui.lead}>{t('assets.lead')}</p>
         </div>
       </header>
+
+      <WorkspaceFlow kind="assets" />
 
       <section className={ui.card}>
         <h2 className={ui.subtitle}>{t('assets.capture_title')}</h2>

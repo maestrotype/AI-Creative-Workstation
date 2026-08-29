@@ -2,6 +2,7 @@
   "nav": {
     "home": "Home",
     "create": "Create",
+    "threed": "3D",
     "video": "Video",
     "projects": "Projects",
     "assets": "Assets",
@@ -65,6 +66,8 @@
     "btn_edit_this": "Edit this",
     "btn_save_character": "Save as character",
     "btn_export": "Export",
+    "btn_send_3d": "Send to 3D",
+    "btn_send_video": "Send to Video",
     "btn_retry": "Try again",
     "btn_back": "Back",
     "error": {
@@ -144,8 +147,60 @@
     "open": "Open",
     "working": "Working…"
   },
+  "threed": {
+    "title": "3D",
+    "lead": "Turn a still from Create or Assets into a mesh. This needs a 3D engine in Studio — not FLUX and not a video model.",
+    "prompt": "What to build",
+    "prompt_placeholder": "e.g. a ceramic mug, same as the reference photo",
+    "pick_image": "Choose reference image",
+    "no_reference": "No reference yet. Generate a still in Create or pick a file.",
+    "generate": "Generate mesh",
+    "pipeline_pending": "The 3D sidecar (TripoSR / Hunyuan3D) is not wired yet. Download is blocked on purpose so the app does not store a 20 GB file it cannot run. The last Create still is already attached as a reference."
+  },
+  "flow": {
+    "no_image_engine": "no image engine selected",
+    "to_studio": "Studio",
+    "to_studio_image": "Image engines",
+    "to_studio_video": "Video engines",
+    "to_studio_3d": "3D engines",
+    "to_create": "Create",
+    "to_video": "Video",
+    "to_threed": "3D",
+    "to_assets": "Assets",
+    "create": {
+      "uses": "Create uses the image engine ({{engine}}). Stills land in Assets and can feed Video storyboards or 3D."
+    },
+    "video": {
+      "uses": "From scratch, Video stills use the image engine ({{engine}}). Motion models are a separate Studio family — not required for montage from a recording."
+    },
+    "threed": {
+      "uses": "3D needs its own engine in Studio. Image engine ({{engine}}) only supplies the reference still."
+    },
+    "assets": {
+      "uses": "Assets hold stills, audio, and later meshes. Video mixes tracks from here. Image engine: {{engine}}."
+    }
+  },
   "studio": {
     "title": "Studio",
+    "lead": "Engines are grouped by job. Image, video, 3D, and voice are not interchangeable.",
+    "family_image": "Image",
+    "family_video": "Video",
+    "family_3d": "3D",
+    "family_voice": "Voice",
+    "family_hint_image": "SDXL follows English more reliably. FLUX handles Russian better. Used by Create and by Video stills.",
+    "family_hint_video": "Needed only for generated motion. Today's Video page stills use the Image family; montage from a recording uses ffmpeg.",
+    "family_hint_3d": "Image-to-mesh or text-to-mesh. Not the same weights as FLUX. Pipeline not wired yet — listing is so you can plan disk and links.",
+    "family_hint_voice": "Sample and TTS live in Assets. This tab only shows whether the voice engine is ready.",
+    "no_models_family": "Nothing installed in this family yet.",
+    "pipeline_later": "Pipeline later",
+    "note_sdxl_turbo": "Fast, 1–4 steps",
+    "note_sdxl_base": "Best quality among SD",
+    "note_flux_schnell": "Top quality, 4 steps",
+    "note_flux_dev": "Best quality",
+    "note_ltx": "Text-to-video. Separate pipeline from image models.",
+    "note_wan": "Smaller motion model. Still a video pipeline, not FLUX.",
+    "note_triposr": "Image to mesh. Practical first 3D engine to wire.",
+    "note_hunyuan3d": "Heavier 3D. Needs its own VRAM budget.",
     "placeholder": "Studio hardware and models placeholder",
     "my_models": "My Models",
     "no_models": "No models downloaded yet.",

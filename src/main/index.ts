@@ -120,18 +120,18 @@ function putSettingValue(key: string, value: string): void {
     .run();
 }
 
-function listReadyModels(): { id: string; name: string }[] {
+function listReadyModels(kind: 'image' | 'video' | '3d' = 'image'): { id: string; name: string }[] {
   const db = getDb();
   return db
     .select()
     .from(models)
     .all()
-    .filter((m) => m.status === 'ready')
+    .filter((m) => m.status === 'ready' && m.type === kind)
     .map((m) => ({ id: m.id, name: m.name }));
 }
 
 function resolveActiveModelId(): string | null {
-  const ready = listReadyModels();
+  const ready = listReadyModels('image');
   if (ready.length === 0) return null;
   const stored = getSettingValue(ACTIVE_MODEL_KEY);
   if (stored && ready.some((m) => m.id === stored)) return stored;
@@ -280,7 +280,7 @@ function setupIpc() {
   ipcMain.handle('get-active-model', async () => resolveActiveModelId());
 
   ipcMain.handle('set-active-model', async (_, modelId: string) => {
-    const ready = listReadyModels();
+    const ready = listReadyModels('image');
     if (!ready.some((m) => m.id === modelId)) {
       throw new Error('Model is not installed');
     }
@@ -358,11 +358,20 @@ function setupIpc() {
   });
 
   ipcMain.handle('pick-video', async () => {
-    const win = BrowserWindow.getFocusedWindow();
-    const result = await dialog.showOpenDialog(win ?? undefined, {
+    const result = await dialog.showOpenDialog({
       title: 'Choose a screen recording',
       properties: ['openFile'],
       filters: [{ name: 'Video', extensions: ['mp4', 'mov', 'm4v', 'webm', 'mkv'] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle('pick-image', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Choose a reference image',
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
@@ -391,8 +400,7 @@ function setupIpc() {
   });
 
   ipcMain.handle('pick-audio', async () => {
-    const win = BrowserWindow.getFocusedWindow();
-    const result = await dialog.showOpenDialog(win ?? undefined, {
+    const result = await dialog.showOpenDialog({
       title: 'Choose an audio file',
       properties: ['openFile'],
       filters: [{ name: 'Audio', extensions: ['wav', 'mp3', 'flac', 'm4a', 'aac', 'ogg', 'webm'] }],
@@ -549,7 +557,7 @@ function setupIpc() {
     }
 
     if (getSettingValue(ACTIVE_MODEL_KEY) === modelId) {
-      const next = listReadyModels()[0];
+      const next = listReadyModels('image')[0];
       if (next) putSettingValue(ACTIVE_MODEL_KEY, next.id);
       else getDb().delete(settings).where(eq(settings.key, ACTIVE_MODEL_KEY)).run();
     }
@@ -640,7 +648,7 @@ function setupDownload(db: ReturnType<typeof getDb>, model: any): boolean {
           .set({ status: 'ready', path: finalPath, errorMessage: null })
           .where(eq(models.id, model.id))
           .run();
-        if (!getSettingValue(ACTIVE_MODEL_KEY)) {
+        if (model.type === 'image' && !getSettingValue(ACTIVE_MODEL_KEY)) {
           putSettingValue(ACTIVE_MODEL_KEY, model.id);
         }
       } else {

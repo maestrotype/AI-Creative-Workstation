@@ -45,7 +45,7 @@ export interface GenerationResult {
 /* ─── Navigation types ──────────────────────────────────────────────── */
 
 /** Identifiers for primary sidebar navigation items. */
-export type NavId = 'home' | 'create' | 'video' | 'projects' | 'assets' | 'studio' | 'settings';
+export type NavId = 'home' | 'create' | 'threed' | 'video' | 'projects' | 'assets' | 'studio' | 'settings';
 
 /** A primary navigation entry (pure data — no UI concerns). */
 export interface NavItem {

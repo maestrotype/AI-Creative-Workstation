@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { FromIdeaPanel } from './FromIdeaPanel';
 import { FromRecordingPanel } from './FromRecordingPanel';
+import { WorkspaceFlow } from '../../studio/ui/WorkspaceFlow';
 import styles from './VideoPage.module.css';
 
 type VideoMode = 'idea' | 'recording';
@@ -20,6 +21,8 @@ export function VideoPage(): ReactNode {
           <p className={styles.lead}>{t('video.lead')}</p>
         </div>
       </header>
+
+      <WorkspaceFlow kind="video" />
 
       <div className={styles.pills}>
         <button type="button" className={styles.pill} data-on={mode === 'idea'} onClick={() => setMode('idea')}>

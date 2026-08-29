@@ -31,6 +31,7 @@ const api = {
     output_name: string;
   }) => ipcRenderer.invoke('assemble-video', payload),
   pickVideo: () => ipcRenderer.invoke('pick-video'),
+  pickImage: () => ipcRenderer.invoke('pick-image'),
   pickAudio: () => ipcRenderer.invoke('pick-audio'),
   listMediaLibrary: () => ipcRenderer.invoke('list-media-library'),
   startMicRecord: (format: string) => ipcRenderer.invoke('start-mic-record', format),

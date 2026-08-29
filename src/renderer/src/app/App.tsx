@@ -8,6 +8,7 @@ import { ProjectsPage } from '../features/projects/ui/ProjectsPage';
 import { AssetsPage } from '../features/assets/ui/AssetsPage';
 import { StudioPage } from '../features/studio/ui/StudioPage';
 import { SettingsPage } from '../features/settings/ui/SettingsPage';
+import { ThreeDPage } from '../features/threed/ui/ThreeDPage';
 import { VideoPage } from '../features/video/ui/VideoPage';
 
 const router = createBrowserRouter([
@@ -17,6 +18,7 @@ const router = createBrowserRouter([
     children: [
       { path: '/', element: <HomePage /> },
       { path: '/create', element: <CreatePage /> },
+      { path: '/threed', element: <ThreeDPage /> },
       { path: '/video', element: <VideoPage /> },
       { path: '/projects', element: <ProjectsPage /> },
       { path: '/assets', element: <AssetsPage /> },

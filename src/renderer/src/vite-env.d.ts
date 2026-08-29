@@ -28,6 +28,7 @@ interface Window {
       output_name: string;
     }) => Promise<{ file_path: string }>;
     pickVideo: () => Promise<string | null>;
+    pickImage: () => Promise<string | null>;
     pickAudio: () => Promise<string | null>;
     listMediaLibrary: () => Promise<{
       audio: { path: string; name: string; mtime: number }[];

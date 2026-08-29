@@ -104,6 +104,16 @@ export const UserIcon = createIcon(
   </>,
 );
 
+export const CubeIcon = createIcon(
+  'CubeIcon',
+  <>
+    <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
+    <path d="M12 12l8-4.5" />
+    <path d="M12 12v9" />
+    <path d="M12 12L4 7.5" />
+  </>,
+);
+
 export const FilmIcon = createIcon(
   'FilmIcon',
   <>
