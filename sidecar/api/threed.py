@@ -27,6 +27,7 @@ _progress: dict = {
     "percent": 0,
     "detail": "",
     "device": "",
+    "engine": "",
     "weights_cached": False,
     "started_at": 0.0,
 }
@@ -36,8 +37,12 @@ def _set_progress(stage: str, percent: int, detail: str = "") -> None:
     _progress["stage"] = stage
     _progress["percent"] = max(0, min(100, percent))
     _progress["detail"] = detail
-    _progress["weights_cached"] = TRIPOSR_CACHE_KEY in _model_cache
-    print(f"[triposr] stage={stage} {percent}% {detail}", flush=True)
+    from api import hunyuan3d as hunyuan3d_api
+
+    _progress["weights_cached"] = (
+        TRIPOSR_CACHE_KEY in _model_cache or hunyuan3d_api.hunyuan_loaded()
+    )
+    print(f"[3d] stage={stage} {percent}% {detail}", flush=True)
 
 
 class _Heartbeat:
@@ -200,7 +205,7 @@ def _get_triposr_model(force: bool = False):
     hb.start()
     try:
         model = _tsr_from_pretrained(weights, "config.yaml", "model.ckpt")
-        model.renderer.set_chunk_size(4096)
+        model.renderer.set_chunk_size(8192)
         _set_progress("load_weights", 24, device)
         model.to(device)
     finally:
@@ -266,6 +271,71 @@ def _exc_message(exc: BaseException) -> str:
     return text[:400]
 
 
+def _open_photo(image_path: str):
+    from PIL import Image, ImageOps
+
+    # Browsers honor EXIF; PIL does not. Without this, portrait iPhone shots
+    # reconstruct as a mesh lying on its side.
+    return ImageOps.exif_transpose(Image.open(image_path))
+
+
+def _solid_silhouette(image):
+    """Fill interior holes rembg punches in checkered/mesh fabric."""
+    import numpy as np
+    from PIL import Image
+    from scipy.ndimage import binary_closing, binary_fill_holes
+
+    arr = np.array(image)
+    if arr.ndim != 3 or arr.shape[-1] != 4:
+        return image
+    fg = arr[:, :, 3] > 12
+    fg = binary_closing(fg, iterations=2)
+    fg = binary_fill_holes(fg)
+    out = arr.copy()
+    out[:, :, 3] = np.where(fg, np.maximum(out[:, :, 3], 255), 0).astype(np.uint8)
+    return Image.fromarray(out)
+
+
+def _align_to_photo_aspect(mesh, photo_size: tuple[int, int]):
+    """Rotate 90° only when AABB disagrees with the *original* photo (wide vs tall).
+
+    Preprocess pads to a square, so image.size after rembg is useless here.
+    Putting the longest axis on +Y made landscape bags stand on end.
+    """
+    import numpy as np
+    import trimesh
+
+    w, h = photo_size
+    x, y, z = np.asarray(mesh.extents, dtype=np.float64).tolist()
+    horiz = max(x, z)
+    photo_wide = w > h * 1.12
+    photo_tall = h > w * 1.12
+    mesh_tall = y > horiz * 1.12
+    mesh_wide = horiz > y * 1.12
+    if photo_wide and mesh_tall:
+        mesh.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [0.0, 0.0, 1.0]))
+    elif photo_tall and mesh_wide:
+        if x >= z:
+            mesh.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [0.0, 0.0, 1.0]))
+        else:
+            mesh.apply_transform(trimesh.transformations.rotation_matrix(-np.pi / 2, [1.0, 0.0, 0.0]))
+    return mesh
+
+
+def _repair_mesh(mesh):
+    import trimesh
+
+    try:
+        mesh.merge_vertices()
+        mesh.update_faces(mesh.unique_faces())
+        mesh.remove_unreferenced_vertices()
+        mesh.fill_holes()
+        trimesh.repair.fix_normals(mesh)
+    except Exception:  # noqa: BLE001
+        pass
+    return mesh
+
+
 def _preprocess_cpu(image_path: str, remove_bg: bool, foreground_ratio: float = 0.85):
     """Background cut runs on a normal thread — rembg/onnx must not touch the Metal worker."""
     from PIL import Image
@@ -273,6 +343,8 @@ def _preprocess_cpu(image_path: str, remove_bg: bool, foreground_ratio: float = 
     from tsr.utils import resize_foreground
 
     _ensure_triposr_path()
+    photo = _open_photo(image_path)
+    photo_size = photo.size
     if remove_bg:
         _set_progress("preprocess", 30, "rembg")
         hb = _Heartbeat("preprocess", 30)
@@ -280,32 +352,43 @@ def _preprocess_cpu(image_path: str, remove_bg: bool, foreground_ratio: float = 
         try:
             rembg = _import_rembg()
             session = rembg.new_session()
-            image = rembg.remove(Image.open(image_path).convert("RGB"), session=session)
+            image = rembg.remove(photo.convert("RGB"), session=session)
+            image = _solid_silhouette(image)
             image = resize_foreground(image, foreground_ratio)
         finally:
             hb.stop()
     else:
         _set_progress("preprocess", 30, "keep")
-        image = Image.open(image_path).convert("RGBA")
+        image = photo.convert("RGBA")
+
+    if image.mode != "RGBA":
+        image = image.convert("RGBA")
+    return image, photo_size
+
+
+def _rgb_for_triposr(image):
+    """TripoSR wants RGB composited on gray; Hunyuan needs the alpha mask kept."""
+    from PIL import Image
+    import numpy as np
 
     arr = np.array(image).astype(np.float32) / 255.0
     if arr.shape[-1] == 4:
         rgb = arr[:, :, :3] * arr[:, :, 3:4] + (1 - arr[:, :, 3:4]) * 0.5
-        image = Image.fromarray((rgb * 255.0).astype(np.uint8))
-    else:
-        image = Image.fromarray((arr * 255.0).astype(np.uint8))
-    return image
+        return Image.fromarray((rgb * 255.0).astype(np.uint8))
+    return Image.fromarray((arr * 255.0).astype(np.uint8))
 
 
-def _infer_mesh(image, output_format: str, mc_resolution: int) -> str:
+def _infer_mesh(image, output_format: str, mc_resolution: int, photo_size: tuple[int, int]) -> str:
     _unload_image_pipelines()
     entry = _get_triposr_model()
     model = entry["model"]
     device = entry["device"]
     torch = entry["torch"]
+    model.renderer.set_chunk_size(8192)
 
     job_id = f"mesh_{uuid.uuid4().hex[:12]}"
-    out_dir = os.path.expanduser("~/Documents/Canvas/Generated/3D")
+    # Drafts only — the UI copies out via Save as. Not Documents/Canvas/Generated.
+    out_dir = os.path.expanduser("~/Library/Application Support/canvas/mesh-drafts")
     os.makedirs(out_dir, exist_ok=True)
     ext = "glb" if output_format == "glb" else "obj"
     out_path = os.path.join(out_dir, f"{job_id}.{ext}")
@@ -321,12 +404,25 @@ def _infer_mesh(image, output_format: str, mc_resolution: int) -> str:
             hb.stop()
             hb = _Heartbeat("extract", 72)
             hb.start()
-            meshes = model.extract_mesh(scene_codes, True, resolution=mc_resolution)
+            meshes = model.extract_mesh(
+                scene_codes, True, resolution=mc_resolution, threshold=15.0
+            )
     finally:
         hb.stop()
 
     _set_progress("export", 92, ext)
-    meshes[0].export(out_path)
+    from tsr.utils import to_gradio_3d_orientation
+
+    mesh = to_gradio_3d_orientation(meshes[0])
+    mesh = _align_to_photo_aspect(mesh, photo_size)
+    mesh = _repair_mesh(mesh)
+    mesh.export(out_path)
+    for name in os.listdir(out_dir):
+        if name.startswith("mesh_") and name != os.path.basename(out_path):
+            try:
+                os.remove(os.path.join(out_dir, name))
+            except OSError:
+                pass
     _set_progress("done", 100, out_path)
     print(f"[triposr] {job_id} saved {out_path}", flush=True)
     return out_path
@@ -334,48 +430,78 @@ def _infer_mesh(image, output_format: str, mc_resolution: int) -> str:
 
 class MeshRequest(BaseModel):
     image_path: str
-    model_id: str = TRIPOSR_MODEL_ID
+    model_id: str
     output_format: str = "glb"
-    mc_resolution: int = 128
+    mc_resolution: int = 256
     remove_background: bool = True
 
 
 @router.get("/3d/status")
 async def triposr_status():
+    from api import hunyuan3d as hunyuan3d_api
+
     err = _triposr_import_error()
+    hy_err = hunyuan3d_api.hunyuan_import_error()
     weights = _resolve_weights_path()
     local_ready = os.path.isfile(os.path.join(_model_dir(), "model.ckpt"))
     return {
-        "ready": err is None,
+        "ready": err is None or hy_err is None,
         "detail": err,
         "model_id": TRIPOSR_MODEL_ID,
         "weights": weights,
         "weights_local": local_ready,
         "loaded": TRIPOSR_CACHE_KEY in _model_cache,
         "vendor_path": _vendor_root(),
+        "hunyuan_id": hunyuan3d_api.HUNYUAN_MINI_ID,
+        "hunyuan_ready": hy_err is None,
+        "hunyuan_detail": hy_err,
+        "hunyuan_weights_local": hunyuan3d_api.hunyuan_weights_local(),
+        "hunyuan_loaded": hunyuan3d_api.hunyuan_loaded(),
     }
 
 
 @router.get("/3d/progress")
 async def triposr_progress():
+    from api import hunyuan3d as hunyuan3d_api
+
     return {
         "stage": _progress["stage"],
         "percent": _progress["percent"],
         "detail": _progress["detail"],
         "device": _progress["device"],
-        "weights_cached": TRIPOSR_CACHE_KEY in _model_cache,
+        "engine": _progress.get("engine") or "",
+        "weights_cached": TRIPOSR_CACHE_KEY in _model_cache or hunyuan3d_api.hunyuan_loaded(),
         "elapsed_sec": int(time.time() - _progress["started_at"]) if _progress.get("started_at") else 0,
     }
 
 
 @router.post("/3d/mesh")
 async def generate_mesh(request: MeshRequest):
-    if request.model_id != TRIPOSR_MODEL_ID:
-        raise HTTPException(status_code=400, detail=f"Only {TRIPOSR_MODEL_ID} is supported for now")
+    from api import hunyuan3d as hunyuan3d_api
 
-    err = _triposr_import_error()
-    if err:
-        raise HTTPException(status_code=503, detail=err)
+    supported = {TRIPOSR_MODEL_ID, hunyuan3d_api.HUNYUAN_MINI_ID}
+    if request.model_id not in supported:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Supported 3D engines: {', '.join(sorted(supported))}",
+        )
+
+    use_hunyuan = request.model_id == hunyuan3d_api.HUNYUAN_MINI_ID
+    print(f"[3d] generate-mesh model_id={request.model_id} hunyuan={use_hunyuan}", flush=True)
+    _progress["engine"] = "hunyuan" if use_hunyuan else "triposr"
+    if use_hunyuan:
+        err = hunyuan3d_api.hunyuan_import_error()
+        if err:
+            raise HTTPException(status_code=503, detail=err)
+        if not hunyuan3d_api.hunyuan_weights_local():
+            raise HTTPException(
+                status_code=503,
+                detail="Download Hunyuan3D 2 mini in Studio → 3D (tencent/Hunyuan3D-2mini).",
+            )
+    else:
+        err = _triposr_import_error()
+        if err:
+            raise HTTPException(status_code=503, detail=err)
 
     if request.output_format not in ("glb", "obj"):
         raise HTTPException(status_code=400, detail="output_format must be glb or obj")
@@ -389,15 +515,26 @@ async def generate_mesh(request: MeshRequest):
             if not os.path.isfile(request.image_path):
                 raise FileNotFoundError(f"Image not found: {request.image_path}")
             await run_on_gpu(_unload_image_pipelines)
-            image = await asyncio.to_thread(
+            image, photo_size = await asyncio.to_thread(
                 _preprocess_cpu, request.image_path, request.remove_background
             )
-            file_path = await run_on_gpu(
-                _infer_mesh,
-                image,
-                request.output_format,
-                mc_resolution,
-            )
+            if use_hunyuan:
+                file_path = await run_on_gpu(
+                    hunyuan3d_api.infer_hunyuan_mesh,
+                    image,
+                    request.output_format,
+                    mc_resolution,
+                    _set_progress,
+                    photo_size,
+                )
+            else:
+                file_path = await run_on_gpu(
+                    _infer_mesh,
+                    _rgb_for_triposr(image),
+                    request.output_format,
+                    mc_resolution,
+                    photo_size,
+                )
         except FileNotFoundError as exc:
             _set_progress("error", 0, str(exc)[:200])
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -406,9 +543,10 @@ async def generate_mesh(request: MeshRequest):
             _set_progress("error", 0, msg[:200])
             if "out of memory" in msg.lower() or "mps" in msg.lower():
                 await run_on_gpu(_unload_triposr)
+                await run_on_gpu(hunyuan3d_api.unload_hunyuan)
                 raise HTTPException(
                     status_code=507,
-                    detail="TripoSR ran out of GPU memory. Unload image models in Studio and retry with mc_resolution=128.",
+                    detail="3D engine ran out of memory. Unload image models in Studio and retry.",
                 ) from exc
             raise HTTPException(status_code=500, detail=msg) from exc
         except SystemExit as exc:
@@ -435,6 +573,12 @@ async def generate_mesh(request: MeshRequest):
 
 @router.post("/3d/unload")
 async def unload_triposr():
+    from api import hunyuan3d as hunyuan3d_api
+
     async with _generation_lock:
-        unloaded = await run_on_gpu(_unload_triposr)
-    return {"unloaded": unloaded, "loaded": TRIPOSR_CACHE_KEY in _model_cache}
+        unloaded_t = await run_on_gpu(_unload_triposr)
+        unloaded_h = await run_on_gpu(hunyuan3d_api.unload_hunyuan)
+    return {
+        "unloaded": unloaded_t or unloaded_h,
+        "loaded": TRIPOSR_CACHE_KEY in _model_cache or hunyuan3d_api.hunyuan_loaded(),
+    }

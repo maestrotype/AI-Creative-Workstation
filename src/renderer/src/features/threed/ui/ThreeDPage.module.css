@@ -1,3 +1,33 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  width: 100%;
+  max-width: 1180px;
+  margin-inline: auto;
+  gap: var(--space-6);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) minmax(280px, 1fr);
+  gap: var(--space-6);
+  align-items: stretch;
+}
+
+.previewCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 100%;
+}
+
+.previewActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
 .thumbs {
   display: flex;
   flex-wrap: wrap;
@@ -17,4 +47,10 @@
 
 .thumbBtn[data-on='true'] {
   border-color: var(--color-accent);
+}
+
+@media (max-width: 900px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
 }

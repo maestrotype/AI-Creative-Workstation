@@ -44,3 +44,5 @@ coverage
 
 # TripoSR vendor clone (run scripts/setup-triposr.sh)
 sidecar/vendor/TripoSR/
+# Hunyuan3D-2 vendor clone (run scripts/setup-hunyuan3d.sh)
+sidecar/vendor/Hunyuan3D-2/

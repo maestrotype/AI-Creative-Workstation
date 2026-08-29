@@ -31,6 +31,11 @@ IGNORE_PATTERNS = [
 FLUX_MONOLITHIC_DUPES = ["flux1-dev.safetensors", "flux1-schnell.safetensors"]
 ALL_IGNORE_PATTERNS = IGNORE_PATTERNS + FLUX_MONOLITHIC_DUPES
 
+# Shape-only turbo checkpoint. The 2mini repo also has non-turbo / other folders.
+REPO_ALLOW_PREFIXES = {
+    "tencent/Hunyuan3D-2mini": "hunyuan3d-dit-v2-mini-turbo/",
+}
+
 
 def _friendly_error(exc: Exception) -> str:
     """Map common huggingface_hub exceptions to actionable messages."""
@@ -54,12 +59,18 @@ def _friendly_error(exc: Exception) -> str:
 
 def _total_repo_size(repo_id: str, ignore_patterns) -> int:
     """Total size (bytes) of the files we actually download; 0 if unknown."""
+    prefix = REPO_ALLOW_PREFIXES.get(repo_id)
     try:
         entries = HfApi().list_repo_tree(repo_id, repo_type="model", recursive=True)
-        return sum(
-            getattr(e, "size", 0) for e in entries
-            if not any(fnmatch.fnmatch(e.path, p) for p in ignore_patterns)
-        )
+        total = 0
+        for e in entries:
+            path = getattr(e, "path", "")
+            if prefix and not path.startswith(prefix):
+                continue
+            if any(fnmatch.fnmatch(path, p) for p in ignore_patterns):
+                continue
+            total += getattr(e, "size", 0)
+        return total
     except Exception:
         return 0
 
@@ -102,14 +113,16 @@ def download_model(repo_id: str):
     progress_thread.start()
 
     try:
+        prefix = REPO_ALLOW_PREFIXES.get(repo_id)
+        extra = {}
+        if prefix:
+            extra["allow_patterns"] = [f"{prefix.rstrip('/')}/**"]
         snapshot_download(
             repo_id=repo_id,
             local_dir=target_dir,
             token=token,
-            # Skip large redundant formats — keep safetensors AND .bin (some models only have .bin).
-            # Only skip flax/tf/onnx which we never use on Apple Silicon, plus the
-            # monolithic FLUX transformer file (duplicate of the sharded transformer/).
             ignore_patterns=ALL_IGNORE_PATTERNS,
+            **extra,
         )
         print(f"DONE:{target_dir}", flush=True)
     except Exception as e:

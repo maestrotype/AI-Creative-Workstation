@@ -78,12 +78,21 @@ export const CATALOG_ENGINES: CatalogEngine[] = [
     noteKey: 'studio.note_triposr',
   },
   {
+    id: 'tencent/Hunyuan3D-2mini',
+    name: 'Hunyuan3D 2 mini',
+    type: '3d',
+    gated: false,
+    size: '~4 GB',
+    downloadable: true,
+    noteKey: 'studio.note_hunyuan3d',
+  },
+  {
     id: 'tencent/Hunyuan3D-2',
-    name: 'Hunyuan3D 2',
+    name: 'Hunyuan3D 2 (full + paint)',
     type: '3d',
     gated: true,
     size: '~20 GB+',
     downloadable: false,
-    noteKey: 'studio.note_hunyuan3d',
+    noteKey: 'studio.note_hunyuan3d_full',
   },
 ];

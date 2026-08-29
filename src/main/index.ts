@@ -1,10 +1,10 @@
 import { app, shell, BrowserWindow, ipcMain, protocol, net, dialog, desktopCapturer, session } from 'electron';
-import { extname, join } from 'path';
+import { extname, join, resolve } from 'path';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 // import icon from '../../resources/icon.png?asset'
 
 import { spawn, ChildProcess, execFileSync } from 'child_process';
-import { existsSync, mkdirSync, readdirSync, statSync, statfsSync, writeFileSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, statfsSync, unlinkSync, writeFileSync } from 'fs';
 import { homedir, freemem, totalmem } from 'os';
 import { initDb, getDb } from './db';
 import { models, settings } from './db/schema';
@@ -27,6 +27,7 @@ process.on('uncaughtException', (err) => {
 const SIDECAR_URL = 'http://127.0.0.1:57291';
 const SIDECAR_PORT = 57291;
 const ACTIVE_MODEL_KEY = 'active_model_id';
+const ACTIVE_3D_MODEL_KEY = 'active_3d_model_id';
 let sidecarProcess: ChildProcess | null = null;
 let engineStatus: 'stopped' | 'starting' | 'ready' | 'error' = 'stopped';
 let engineDetail = '';
@@ -156,6 +157,17 @@ function resolveActiveModelId(): string | null {
   return ready[0].id;
 }
 
+function resolveActive3dModelId(): string | null {
+  const ready = listReadyModels('3d');
+  if (ready.length === 0) return null;
+  const stored = getSettingValue(ACTIVE_3D_MODEL_KEY);
+  if (stored && ready.some((m) => m.id === stored)) return stored;
+  const hunyuan = ready.find((m) => m.id === 'tencent/Hunyuan3D-2mini');
+  const pick = hunyuan ?? ready[0];
+  putSettingValue(ACTIVE_3D_MODEL_KEY, pick.id);
+  return pick.id;
+}
+
 function startSidecar(): void {
   const sidecarDir = join(__dirname, '../../sidecar');
   const sidecarPath = join(sidecarDir, 'main.py');
@@ -280,6 +292,21 @@ function getStudioResourcesSnapshot() {
 }
 
 async function unloadFromSidecar(modelId: string): Promise<{ unloaded: boolean; reason?: string }> {
+  const row = getDb().select().from(models).where(eq(models.id, modelId)).get();
+  if (row?.type === '3d') {
+    try {
+      const res = await net.fetch(`${SIDECAR_URL}/api/3d/unload`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(180_000),
+      });
+      if (!res.ok) return { unloaded: false, reason: `http-${res.status}` };
+      const body = (await res.json()) as { unloaded?: boolean };
+      return { unloaded: Boolean(body.unloaded), reason: undefined };
+    } catch (e) {
+      console.warn('unload 3d sidecar:', e);
+      return { unloaded: false, reason: 'sidecar-unavailable' };
+    }
+  }
   const cacheKey = toCacheKey(modelId);
   try {
     const res = await net.fetch(`${SIDECAR_URL}/api/models/unload`, {
@@ -300,6 +327,23 @@ async function unloadFromSidecar(modelId: string): Promise<{ unloaded: boolean; 
     console.warn(`unload-model: could not unload ${cacheKey} from sidecar memory:`, e);
     return { unloaded: false, reason: 'sidecar-unavailable' };
   }
+}
+
+function resolveAllowedMeshFile(sourcePath: string): string | null {
+  const ext = extname(sourcePath).toLowerCase();
+  if (ext !== '.glb' && ext !== '.obj') return null;
+  if (!sourcePath || !existsSync(sourcePath)) return null;
+  const allowed = [
+    join(app.getPath('userData'), 'mesh-drafts'),
+    join(homedir(), 'Library/Application Support/canvas/mesh-drafts'),
+    join(homedir(), 'Documents/Canvas/Generated/3D'),
+  ];
+  const resolved = resolve(sourcePath);
+  const ok = allowed.some((dir) => {
+    const base = resolve(dir);
+    return resolved === base || resolved.startsWith(`${base}/`);
+  });
+  return ok ? resolved : null;
 }
 
 function setupIpc() {
@@ -354,6 +398,18 @@ function setupIpc() {
       throw new Error('Model is not installed');
     }
     putSettingValue(ACTIVE_MODEL_KEY, modelId);
+    broadcast('models-updated');
+    return true;
+  });
+
+  ipcMain.handle('get-active-3d-model', async () => resolveActive3dModelId());
+
+  ipcMain.handle('set-active-3d-model', async (_, modelId: string) => {
+    const ready = listReadyModels('3d');
+    if (!ready.some((m) => m.id === modelId)) {
+      throw new Error('Model is not installed');
+    }
+    putSettingValue(ACTIVE_3D_MODEL_KEY, modelId);
     broadcast('models-updated');
     return true;
   });
@@ -599,10 +655,10 @@ function setupIpc() {
   ipcMain.handle('get-3d-progress', async () => {
     try {
       const res = await net.fetch(`${SIDECAR_URL}/api/3d/progress`, { signal: AbortSignal.timeout(2000) });
-      if (!res.ok) return { stage: 'idle', percent: 0, detail: '', device: '', weights_cached: false };
+      if (!res.ok) return { stage: 'idle', percent: 0, detail: '', device: '', engine: '', weights_cached: false };
       return res.json();
     } catch {
-      return { stage: 'idle', percent: 0, detail: '', device: '', weights_cached: false };
+      return { stage: 'idle', percent: 0, detail: '', device: '', engine: '', weights_cached: false };
     }
   });
 
@@ -617,17 +673,18 @@ function setupIpc() {
     if (!sidecarReady.ok) {
       throw new Error(sidecarReady.error || 'Sidecar unavailable');
     }
+    const modelId = payload.model_id || resolveActive3dModelId() || 'tencent/Hunyuan3D-2mini';
     const res = await net.fetch(`${SIDECAR_URL}/api/3d/mesh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         image_path: payload.image_path,
-        model_id: payload.model_id ?? 'stabilityai/TripoSR',
+        model_id: modelId,
         output_format: payload.output_format ?? 'glb',
-        mc_resolution: payload.mc_resolution ?? 128,
+        mc_resolution: payload.mc_resolution ?? 256,
         remove_background: payload.remove_background ?? true,
       }),
-      signal: AbortSignal.timeout(20 * 60 * 1000),
+      signal: AbortSignal.timeout(40 * 60 * 1000),
     });
     const raw = await res.text();
     let body: {
@@ -650,6 +707,36 @@ function setupIpc() {
 
   ipcMain.handle('open-path', async (_, filePath: string) => {
     await shell.openPath(filePath);
+    return true;
+  });
+
+  ipcMain.handle('save-mesh-as', async (_, sourcePath: string) => {
+    const resolved = resolveAllowedMeshFile(sourcePath);
+    if (!resolved) {
+      throw new Error('No mesh draft to save');
+    }
+    const ext = extname(resolved).replace('.', '').toLowerCase() || 'glb';
+    const result = await dialog.showSaveDialog({
+      title: 'Save mesh',
+      defaultPath: `mesh.${ext}`,
+      filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    copyFileSync(resolved, result.filePath);
+    return result.filePath;
+  });
+
+  ipcMain.handle('read-mesh-file', async (_, sourcePath: string) => {
+    const resolved = resolveAllowedMeshFile(sourcePath);
+    if (!resolved) throw new Error('Mesh file is not available to preview');
+    const buf = readFileSync(resolved);
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  });
+
+  ipcMain.handle('discard-mesh-draft', async (_, sourcePath: string) => {
+    const resolved = resolveAllowedMeshFile(sourcePath);
+    if (!resolved) return false;
+    unlinkSync(resolved);
     return true;
   });
 
@@ -700,6 +787,11 @@ function setupIpc() {
       const next = listReadyModels('image')[0];
       if (next) putSettingValue(ACTIVE_MODEL_KEY, next.id);
       else getDb().delete(settings).where(eq(settings.key, ACTIVE_MODEL_KEY)).run();
+    }
+    if (getSettingValue(ACTIVE_3D_MODEL_KEY) === modelId) {
+      const next3d = listReadyModels('3d')[0];
+      if (next3d) putSettingValue(ACTIVE_3D_MODEL_KEY, next3d.id);
+      else getDb().delete(settings).where(eq(settings.key, ACTIVE_3D_MODEL_KEY)).run();
     }
 
     broadcast('models-updated');

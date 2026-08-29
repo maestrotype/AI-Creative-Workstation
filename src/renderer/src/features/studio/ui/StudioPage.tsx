@@ -41,6 +41,7 @@ export function StudioPage(): ReactNode {
   const [resources, setResources] = useState<StudioResourcesState | null>(null);
   const [loadedCacheKeys, setLoadedCacheKeys] = useState<string[]>([]);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
+  const [active3dModelId, setActive3dModelId] = useState<string | null>(null);
   const [unloadingId, setUnloadingId] = useState<string | null>(null);
   const [unloadError, setUnloadError] = useState<string | null>(null);
   const [voiceHas, setVoiceHas] = useState(false);
@@ -79,6 +80,11 @@ export function StudioPage(): ReactNode {
         setActiveModelId(await window.api.getActiveModel());
       } catch {
         setActiveModelId(null);
+      }
+      try {
+        setActive3dModelId(await window.api.getActive3dModel());
+      } catch {
+        setActive3dModelId(null);
       }
       void refreshResources();
     }
@@ -128,8 +134,9 @@ export function StudioPage(): ReactNode {
   };
 
   const handleUse = async (modelId: string) => {
-    if (family !== 'image' || !window.api) return;
-    await window.api.setActiveModel(modelId);
+    if (!window.api) return;
+    if (family === 'image') await window.api.setActiveModel(modelId);
+    if (family === '3d') await window.api.setActive3dModel(modelId);
     await loadModels();
   };
 
@@ -184,6 +191,9 @@ export function StudioPage(): ReactNode {
         {m.status === 'ready' && family === 'image' && activeModelId === m.id && (
           <span className={styles.status}>{t('studio.using')}</span>
         )}
+        {m.status === 'ready' && family === '3d' && active3dModelId === m.id && (
+          <span className={styles.status}>{t('studio.using')}</span>
+        )}
         {m.status === 'ready' && inRam && (
           <span className={styles.status}>{t('studio.in_ram')}</span>
         )}
@@ -196,6 +206,16 @@ export function StudioPage(): ReactNode {
           </span>
         )}
         {m.status === 'ready' && family === 'image' && activeModelId !== m.id && (
+          <button
+            type="button"
+            className={styles.textButton}
+            onClick={() => handleUse(m.id)}
+            title={t('studio.use_title')}
+          >
+            {t('studio.use')}
+          </button>
+        )}
+        {m.status === 'ready' && family === '3d' && active3dModelId !== m.id && (
           <button
             type="button"
             className={styles.textButton}

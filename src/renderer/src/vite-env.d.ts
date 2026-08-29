@@ -19,6 +19,8 @@ interface Window {
     getLoadedModels: () => Promise<string[]>;
     getActiveModel: () => Promise<string | null>;
     setActiveModel: (modelId: string) => Promise<boolean>;
+    getActive3dModel: () => Promise<string | null>;
+    setActive3dModel: (modelId: string) => Promise<boolean>;
     getEngineStatus: () => Promise<{ status: string; detail: string }>;
     generateImage: (payload: {
       prompt: string;
@@ -75,12 +77,18 @@ interface Window {
       weights?: string;
       weights_local?: boolean;
       loaded?: boolean;
+      hunyuan_id?: string;
+      hunyuan_ready?: boolean;
+      hunyuan_detail?: string | null;
+      hunyuan_weights_local?: boolean;
+      hunyuan_loaded?: boolean;
     }>;
     get3dProgress: () => Promise<{
       stage: string;
       percent: number;
       detail?: string;
       device?: string;
+      engine?: string;
       weights_cached?: boolean;
     }>;
     generateMesh: (payload: {
@@ -95,6 +103,9 @@ interface Window {
       model_id: string;
       format: string;
     }>;
+    saveMeshAs: (sourcePath: string) => Promise<string | null>;
+    readMeshFile: (sourcePath: string) => Promise<ArrayBuffer>;
+    discardMeshDraft: (sourcePath: string) => Promise<boolean>;
     openPath: (filePath: string) => Promise<boolean>;
     getSetting: (key: string) => Promise<string | null>;
     setSetting: (key: string, value: string) => Promise<boolean>;

@@ -16,6 +16,8 @@ const api = {
   getLoadedModels: () => ipcRenderer.invoke('get-loaded-models'),
   getActiveModel: () => ipcRenderer.invoke('get-active-model'),
   setActiveModel: (modelId: string) => ipcRenderer.invoke('set-active-model', modelId),
+  getActive3dModel: () => ipcRenderer.invoke('get-active-3d-model'),
+  setActive3dModel: (modelId: string) => ipcRenderer.invoke('set-active-3d-model', modelId),
   getEngineStatus: () => ipcRenderer.invoke('get-engine-status'),
   generateImage: (payload: {
     prompt: string;
@@ -62,6 +64,9 @@ const api = {
     mc_resolution?: number;
     remove_background?: boolean;
   }) => ipcRenderer.invoke('generate-mesh', payload),
+  saveMeshAs: (sourcePath: string) => ipcRenderer.invoke('save-mesh-as', sourcePath),
+  readMeshFile: (sourcePath: string) => ipcRenderer.invoke('read-mesh-file', sourcePath) as Promise<ArrayBuffer>,
+  discardMeshDraft: (sourcePath: string) => ipcRenderer.invoke('discard-mesh-draft', sourcePath),
   openPath: (filePath: string) => ipcRenderer.invoke('open-path', filePath),
   getSetting: (key: string) => ipcRenderer.invoke('get-setting', key),
   setSetting: (key: string, value: string) => ipcRenderer.invoke('set-setting', key, value),
