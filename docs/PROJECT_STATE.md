@@ -2,8 +2,10 @@
 > **Purpose:** This document is the single source of truth for the current development state, recent changes, and immediate next steps. It is designed to be read by AI agents to quickly gain context without traversing Git logs.
 
 ## Current Focus
-**Branch:** `feat/canvas-start-page-claude-opus-4.6-thinking`
-**Goal:** Complete the Start Page (Home) implementation based on `INFORMATION_ARCHITECTURE.md`.
+**Branch:** `feat/triposr-3d-sidecar` (and related studio/3D/video work)
+**Living plans:** Video + local TTS (not LTX/Wan yet) — [VIDEO_STUDIO_PLAN.md](product/VIDEO_STUDIO_PLAN.md). Revise that file as capabilities and goals change.
+
+**Goal:** Keep product docs aligned with what the Electron + sidecar app actually does.
 
 ## Recently Completed
 - [x] Initial React + Vite architecture setup with CSS modules.

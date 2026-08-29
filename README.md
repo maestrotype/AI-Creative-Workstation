@@ -58,7 +58,8 @@ docs/
 │   ├── PERSONAS.md                ← Who we're building for (with JTBD).
 │   ├── POSITIONING.md             ← How we compete and where we stand.
 │   ├── COMPETITIVE_ANALYSIS.md    ← Deep research on every relevant competitor.
-│   └── PRODUCT_MOAT.md            ← What's genuinely defensible (honest analysis).
+│   ├── PRODUCT_MOAT.md            ← What's genuinely defensible (honest analysis).
+│   └── VIDEO_STUDIO_PLAN.md       ← Living plan: Video page + Studio engines + local TTS (revise as we learn).
 │
 ├── ux/
 │   ├── UX_PRINCIPLES.md           ← 10 interaction design principles.

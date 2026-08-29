@@ -191,7 +191,7 @@ This demonstrates:
 ### V1 Technical Additions
 - Windows Electron build with CUDA inference path
 - Hunyuan 3D Python integration
-- CoquiTTS or Kokoro-TTS for local voice synthesis
+- CoquiTTS or Kokoro-TTS for local voice synthesis (XTTS clone + timeline mix: see [VIDEO_STUDIO_PLAN.md](../product/VIDEO_STUDIO_PLAN.md); Coqui is still optional `pip install`)
 - Three.js 3D viewport component
 - Enhanced job queue with dependency tracking
 - Stripe integration for billing
@@ -212,6 +212,8 @@ This demonstrates:
 - Character consistency across video shots (key technical challenge)
 - Short video clips: 3–8 seconds
 - Video scene assembly (multi-clip project)
+
+**Now (pre-V2, living):** Slideshow + screencast ffmpeg and prompt TTS are specified in [VIDEO_STUDIO_PLAN.md](../product/VIDEO_STUDIO_PLAN.md). Update that file when motion actually ships; do not treat this V2 list as current UI.
 
 #### AI Director
 - Production plan generation from creative brief

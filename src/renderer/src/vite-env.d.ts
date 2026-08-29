@@ -37,6 +37,21 @@ interface Window {
       height: number;
       output_name: string;
     }) => Promise<{ file_path: string }>;
+    loadVideoHistory: () => Promise<{
+      savedAt: number;
+      currentId: string;
+      drafts: Array<{
+        id: string;
+        updatedAt: number;
+        topic: string;
+        format: 'landscape' | 'shorts';
+        durationSec: number;
+        plan: unknown;
+        outputPath: string | null;
+      }>;
+    } | null>;
+    saveVideoHistory: (payload: unknown) => Promise<boolean>;
+    listGeneratedStills: () => Promise<{ path: string; mtime: number }[]>;
     pickVideo: () => Promise<string | null>;
     pickImage: () => Promise<string | null>;
     pickImages: () => Promise<string[] | null>;
@@ -105,7 +120,10 @@ interface Window {
     }>;
     saveMeshAs: (sourcePath: string) => Promise<string | null>;
     readMeshFile: (sourcePath: string) => Promise<ArrayBuffer>;
+    readVideoDraft: (sourcePath: string) => Promise<ArrayBuffer>;
     discardMeshDraft: (sourcePath: string) => Promise<boolean>;
+    saveVideoAs: (sourcePath: string) => Promise<string | null>;
+    discardVideoDraft: (sourcePath: string) => Promise<boolean>;
     openPath: (filePath: string) => Promise<boolean>;
     getSetting: (key: string) => Promise<string | null>;
     setSetting: (key: string, value: string) => Promise<boolean>;

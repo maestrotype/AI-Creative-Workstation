@@ -5,9 +5,26 @@ import re
 import shutil
 import subprocess
 import tempfile
+import uuid
 from typing import List
+from urllib.parse import unquote
 
 router = APIRouter()
+
+
+def _video_draft_dir() -> str:
+    """Working copies only. The app copies out via Save As, like 3D mesh drafts."""
+    path = os.path.expanduser("~/Documents/Canvas/Generated/Video/drafts")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _disk_image_path(path: str) -> str:
+    """asset:// URLs may include a cache-buster query; ffmpeg needs the real file."""
+    cleaned = (path or "").split("?", 1)[0]
+    if cleaned.startswith("asset://"):
+        cleaned = cleaned[len("asset://") :]
+    return unquote(cleaned)
 
 
 class AssembleRequest(BaseModel):
@@ -33,35 +50,63 @@ def assemble_video(request: AssembleRequest):
     if not request.image_paths or len(request.image_paths) != len(request.durations):
         raise HTTPException(status_code=400, detail="image_paths and durations must be non-empty and the same length")
 
-    for path in request.image_paths:
+    image_paths = [_disk_image_path(p) for p in request.image_paths]
+    for path in image_paths:
         if not os.path.isfile(path):
             raise HTTPException(status_code=400, detail=f"Missing image: {path}")
 
     ffmpeg = _ffmpeg_bin()
-    out_dir = os.path.expanduser("~/Documents/Canvas/Generated/Video")
-    os.makedirs(out_dir, exist_ok=True)
-    output_path = os.path.join(out_dir, f"{request.output_name}.mp4")
+    output_path = os.path.join(_video_draft_dir(), f"draft-{uuid.uuid4().hex[:12]}.mp4")
 
     w, h = request.width, request.height
-    scale = f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},fps=30,format=yuv420p"
+    # Even sizes required by libx264 / zoompan.
+    w = max(2, w - (w % 2))
+    h = max(2, h - (h % 2))
 
     with tempfile.TemporaryDirectory() as tmp:
+        clips = []
+        for idx, (path, duration) in enumerate(zip(image_paths, request.durations)):
+            frames = max(15, int(round(max(0.5, float(duration)) * 30)))
+            clip = os.path.join(tmp, f"clip_{idx:03d}.mp4")
+            # Slow zoom (Ken Burns) so stills are not a static slideshow.
+            vf = (
+                f"scale={w}:{h}:force_original_aspect_ratio=increase,"
+                f"crop={w}:{h},"
+                f"zoompan=z='min(1+0.0005*on,1.07)':x='iw/2-(iw/zoom/2)':"
+                f"y='ih/2-(ih/zoom/2)':d={frames}:s={w}x{h}:fps=30,"
+                f"format=yuv420p"
+            )
+            cmd = [
+                ffmpeg, "-y",
+                "-loop", "1",
+                "-i", path,
+                "-frames:v", str(frames),
+                "-vf", vf,
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-an",
+                clip,
+            ]
+            try:
+                subprocess.run(cmd, check=True, capture_output=True, text=True)
+            except subprocess.CalledProcessError as exc:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(exc.stderr or exc.stdout or "ffmpeg still clip failed")[:500],
+                ) from exc
+            clips.append(clip)
+
         list_path = os.path.join(tmp, "concat.txt")
         with open(list_path, "w", encoding="utf-8") as handle:
-            for path, duration in zip(request.image_paths, request.durations):
-                safe = path.replace("'", "'\\''")
+            for clip in clips:
+                safe = clip.replace("'", "'\\''")
                 handle.write(f"file '{safe}'\n")
-                handle.write(f"duration {max(0.5, float(duration))}\n")
-            last = request.image_paths[-1].replace("'", "'\\''")
-            handle.write(f"file '{last}'\n")
 
         cmd = [
-            ffmpeg,
-            "-y",
+            ffmpeg, "-y",
             "-f", "concat",
             "-safe", "0",
             "-i", list_path,
-            "-vf", scale,
             "-c:v", "libx264",
             "-pix_fmt", "yuv420p",
             "-movflags", "+faststart",
@@ -216,10 +261,7 @@ def clean_screencast(request: CleanScreencastRequest):
         f"floor(iw*{left}/2)*2:floor(ih*{top}/2)*2,format=yuv420p"
     )
 
-    out_dir = os.path.expanduser("~/Documents/Canvas/Generated/Video")
-    os.makedirs(out_dir, exist_ok=True)
-    base = os.path.splitext(os.path.basename(src))[0]
-    output_path = os.path.join(out_dir, f"{base}-cleaned.mp4")
+    output_path = os.path.join(_video_draft_dir(), f"draft-{uuid.uuid4().hex[:12]}.mp4")
 
     cmd = [
         ffmpeg, "-y",

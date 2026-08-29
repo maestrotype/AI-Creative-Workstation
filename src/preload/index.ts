@@ -34,6 +34,9 @@ const api = {
     height: number;
     output_name: string;
   }) => ipcRenderer.invoke('assemble-video', payload),
+  loadVideoHistory: () => ipcRenderer.invoke('load-video-history'),
+  saveVideoHistory: (payload: unknown) => ipcRenderer.invoke('save-video-history', payload),
+  listGeneratedStills: () => ipcRenderer.invoke('list-generated-stills') as Promise<{ path: string; mtime: number }[]>,
   pickVideo: () => ipcRenderer.invoke('pick-video'),
   pickImage: () => ipcRenderer.invoke('pick-image'),
   pickImages: () => ipcRenderer.invoke('pick-images'),
@@ -66,7 +69,10 @@ const api = {
   }) => ipcRenderer.invoke('generate-mesh', payload),
   saveMeshAs: (sourcePath: string) => ipcRenderer.invoke('save-mesh-as', sourcePath),
   readMeshFile: (sourcePath: string) => ipcRenderer.invoke('read-mesh-file', sourcePath) as Promise<ArrayBuffer>,
+  readVideoDraft: (sourcePath: string) => ipcRenderer.invoke('read-video-draft', sourcePath) as Promise<ArrayBuffer>,
   discardMeshDraft: (sourcePath: string) => ipcRenderer.invoke('discard-mesh-draft', sourcePath),
+  saveVideoAs: (sourcePath: string) => ipcRenderer.invoke('save-video-as', sourcePath),
+  discardVideoDraft: (sourcePath: string) => ipcRenderer.invoke('discard-video-draft', sourcePath),
   openPath: (filePath: string) => ipcRenderer.invoke('open-path', filePath),
   getSetting: (key: string) => ipcRenderer.invoke('get-setting', key),
   setSetting: (key: string, value: string) => ipcRenderer.invoke('set-setting', key, value),

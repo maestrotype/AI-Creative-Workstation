@@ -4,7 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 // import icon from '../../resources/icon.png?asset'
 
 import { spawn, ChildProcess, execFileSync } from 'child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, statfsSync, unlinkSync, writeFileSync } from 'fs';
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, statfsSync, unlinkSync, writeFileSync } from 'fs';
 import { homedir, freemem, totalmem } from 'os';
 import { initDb, getDb } from './db';
 import { models, settings } from './db/schema';
@@ -329,6 +329,23 @@ async function unloadFromSidecar(modelId: string): Promise<{ unloaded: boolean; 
   }
 }
 
+function resolveAllowedVideoFile(sourcePath: string): string | null {
+  const ext = extname(sourcePath).toLowerCase();
+  if (ext !== '.mp4' && ext !== '.mov' && ext !== '.m4v' && ext !== '.webm') return null;
+  if (!sourcePath || !existsSync(sourcePath)) return null;
+  const allowed = [
+    join(app.getPath('userData'), 'video-drafts'),
+    join(homedir(), 'Library/Application Support/canvas/video-drafts'),
+    join(homedir(), 'Documents/Canvas/Generated/Video'),
+  ];
+  const resolved = resolve(sourcePath);
+  const ok = allowed.some((dir) => {
+    const base = resolve(dir);
+    return resolved === base || resolved.startsWith(`${base}/`);
+  });
+  return ok ? resolved : null;
+}
+
 function resolveAllowedMeshFile(sourcePath: string): string | null {
   const ext = extname(sourcePath).toLowerCase();
   if (ext !== '.glb' && ext !== '.obj') return null;
@@ -480,6 +497,41 @@ function setupIpc() {
       throw new Error(body.detail != null ? String(body.detail).slice(0, 400) : `HTTP ${res.status}`);
     }
     return { file_path: body.file_path as string };
+  });
+
+  const videoHistoryPath = () => join(homedir(), 'Documents/Canvas/Generated/Video/idea-history.json');
+
+  ipcMain.handle('load-video-history', async () => {
+    const p = videoHistoryPath();
+    if (!existsSync(p)) return null;
+    try {
+      return JSON.parse(readFileSync(p, 'utf8'));
+    } catch {
+      return null;
+    }
+  });
+
+  ipcMain.handle('save-video-history', async (_, payload: unknown) => {
+    const dir = join(homedir(), 'Documents/Canvas/Generated/Video');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(videoHistoryPath(), JSON.stringify(payload, null, 2), 'utf8');
+    return true;
+  });
+
+  ipcMain.handle('list-generated-stills', async () => {
+    const dir = join(homedir(), 'Documents/Canvas/Generated');
+    if (!existsSync(dir)) return [];
+    const rows: { path: string; mtime: number }[] = [];
+    for (const name of readdirSync(dir)) {
+      if (!/\.(png|jpe?g|webp)$/i.test(name)) continue;
+      const path = join(dir, name);
+      try {
+        rows.push({ path, mtime: statSync(path).mtimeMs });
+      } catch {
+        /* skip */
+      }
+    }
+    return rows.sort((a, b) => b.mtime - a.mtime).slice(0, 24);
   });
 
   ipcMain.handle('pick-video', async () => {
@@ -726,9 +778,38 @@ function setupIpc() {
     return result.filePath;
   });
 
+  ipcMain.handle('save-video-as', async (_, sourcePath: string) => {
+    const resolved = resolveAllowedVideoFile(sourcePath);
+    if (!resolved) {
+      throw new Error('No video draft to save');
+    }
+    const result = await dialog.showSaveDialog({
+      title: 'Save video',
+      defaultPath: 'video.mp4',
+      filters: [{ name: 'MP4', extensions: ['mp4'] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    copyFileSync(resolved, result.filePath);
+    return result.filePath;
+  });
+
+  ipcMain.handle('discard-video-draft', async (_, sourcePath: string) => {
+    const resolved = resolveAllowedVideoFile(sourcePath);
+    if (!resolved) return false;
+    unlinkSync(resolved);
+    return true;
+  });
+
   ipcMain.handle('read-mesh-file', async (_, sourcePath: string) => {
     const resolved = resolveAllowedMeshFile(sourcePath);
     if (!resolved) throw new Error('Mesh file is not available to preview');
+    const buf = readFileSync(resolved);
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  });
+
+  ipcMain.handle('read-video-draft', async (_, sourcePath: string) => {
+    const resolved = resolveAllowedVideoFile(sourcePath);
+    if (!resolved) throw new Error('Video file is not available to preview');
     const buf = readFileSync(resolved);
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   });
@@ -909,8 +990,74 @@ function setupDownload(db: ReturnType<typeof getDb>, model: any): boolean {
 
 // Register custom protocol for local assets
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'asset', privileges: { bypassCSP: true, supportFetchAPI: true, secure: true } }
+  { scheme: 'asset', privileges: { bypassCSP: true, supportFetchAPI: true, secure: true, stream: true } },
 ]);
+
+const ASSET_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.m4v': 'video/mp4',
+  '.webm': 'video/webm',
+};
+
+function assetPathFromUrl(url: string): string {
+  const stripped = url.replace(/^asset:\/\//, '').split('?')[0];
+  const decoded = decodeURIComponent(stripped);
+  return decoded.startsWith('/') ? decoded : `/${decoded}`;
+}
+
+function serveAssetFile(request: Request): Response {
+  const filePath = assetPathFromUrl(request.url);
+  if (!existsSync(filePath)) {
+    return new Response('Not found', { status: 404 });
+  }
+
+  const stat = statSync(filePath);
+  const fileSize = stat.size;
+  const contentType = ASSET_MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
+  const range = request.headers.get('Range');
+
+  if (range) {
+    const match = /^bytes=(\d*)-(\d*)$/i.exec(range.trim());
+    if (!match) {
+      return new Response('Invalid range', { status: 416 });
+    }
+    const start = match[1] ? parseInt(match[1], 10) : 0;
+    const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+    if (Number.isNaN(start) || Number.isNaN(end) || start >= fileSize || end >= fileSize || start > end) {
+      return new Response('Range not satisfiable', {
+        status: 416,
+        headers: { 'Content-Range': `bytes */${fileSize}` },
+      });
+    }
+    const chunkSize = end - start + 1;
+    const stream = createReadStream(filePath, { start, end });
+    return new Response(stream as unknown as BodyInit, {
+      status: 206,
+      headers: {
+        'Content-Type': contentType,
+        'Content-Length': String(chunkSize),
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+      },
+    });
+  }
+
+  const stream = createReadStream(filePath);
+  return new Response(stream as unknown as BodyInit, {
+    status: 200,
+    headers: {
+      'Content-Type': contentType,
+      'Content-Length': String(fileSize),
+      'Accept-Ranges': 'bytes',
+    },
+  });
+}
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -955,13 +1102,8 @@ app.whenReady().then(() => {
     }).catch(() => callback({}));
   });
 
-  // Handle custom asset:// protocol to load generated images
-  protocol.handle('asset', (request) => {
-    const stripped = request.url.replace(/^asset:\/\//, '').split('?')[0];
-    const decodedPath = decodeURIComponent(stripped);
-    const absolutePath = decodedPath.startsWith('/') ? decodedPath : `/${decodedPath}`;
-    return net.fetch(`file://${absolutePath}`);
-  });
+  // Local files for images and video preview (video needs byte-range + stream privilege).
+  protocol.handle('asset', (request) => serveAssetFile(request));
 
   initDb();
   setupIpc();
