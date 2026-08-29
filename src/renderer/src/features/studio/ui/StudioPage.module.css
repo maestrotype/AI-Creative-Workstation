@@ -106,6 +106,32 @@
   color: var(--color-accent);
 }
 
+.statusMuted {
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: var(--weight-medium);
+  background-color: var(--color-bg-elevated);
+  color: var(--color-text-tertiary);
+}
+
+.errorSnippet {
+  font-size: 11px;
+  color: #e53e3e;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.errorActions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 120px;
+}
+
 .actions {
   display: flex;
   gap: var(--space-4);

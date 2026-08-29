@@ -74,7 +74,7 @@ export const CATALOG_ENGINES: CatalogEngine[] = [
     type: '3d',
     gated: false,
     size: '~1.5 GB',
-    downloadable: false,
+    downloadable: true,
     noteKey: 'studio.note_triposr',
   },
   {

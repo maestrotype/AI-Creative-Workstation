@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router-dom';
+import { formatBytes } from '../../../shared/lib/formatBytes';
 import styles from './StudioPage.module.css';
 import { CATALOG_ENGINES, ENGINE_FAMILIES, type EngineFamily } from '../model/engineCatalog';
+import { DownloadProgress, type DownloadProgressState } from './DownloadProgress';
+import { StudioResources } from './StudioResources';
 
 interface Model {
   id: string;
@@ -13,8 +16,19 @@ interface Model {
   errorMessage?: string | null;
 }
 
+interface StudioResourcesState {
+  ramTotal: number;
+  ramFree: number;
+  diskTotal: number;
+  diskFree: number;
+}
+
 function isFamily(value: string | null): value is EngineFamily {
   return ENGINE_FAMILIES.includes(value as EngineFamily);
+}
+
+function catalogSize(modelId: string): string | null {
+  return CATALOG_ENGINES.find((m) => m.id === modelId)?.size ?? null;
 }
 
 export function StudioPage(): ReactNode {
@@ -22,7 +36,9 @@ export function StudioPage(): ReactNode {
   const [searchParams, setSearchParams] = useSearchParams();
   const family: EngineFamily = isFamily(searchParams.get('family')) ? searchParams.get('family') as EngineFamily : 'image';
   const [models, setModels] = useState<Model[]>([]);
-  const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
+  const [downloadProgress, setDownloadProgress] = useState<Record<string, DownloadProgressState>>({});
+  const [diskUsage, setDiskUsage] = useState<Record<string, number>>({});
+  const [resources, setResources] = useState<StudioResourcesState | null>(null);
   const [loadedCacheKeys, setLoadedCacheKeys] = useState<string[]>([]);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [unloadingId, setUnloadingId] = useState<string | null>(null);
@@ -33,6 +49,21 @@ export function StudioPage(): ReactNode {
   const toCacheKey = (modelId: string) => modelId.replaceAll('/', '__');
   const familyModels = models.filter((m) => m.type === family);
   const catalog = CATALOG_ENGINES.filter((m) => m.type === family);
+
+  const refreshResources = useCallback(async () => {
+    if (!window.api?.getStudioResources || !window.api?.getModelDiskUsage) return;
+    const [res, usage] = await Promise.all([
+      window.api.getStudioResources(),
+      window.api.getModelDiskUsage(),
+    ]);
+    setResources({
+      ramTotal: res.ram_total,
+      ramFree: res.ram_free,
+      diskTotal: res.disk_total,
+      diskFree: res.disk_free,
+    });
+    setDiskUsage(usage);
+  }, []);
 
   const loadModels = async () => {
     if (window.api) {
@@ -49,23 +80,39 @@ export function StudioPage(): ReactNode {
       } catch {
         setActiveModelId(null);
       }
+      void refreshResources();
     }
   };
 
   useEffect(() => {
-    loadModels();
+    void loadModels();
+    void refreshResources();
     void window.api?.getVoiceProfile?.().then((profile) => {
       setVoiceHas(profile.has_sample);
       setTtsReady(profile.tts_ready);
     }).catch(() => {});
 
-    const cleanupModels = window.api?.onModelsUpdated(() => loadModels()) ?? (() => {});
-    const cleanupProgress = window.api?.onDownloadProgress(({ modelId, percent }) => {
-      setDownloadProgress((prev) => ({ ...prev, [modelId]: percent }));
+    const cleanupModels = window.api?.onModelsUpdated(() => { void loadModels(); }) ?? (() => {});
+    const cleanupProgress = window.api?.onDownloadProgress(({ modelId, percent, downloadedBytes, totalBytes }) => {
+      setDownloadProgress((prev) => ({
+        ...prev,
+        [modelId]: { percent, downloadedBytes, totalBytes },
+      }));
+      void refreshResources();
     }) ?? (() => {});
 
-    return () => { cleanupModels(); cleanupProgress(); };
-  }, []);
+    const timer = window.setInterval(() => { void refreshResources(); }, 8000);
+    const loadedTimer = window.setInterval(() => {
+      void window.api?.getLoadedModels?.().then(setLoadedCacheKeys).catch(() => {});
+    }, 5000);
+
+    return () => {
+      cleanupModels();
+      cleanupProgress();
+      window.clearInterval(timer);
+      window.clearInterval(loadedTimer);
+    };
+  }, [refreshResources]);
 
   const handleDownload = async (model: (typeof CATALOG_ENGINES)[number]) => {
     if (!model.downloadable || !window.api) return;
@@ -107,6 +154,79 @@ export function StudioPage(): ReactNode {
     if (!window.api) return;
     if (!window.confirm(t('studio.delete_confirm'))) return;
     await window.api.deleteModel(modelId);
+    await loadModels();
+  };
+
+  const renderDiskLabel = (modelId: string, status: string) => {
+    const bytes = diskUsage[modelId] ?? 0;
+    if (bytes > 0) return t('studio.on_disk', { size: formatBytes(bytes) });
+    if (status === 'downloading') return catalogSize(modelId) ?? t('studio.downloading_size_unknown');
+    return catalogSize(modelId);
+  };
+
+  const renderModelActions = (m: Model) => {
+    const inRam = loadedCacheKeys.includes(toCacheKey(m.id));
+    const isDownloading = m.status === 'downloading';
+
+    if (isDownloading) {
+      return (
+        <DownloadProgress progress={downloadProgress[m.id]} />
+      );
+    }
+
+    return (
+      <div className={styles.modelActions}>
+        <span className={styles.status} style={{
+          color: m.status === 'error' ? '#e53e3e' : m.status === 'ready' ? '#48bb78' : undefined,
+        }}>
+          {m.status === 'ready' ? '✓ ready' : m.status === 'error' ? '✗ error' : m.status}
+        </span>
+        {m.status === 'ready' && family === 'image' && activeModelId === m.id && (
+          <span className={styles.status}>{t('studio.using')}</span>
+        )}
+        {m.status === 'ready' && inRam && (
+          <span className={styles.status}>{t('studio.in_ram')}</span>
+        )}
+        {m.status === 'ready' && !inRam && (
+          <span className={styles.statusMuted} title={t('studio.not_in_ram_hint')}>{t('studio.not_in_ram')}</span>
+        )}
+        {m.status === 'error' && m.errorMessage && (
+          <span className={styles.errorSnippet} title={m.errorMessage ?? undefined}>
+            {m.errorMessage}
+          </span>
+        )}
+        {m.status === 'ready' && family === 'image' && activeModelId !== m.id && (
+          <button
+            type="button"
+            className={styles.textButton}
+            onClick={() => handleUse(m.id)}
+            title={t('studio.use_title')}
+          >
+            {t('studio.use')}
+          </button>
+        )}
+        {m.status === 'ready' && inRam && (
+          <button
+            type="button"
+            className={styles.textButton}
+            onClick={() => { void handleUnload(m.id); }}
+            disabled={unloadingId === m.id}
+            title={t('studio.unload_title')}
+          >
+            {unloadingId === m.id ? t('studio.unloading') : t('studio.unload')}
+          </button>
+        )}
+        <button
+          type="button"
+          className={styles.textButtonDanger}
+          onClick={() => { void handleDelete(m.id); }}
+          disabled={isDownloading}
+          title={t('studio.delete_title')}
+        >
+          {t('studio.delete_disk')}
+        </button>
+      </div>
+    );
   };
 
   return (
@@ -116,6 +236,15 @@ export function StudioPage(): ReactNode {
       </header>
 
       <p className={styles.lead}>{t('studio.lead')}</p>
+
+      {resources ? (
+        <StudioResources
+          ramTotal={resources.ramTotal}
+          ramFree={resources.ramFree}
+          diskTotal={resources.diskTotal}
+          diskFree={resources.diskFree}
+        />
+      ) : null}
 
       <div className={styles.pills}>
         {ENGINE_FAMILIES.map((id) => (
@@ -154,61 +283,21 @@ export function StudioPage(): ReactNode {
               <p className={styles.hint}>{t('studio.no_models_family')}</p>
             ) : (
               <ul className={styles.modelList}>
-                {familyModels.map((m) => (
+                {familyModels.map((m) => {
+                  const diskLabel = renderDiskLabel(m.id, m.status);
+                  return (
                   <li key={m.id} className={styles.modelCard}>
                     <div className={styles.modelInfo}>
                       <span className={styles.modelName}>{m.name}</span>
-                      <span className={styles.modelType}>{m.type}</span>
-                    </div>
-                    <div className={styles.modelActions}>
-                      <span className={styles.status} style={{
-                        color: m.status === 'error' ? '#e53e3e' : m.status === 'ready' ? '#48bb78' : undefined,
-                      }}>
-                        {m.status === 'ready' ? '✓ ready' : m.status === 'error' ? '✗ error' : m.status}
+                      <span className={styles.modelType}>
+                        {m.type}
+                        {diskLabel ? ` · ${diskLabel}` : ''}
                       </span>
-                      {m.status === 'ready' && family === 'image' && activeModelId === m.id && (
-                        <span className={styles.status}>{t('studio.using')}</span>
-                      )}
-                      {m.status === 'ready' && loadedCacheKeys.includes(toCacheKey(m.id)) && (
-                        <span className={styles.status}>{t('studio.in_ram')}</span>
-                      )}
-                      {m.status === 'error' && m.errorMessage && (
-                        <span style={{ fontSize: '11px', color: '#e53e3e', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.errorMessage ?? undefined}>
-                          {m.errorMessage}
-                        </span>
-                      )}
-                      {m.status === 'ready' && family === 'image' && activeModelId !== m.id && (
-                        <button
-                          type="button"
-                          className={styles.textButton}
-                          onClick={() => handleUse(m.id)}
-                          title={t('studio.use_title')}
-                        >
-                          {t('studio.use')}
-                        </button>
-                      )}
-                      {m.status === 'ready' && (
-                        <button
-                          type="button"
-                          className={styles.textButton}
-                          onClick={() => { void handleUnload(m.id); }}
-                          disabled={unloadingId === m.id || !loadedCacheKeys.includes(toCacheKey(m.id))}
-                          title={loadedCacheKeys.includes(toCacheKey(m.id)) ? t('studio.unload_title') : t('studio.unload_idle_title')}
-                        >
-                          {unloadingId === m.id ? t('studio.unloading') : t('studio.unload')}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className={styles.textButtonDanger}
-                        onClick={() => handleDelete(m.id)}
-                        title={t('studio.delete_title')}
-                      >
-                        {t('studio.delete_disk')}
-                      </button>
                     </div>
+                    {renderModelActions(m)}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </div>
@@ -242,25 +331,13 @@ export function StudioPage(): ReactNode {
                       </button>
                     )}
                     {isDownloading && (
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', minWidth: '120px' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--color-accent)' }}>
-                          {downloadProgress[m.id] != null ? `${downloadProgress[m.id]}%` : '…'}
-                        </span>
-                        <div style={{ width: '120px', height: '4px', background: 'var(--color-bg-elevated)', borderRadius: '2px', overflow: 'hidden' }}>
-                          <div style={{
-                            width: `${downloadProgress[m.id] ?? 0}%`,
-                            height: '100%',
-                            background: 'var(--color-accent)',
-                            borderRadius: '2px',
-                          }} />
-                        </div>
-                      </div>
+                      <DownloadProgress progress={downloadProgress[m.id]} />
                     )}
                     {isReady && <span className={styles.status}>✓ {t('studio.installed')}</span>}
                     {isError && (
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', minWidth: '120px' }}>
+                      <div className={styles.errorActions}>
                         {localModel?.errorMessage && (
-                          <span style={{ fontSize: '11px', color: '#e53e3e', maxWidth: '200px', textAlign: 'right', wordBreak: 'break-word' }}>
+                          <span className={styles.errorSnippet}>
                             {localModel.errorMessage}
                           </span>
                         )}

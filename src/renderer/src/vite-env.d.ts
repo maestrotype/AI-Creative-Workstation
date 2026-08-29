@@ -3,6 +3,14 @@
 interface Window {
   api: {
     getModels: () => Promise<any[]>;
+    getStudioResources: () => Promise<{
+      ram_total: number;
+      ram_free: number;
+      disk_total: number;
+      disk_free: number;
+      models_dir: string;
+    }>;
+    getModelDiskUsage: () => Promise<Record<string, number>>;
     addModel: (model: any) => Promise<boolean>;
     downloadModel: (model: any) => Promise<boolean>;
     retryDownload: (model: any) => Promise<boolean>;
@@ -29,6 +37,7 @@ interface Window {
     }) => Promise<{ file_path: string }>;
     pickVideo: () => Promise<string | null>;
     pickImage: () => Promise<string | null>;
+    pickImages: () => Promise<string[] | null>;
     pickAudio: () => Promise<string | null>;
     listMediaLibrary: () => Promise<{
       audio: { path: string; name: string; mtime: number }[];
@@ -59,11 +68,43 @@ interface Window {
       file_path: string | null;
       plan?: { notes: string[]; trim_end_sec: number };
     }>;
+    get3dStatus: () => Promise<{
+      ready: boolean;
+      detail?: string | null;
+      model_id?: string;
+      weights?: string;
+      weights_local?: boolean;
+      loaded?: boolean;
+    }>;
+    get3dProgress: () => Promise<{
+      stage: string;
+      percent: number;
+      detail?: string;
+      device?: string;
+      weights_cached?: boolean;
+    }>;
+    generateMesh: (payload: {
+      image_path: string;
+      model_id?: string;
+      output_format?: 'glb' | 'obj';
+      mc_resolution?: number;
+      remove_background?: boolean;
+    }) => Promise<{
+      job_id: string;
+      file_path: string | null;
+      model_id: string;
+      format: string;
+    }>;
     openPath: (filePath: string) => Promise<boolean>;
     getSetting: (key: string) => Promise<string | null>;
     setSetting: (key: string, value: string) => Promise<boolean>;
     onModelsUpdated: (callback: () => void) => (() => void);
     onEngineStatus: (callback: (data: { status: string; detail: string }) => void) => (() => void);
-    onDownloadProgress: (callback: (data: { modelId: string; percent: number }) => void) => (() => void);
+    onDownloadProgress: (callback: (data: {
+    modelId: string;
+    percent: number;
+    downloadedBytes: number;
+    totalBytes: number;
+  }) => void) => (() => void);
   };
 }

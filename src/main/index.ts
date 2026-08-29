@@ -4,8 +4,8 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 // import icon from '../../resources/icon.png?asset'
 
 import { spawn, ChildProcess, execFileSync } from 'child_process';
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'fs';
-import { homedir } from 'os';
+import { existsSync, mkdirSync, readdirSync, statSync, statfsSync, writeFileSync } from 'fs';
+import { homedir, freemem, totalmem } from 'os';
 import { initDb, getDb } from './db';
 import { models, settings } from './db/schema';
 import { eq } from 'drizzle-orm';
@@ -44,6 +44,23 @@ function ffmpegBin(): string {
   } catch {
     throw new Error('ffmpeg is not installed (brew install ffmpeg)');
   }
+}
+
+function formatSidecarDetail(detail: unknown, status: number, raw: string): string {
+  if (typeof detail === 'string' && detail.trim()) return detail.slice(0, 400);
+  if (Array.isArray(detail)) {
+    const parts = detail.map((item) => {
+      if (item && typeof item === 'object' && 'msg' in item) return String((item as { msg: unknown }).msg);
+      return JSON.stringify(item);
+    });
+    const joined = parts.filter(Boolean).join('; ');
+    if (joined) return joined.slice(0, 400);
+  }
+  if (detail != null && String(detail).trim() && String(detail) !== '[object Object]') {
+    return String(detail).slice(0, 400);
+  }
+  const clipped = raw.replace(/\s+/g, ' ').trim().slice(0, 400);
+  return clipped || `HTTP ${status}`;
 }
 
 async function sidecarJson(path: string, body: unknown, timeoutMs = 120_000): Promise<Record<string, unknown>> {
@@ -218,8 +235,48 @@ function toCacheKey(modelId: string): string {
 }
 
 function modelDirFor(modelId: string): string {
-  const os = require('os');
-  return join(os.homedir(), 'Documents/Canvas/Models', toCacheKey(modelId));
+  return join(homedir(), 'Documents/Canvas/Models', toCacheKey(modelId));
+}
+
+function modelsRootDir(): string {
+  return join(homedir(), 'Documents/Canvas/Models');
+}
+
+function dirSizeBytes(dir: string): number {
+  if (!existsSync(dir)) return 0;
+  let total = 0;
+  for (const name of readdirSync(dir)) {
+    const filePath = join(dir, name);
+    try {
+      const st = statSync(filePath);
+      if (st.isDirectory()) total += dirSizeBytes(filePath);
+      else total += st.size;
+    } catch {
+      // skip unreadable
+    }
+  }
+  return total;
+}
+
+function getStudioResourcesSnapshot() {
+  const modelsDir = modelsRootDir();
+  if (!existsSync(modelsDir)) mkdirSync(modelsDir, { recursive: true });
+  let diskFree = 0;
+  let diskTotal = 0;
+  try {
+    const fsStats = statfsSync(modelsDir);
+    diskFree = fsStats.bavail * fsStats.bsize;
+    diskTotal = fsStats.blocks * fsStats.bsize;
+  } catch {
+    // leave zeros
+  }
+  return {
+    ram_total: totalmem(),
+    ram_free: freemem(),
+    disk_total: diskTotal,
+    disk_free: diskFree,
+    models_dir: modelsDir,
+  };
 }
 
 async function unloadFromSidecar(modelId: string): Promise<{ unloaded: boolean; reason?: string }> {
@@ -249,6 +306,18 @@ function setupIpc() {
   ipcMain.handle('get-models', async () => {
     const db = getDb();
     return db.select().from(models).all();
+  });
+
+  ipcMain.handle('get-studio-resources', async () => getStudioResourcesSnapshot());
+
+  ipcMain.handle('get-model-disk-usage', async () => {
+    const db = getDb();
+    const rows = db.select().from(models).all();
+    const usage: Record<string, number> = {};
+    for (const row of rows) {
+      usage[row.id] = dirSizeBytes(modelDirFor(row.id));
+    }
+    return usage;
   });
 
   ipcMain.handle('get-loaded-models', async () => {
@@ -375,6 +444,16 @@ function setupIpc() {
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
+  });
+
+  ipcMain.handle('pick-images', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Choose reference photos',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths;
   });
 
   ipcMain.handle('clean-screencast', async (_, payload: { input_path: string; prompt: string; dry_run?: boolean }) => {
@@ -508,6 +587,67 @@ function setupIpc() {
     dry_run?: boolean;
   }) => sidecarJson('/api/video/timeline', payload, 20 * 60 * 1000));
 
+  ipcMain.handle('get-3d-status', async () => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) {
+      return { ready: false, detail: ready.error || 'Sidecar unavailable', weights_local: false };
+    }
+    const res = await net.fetch(`${SIDECAR_URL}/api/3d/status`, { signal: AbortSignal.timeout(5000) });
+    return res.json();
+  });
+
+  ipcMain.handle('get-3d-progress', async () => {
+    try {
+      const res = await net.fetch(`${SIDECAR_URL}/api/3d/progress`, { signal: AbortSignal.timeout(2000) });
+      if (!res.ok) return { stage: 'idle', percent: 0, detail: '', device: '', weights_cached: false };
+      return res.json();
+    } catch {
+      return { stage: 'idle', percent: 0, detail: '', device: '', weights_cached: false };
+    }
+  });
+
+  ipcMain.handle('generate-mesh', async (_, payload: {
+    image_path: string;
+    model_id?: string;
+    output_format?: 'glb' | 'obj';
+    mc_resolution?: number;
+    remove_background?: boolean;
+  }) => {
+    const sidecarReady = await ensureSidecarReady();
+    if (!sidecarReady.ok) {
+      throw new Error(sidecarReady.error || 'Sidecar unavailable');
+    }
+    const res = await net.fetch(`${SIDECAR_URL}/api/3d/mesh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image_path: payload.image_path,
+        model_id: payload.model_id ?? 'stabilityai/TripoSR',
+        output_format: payload.output_format ?? 'glb',
+        mc_resolution: payload.mc_resolution ?? 128,
+        remove_background: payload.remove_background ?? true,
+      }),
+      signal: AbortSignal.timeout(20 * 60 * 1000),
+    });
+    const raw = await res.text();
+    let body: {
+      detail?: unknown;
+      job_id?: string;
+      file_path?: string | null;
+      model_id?: string;
+      format?: string;
+    } = {};
+    try {
+      body = raw ? (JSON.parse(raw) as typeof body) : {};
+    } catch {
+      body = {};
+    }
+    if (!res.ok) {
+      throw new Error(formatSidecarDetail(body.detail, res.status, raw));
+    }
+    return body;
+  });
+
   ipcMain.handle('open-path', async (_, filePath: string) => {
     await shell.openPath(filePath);
     return true;
@@ -625,10 +765,18 @@ function setupDownload(db: ReturnType<typeof getDb>, model: any): boolean {
         // The sidecar prints the real error here; stderr only has tqdm bars.
         sidecarError = output.split('ERROR:')[1].trim();
       } else if (output.includes('PROGRESS:')) {
-        // Byte-based progress reported by the sidecar.
-        const percent = parseInt(output.split('PROGRESS:')[1].trim(), 10);
+        const line = output.split('PROGRESS:')[1]?.trim().split('\n')[0] ?? '';
+        const parts = line.split(':');
+        const percent = parseInt(parts[0] ?? '', 10);
+        const downloadedBytes = parseInt(parts[1] ?? '', 10);
+        const totalBytes = parseInt(parts[2] ?? '', 10);
         if (!Number.isNaN(percent)) {
-          broadcast('download-progress', { modelId: model.id, percent });
+          broadcast('download-progress', {
+            modelId: model.id,
+            percent,
+            downloadedBytes: Number.isNaN(downloadedBytes) ? 0 : downloadedBytes,
+            totalBytes: Number.isNaN(totalBytes) ? 0 : totalBytes,
+          });
         }
       }
     });

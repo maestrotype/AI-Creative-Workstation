@@ -6,6 +6,8 @@ import { ipcRenderer } from 'electron';
 // Custom APIs for renderer
 const api = {
   getModels: () => ipcRenderer.invoke('get-models'),
+  getStudioResources: () => ipcRenderer.invoke('get-studio-resources'),
+  getModelDiskUsage: () => ipcRenderer.invoke('get-model-disk-usage'),
   addModel: (model: any) => ipcRenderer.invoke('add-model', model),
   downloadModel: (model: any) => ipcRenderer.invoke('download-model', model),
   retryDownload: (model: any) => ipcRenderer.invoke('retry-download', model),
@@ -32,6 +34,7 @@ const api = {
   }) => ipcRenderer.invoke('assemble-video', payload),
   pickVideo: () => ipcRenderer.invoke('pick-video'),
   pickImage: () => ipcRenderer.invoke('pick-image'),
+  pickImages: () => ipcRenderer.invoke('pick-images'),
   pickAudio: () => ipcRenderer.invoke('pick-audio'),
   listMediaLibrary: () => ipcRenderer.invoke('list-media-library'),
   startMicRecord: (format: string) => ipcRenderer.invoke('start-mic-record', format),
@@ -50,6 +53,15 @@ const api = {
   }) => ipcRenderer.invoke('apply-video-timeline', payload),
   cleanScreencast: (payload: { input_path: string; prompt: string; dry_run?: boolean }) =>
     ipcRenderer.invoke('clean-screencast', payload),
+  get3dStatus: () => ipcRenderer.invoke('get-3d-status'),
+  get3dProgress: () => ipcRenderer.invoke('get-3d-progress'),
+  generateMesh: (payload: {
+    image_path: string;
+    model_id?: string;
+    output_format?: 'glb' | 'obj';
+    mc_resolution?: number;
+    remove_background?: boolean;
+  }) => ipcRenderer.invoke('generate-mesh', payload),
   openPath: (filePath: string) => ipcRenderer.invoke('open-path', filePath),
   getSetting: (key: string) => ipcRenderer.invoke('get-setting', key),
   setSetting: (key: string, value: string) => ipcRenderer.invoke('set-setting', key, value),
@@ -62,11 +74,21 @@ const api = {
     ipcRenderer.on('engine-status', handler);
     return () => { ipcRenderer.removeListener('engine-status', handler); };
   },
-  onDownloadProgress: (callback: (data: { modelId: string; percent: number }) => void) => {
-    const handler = (_: any, data: any) => callback(data);
+  onDownloadProgress: (callback: (data: {
+    modelId: string;
+    percent: number;
+    downloadedBytes: number;
+    totalBytes: number;
+  }) => void) => {
+    const handler = (_: unknown, data: {
+      modelId: string;
+      percent: number;
+      downloadedBytes: number;
+      totalBytes: number;
+    }) => callback(data);
     ipcRenderer.on('download-progress', handler);
     return () => { ipcRenderer.removeListener('download-progress', handler); };
-  }
+  },
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to

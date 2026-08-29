@@ -65,16 +65,12 @@ def _total_repo_size(repo_id: str, ignore_patterns) -> int:
 
 
 def _report_progress(repo_id: str, target_dir: str, stop_event: threading.Event) -> None:
-    """Print byte-based PROGRESS:<percent> lines every 10 seconds until stopped."""
+    """Print PROGRESS:<percent>:<downloaded_bytes>:<total_bytes> every 2s until stopped."""
     total = _total_repo_size(repo_id, ALL_IGNORE_PATTERNS)
-    print("PROGRESS:0", flush=True)
+    print(f"PROGRESS:0:0:{total}", flush=True)
     if not total:
         return
     while not stop_event.is_set():
-        # Count every file, including .cache: in local_dir mode the bytes of an
-        # in-flight download live in .cache/huggingface/download/*.incomplete and are
-        # only moved to their final location when the file completes. The leftover
-        # .metadata/.lock markers are a few KB — negligible against multi-GB models.
         downloaded = 0
         for root, _dirs, files in os.walk(target_dir):
             for name in files:
@@ -82,7 +78,8 @@ def _report_progress(repo_id: str, target_dir: str, stop_event: threading.Event)
                     downloaded += os.path.getsize(os.path.join(root, name))
                 except OSError:
                     pass
-        print(f"PROGRESS:{min(99, int(downloaded * 100 / total))}", flush=True)
+        pct = min(99, int(downloaded * 100 / total))
+        print(f"PROGRESS:{pct}:{downloaded}:{total}", flush=True)
         stop_event.wait(2)
 
 
