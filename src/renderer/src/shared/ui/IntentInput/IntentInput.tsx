@@ -1,7 +1,7 @@
 /**
  * IntentInput — the shared "describe your idea" command bar.
  *
- * Attach a reference photo via paperclip, drag-and-drop, or paste (Ctrl/Cmd+V).
+ * Attach reference photos via paperclip, drag-and-drop, or paste (Ctrl/Cmd+V).
  */
 import { useId, useRef, useState } from 'react';
 import type { ClipboardEvent, DragEvent, KeyboardEvent, ReactNode } from 'react';
@@ -19,13 +19,16 @@ export interface IntentInputProps {
   readonly onChange: (value: string) => void;
   readonly onSubmit: () => void;
   readonly placeholder?: string;
+  readonly hint?: string;
   readonly isDisabled?: boolean;
-  readonly reference?: ReferenceImage | null;
-  readonly onReferenceChange?: (image: ReferenceImage | null) => void;
+  readonly references?: readonly ReferenceImage[];
+  readonly onReferencesChange?: (images: ReferenceImage[]) => void;
+  readonly maxPhotos?: number;
 }
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/bmp']);
 const MAX_EDGE = 1280;
+const DEFAULT_MAX_PHOTOS = 4;
 
 function isImageFile(file: File): boolean {
   return file.type.startsWith('image/') || IMAGE_TYPES.has(file.type);
@@ -77,22 +80,33 @@ export function IntentInput({
   onChange,
   onSubmit,
   placeholder = 'Describe what you want to create…',
+  hint,
   isDisabled = false,
-  reference = null,
-  onReferenceChange,
+  references = [],
+  onReferencesChange,
+  maxPhotos = DEFAULT_MAX_PHOTOS,
 }: IntentInputProps): ReactNode {
   const inputId = useId();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const canSubmit = value.trim().length > 0 && !isDisabled;
+  const canAttach = Boolean(onReferencesChange) && references.length < maxPhotos && !isDisabled;
 
   async function ingestFiles(files: File[]): Promise<void> {
-    if (!onReferenceChange || files.length === 0 || isDisabled) return;
+    if (!onReferencesChange || files.length === 0 || isDisabled) return;
+    const room = maxPhotos - references.length;
+    if (room <= 0) return;
     try {
-      onReferenceChange(await fileToReference(files[0]));
+      const added = await Promise.all(files.slice(0, room).map(fileToReference));
+      onReferencesChange([...references, ...added]);
     } catch (err) {
       console.error('Could not attach image', err);
     }
+  }
+
+  function removeAt(index: number): void {
+    if (!onReferencesChange) return;
+    onReferencesChange(references.filter((_, i) => i !== index));
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
@@ -134,19 +148,22 @@ export function IntentInput({
           Creative intent
         </label>
 
-        {reference ? (
-          <div className={styles.previewRow}>
-            <img src={reference.dataUrl} alt="" className={styles.previewThumb} />
-            <span className={styles.previewName}>{reference.name}</span>
-            <button
-              type="button"
-              className={styles.previewRemove}
-              onClick={() => onReferenceChange?.(null)}
-              aria-label="Remove attached photo"
-            >
-              <XIcon size={14} />
-            </button>
-          </div>
+        {references.length > 0 ? (
+          <ul className={styles.previewGrid}>
+            {references.map((ref, index) => (
+              <li key={`${ref.name}-${index}`} className={styles.previewItem}>
+                <img src={ref.dataUrl} alt="" className={styles.previewThumb} />
+                <button
+                  type="button"
+                  className={styles.previewRemove}
+                  onClick={() => removeAt(index)}
+                  aria-label={`Remove ${ref.name}`}
+                >
+                  <XIcon size={12} />
+                </button>
+              </li>
+            ))}
+          </ul>
         ) : null}
 
         <textarea
@@ -166,6 +183,7 @@ export function IntentInput({
             ref={fileInputRef}
             type="file"
             accept="image/png,image/jpeg,image/webp,image/gif"
+            multiple
             className={styles.srOnly}
             tabIndex={-1}
             onChange={(event) => {
@@ -177,15 +195,15 @@ export function IntentInput({
             type="button"
             className={styles.attachButton}
             onClick={() => fileInputRef.current?.click()}
-            disabled={isDisabled}
-            aria-label="Attach reference photo"
-            title="Attach photo or paste with Ctrl/Cmd+V"
+            disabled={!canAttach}
+            aria-label="Attach reference photos"
+            title="Attach photos or paste with Ctrl/Cmd+V"
           >
             <PaperclipIcon size={17} />
           </button>
 
           <span className={styles.hint} aria-hidden="true">
-            Enter ↵ to send · Shift+Enter for new line · Ctrl/⌘+V photo
+            {hint ?? 'Enter ↵ to send · photos via clip or paste'}
           </span>
 
           <button

@@ -1,5 +1,5 @@
 /**
- * HomePage — container component for the Canvas start page.
+ * HomePage — start page container.
  *
  * Architecture: Container / Smart component.
  * - Wires Zustand store slices to presentational children.
@@ -32,8 +32,8 @@ export function HomePage(): ReactNode {
   const intentDraft = useHomeStore((s) => s.intentDraft);
   const isCreating = useHomeStore((s) => s.isCreating);
   const setIntentDraft = useHomeStore((s) => s.setIntentDraft);
-  const referenceDraft = useHomeStore((s) => s.referenceDraft);
-  const setReferenceDraft = useHomeStore((s) => s.setReferenceDraft);
+  const referenceDrafts = useHomeStore((s) => s.referenceDrafts);
+  const setReferenceDrafts = useHomeStore((s) => s.setReferenceDrafts);
 
   const projectsStatus = useHomeStore((s) => s.projectsStatus);
   const recentProjects = useHomeStore((s) => s.recentProjects);
@@ -87,8 +87,9 @@ export function HomePage(): ReactNode {
           onSubmit={handleSubmit}
           isDisabled={isCreating}
           placeholder={t('home.intent_placeholder')}
-          reference={referenceDraft}
-          onReferenceChange={setReferenceDraft}
+          hint={t('home.intent_hint')}
+          references={referenceDrafts}
+          onReferencesChange={setReferenceDrafts}
         />
 
         {/* Quick-start suggestion chips */}

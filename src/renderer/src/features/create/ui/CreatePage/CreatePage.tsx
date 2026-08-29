@@ -23,35 +23,27 @@ export function CreatePage(): ReactNode {
   const { t } = useTranslation();
   
   const step = useCreateStore((s) => s.step);
-  const reset = useCreateStore((s) => s.reset);
   const setPrompt = useCreateStore((s) => s.setPrompt);
-  const setReferenceImage = useCreateStore((s) => s.setReferenceImage);
+  const setReferenceImages = useCreateStore((s) => s.setReferenceImages);
   const setOnResultReady = useCreateStore((s) => s.setOnResultReady);
-  
-  const homeDraft = useHomeStore((s) => s.intentDraft);
-  const homeReference = useHomeStore((s) => s.referenceDraft);
   const addGeneratedAsset = useHomeStore((s) => s.addGeneratedAsset);
   const setIntentDraft = useHomeStore((s) => s.setIntentDraft);
-  const setReferenceDraft = useHomeStore((s) => s.setReferenceDraft);
+  const setReferenceDrafts = useHomeStore((s) => s.setReferenceDrafts);
 
   useEffect(() => {
-    if (homeDraft) {
-      setPrompt(homeDraft);
+    setOnResultReady(addGeneratedAsset);
+    const { intentDraft, referenceDrafts } = useHomeStore.getState();
+    if (intentDraft) {
+      setPrompt(intentDraft);
       setIntentDraft('');
     }
-    if (homeReference) {
-      setReferenceImage(homeReference);
-      setReferenceDraft(null);
+    if (referenceDrafts.length > 0) {
+      setReferenceImages(referenceDrafts);
+      setReferenceDrafts([]);
+    } else if (intentDraft) {
+      setReferenceImages([]);
     }
-    
-    // Tell createStore how to save results globally
-    setOnResultReady(addGeneratedAsset);
-
-    return () => {
-      // Clean up when unmounting (e.g. user navigates away)
-      reset();
-    };
-  }, [homeDraft, homeReference, setPrompt, setIntentDraft, setReferenceImage, setReferenceDraft, setOnResultReady, addGeneratedAsset, reset]);
+  }, [setOnResultReady, addGeneratedAsset, setPrompt, setIntentDraft, setReferenceImages, setReferenceDrafts]);
 
   return (
     <div className={styles.page}>

@@ -1,5 +1,5 @@
 /**
- * Canvas — Icon library
+ * AI Creative Workstation — icon library
  *
  * Minimal, consistent stroke icons (24×24 viewbox, 1.5px stroke, currentColor).
  * Every icon is a pure presentational component with no side effects.
@@ -101,6 +101,29 @@ export const UserIcon = createIcon(
   <>
     <circle cx="12" cy="8" r="4" />
     <path d="M5.5 21a7.5 7.5 0 0 1 13 0" />
+  </>,
+);
+
+export const CubeIcon = createIcon(
+  'CubeIcon',
+  <>
+    <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
+    <path d="M12 12l8-4.5" />
+    <path d="M12 12v9" />
+    <path d="M12 12L4 7.5" />
+  </>,
+);
+
+export const FilmIcon = createIcon(
+  'FilmIcon',
+  <>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <line x1="8" y1="4" x2="8" y2="20" />
+    <line x1="16" y1="4" x2="16" y2="20" />
+    <line x1="3" y1="10" x2="8" y2="10" />
+    <line x1="3" y1="14" x2="8" y2="14" />
+    <line x1="16" y1="10" x2="21" y2="10" />
+    <line x1="16" y1="14" x2="21" y2="14" />
   </>,
 );
 

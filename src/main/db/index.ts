@@ -8,7 +8,7 @@ import * as schema from './schema';
 let dbInstance: ReturnType<typeof drizzle> | null = null;
 
 export function initDb() {
-  const userDataPath = app.getPath('userData'); // ~/Library/Application Support/canvas
+  const userDataPath = app.getPath('userData');
   const dbDir = path.join(userDataPath, 'db');
   
   if (!fs.existsSync(dbDir)) {

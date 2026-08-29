@@ -1,12 +1,31 @@
 {
-  "name": "canvas",
+  "name": "ai-creative-workstation",
+  "productName": "AI Creative Workstation",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "main": "./out/main/index.js",
-  "description": "Canvas — local-first AI Creative Workstation",
+  "description": "AI Creative Workstation — local-first creative studio",
+  "build": {
+    "appId": "com.aicreativeworkstation.app",
+    "productName": "AI Creative Workstation",
+    "mac": {
+      "category": "public.app-category.graphics-design",
+      "extendInfo": {
+        "CFBundleName": "AI Creative Workstation",
+        "CFBundleDisplayName": "AI Creative Workstation",
+        "NSMicrophoneUsageDescription": "AI Creative Workstation records your microphone for voice samples and voiceover.",
+        "NSAudioCaptureUsageDescription": "AI Creative Workstation captures Mac playback (YouTube, games) as an audio track.",
+        "NSScreenCaptureDescription": "Screen capture is used so macOS can attach system audio to the recording."
+      }
+    },
+    "directories": {
+      "output": "dist"
+    }
+  },
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node scripts/brand-dev-electron.mjs && electron-vite dev",
+    "postinstall": "node scripts/brand-dev-electron.mjs",
     "build": "npm run typecheck && electron-vite build",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",

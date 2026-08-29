@@ -10,7 +10,7 @@ import type { GenerationResult } from '../../../core/types';
 
 export type GenerationFormat = 'square' | 'portrait' | 'wide';
 export type GenerationStyle = 'subtle' | 'cinematic' | 'bold';
-export type GenerationErrorKind = 'sidecar_unavailable' | 'generation_failed' | 'no_model';
+export type GenerationErrorKind = 'sidecar_unavailable' | 'generation_failed' | 'no_model' | 'gpu_memory';
 
 export interface GenerationOptions {
   readonly prompt: string;
@@ -18,19 +18,20 @@ export interface GenerationOptions {
   readonly style: GenerationStyle;
   readonly modelId?: string;
   readonly imageDataUrl?: string;
+  readonly imageDataUrls?: string[];
 }
 
 export interface GenerationProgress {
   /** 0–1 */
   readonly progress: number;
   readonly message: string;
-  /** >0 — оценка оставшегося времени; 0 — неизвестно (UI показывает прошедшее) */
+  /** Remaining seconds estimate; 0 means unknown (UI shows elapsed). */
   readonly estimatedSecondsLeft: number;
-  /** Секунд с момента отправки запроса */
+  /** Seconds since the request was sent. */
   readonly elapsedSeconds: number;
 }
 
-/** Ошибка генерации с типом, чтобы UI мог показать подходящий текст. */
+/** Generation failure shown on ErrorStep. */
 export class GenerationError extends Error {
   constructor(
     message: string,
@@ -90,13 +91,16 @@ export function runGeneration(
         style: options.style,
         model_id: options.modelId,
         image_base64: options.imageDataUrl,
+        images_base64: options.imageDataUrls,
       });
 
       if (cancelled) throw new DOMException('Generation cancelled', 'AbortError');
 
       onProgress({ progress: 1, message: 'Done!', estimatedSecondsLeft: 0, elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000) });
 
-      const assetUrl = data.file_path ? `asset://${data.file_path}` : null;
+      const assetUrl = data.file_path
+        ? `asset://${data.file_path}?v=${encodeURIComponent(data.job_id)}`
+        : null;
 
       return {
         id: data.job_id,
@@ -109,12 +113,16 @@ export function runGeneration(
         throw new DOMException('Generation cancelled', 'AbortError');
       }
       if (err instanceof GenerationError) throw err;
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = (err instanceof Error ? err.message : String(err))
+        .replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '');
       if (msg === 'NO_MODEL' || msg.includes('NO_MODEL')) {
         throw new GenerationError(msg, 'no_model');
       }
       if (/sidecar|did not become ready|unavailable/i.test(msg)) {
         throw new GenerationError(msg, 'sidecar_unavailable');
+      }
+      if (/MPS_OOM|placeholder storage|not been allocated on MPS/i.test(msg)) {
+        throw new GenerationError(msg, 'gpu_memory');
       }
       throw new GenerationError(msg, 'generation_failed');
     } finally {

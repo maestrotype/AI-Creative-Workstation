@@ -15,8 +15,42 @@ const api = {
   getActiveModel: () => ipcRenderer.invoke('get-active-model'),
   setActiveModel: (modelId: string) => ipcRenderer.invoke('set-active-model', modelId),
   getEngineStatus: () => ipcRenderer.invoke('get-engine-status'),
-  generateImage: (payload: { prompt: string; format: string; style: string; model_id?: string; image_base64?: string }) =>
-    ipcRenderer.invoke('generate-image', payload),
+  generateImage: (payload: {
+    prompt: string;
+    format: string;
+    style: string;
+    model_id?: string;
+    image_base64?: string;
+    images_base64?: string[];
+  }) => ipcRenderer.invoke('generate-image', payload),
+  assembleVideo: (payload: {
+    image_paths: string[];
+    durations: number[];
+    width: number;
+    height: number;
+    output_name: string;
+  }) => ipcRenderer.invoke('assemble-video', payload),
+  pickVideo: () => ipcRenderer.invoke('pick-video'),
+  pickImage: () => ipcRenderer.invoke('pick-image'),
+  pickAudio: () => ipcRenderer.invoke('pick-audio'),
+  listMediaLibrary: () => ipcRenderer.invoke('list-media-library'),
+  startMicRecord: (format: string) => ipcRenderer.invoke('start-mic-record', format),
+  stopMicRecord: () => ipcRenderer.invoke('stop-mic-record'),
+  saveAudioBuffer: (payload: { data: ArrayBuffer; format: string; name?: string }) =>
+    ipcRenderer.invoke('save-audio-buffer', payload),
+  getVoiceProfile: () => ipcRenderer.invoke('get-voice-profile'),
+  saveVoiceSample: (inputPath: string) => ipcRenderer.invoke('save-voice-sample', inputPath),
+  synthesizeVoice: (payload: { text: string; language?: string }) =>
+    ipcRenderer.invoke('synthesize-voice', payload),
+  applyVideoTimeline: (payload: {
+    prompt: string;
+    video_path?: string;
+    audio_path?: string;
+    dry_run?: boolean;
+  }) => ipcRenderer.invoke('apply-video-timeline', payload),
+  cleanScreencast: (payload: { input_path: string; prompt: string; dry_run?: boolean }) =>
+    ipcRenderer.invoke('clean-screencast', payload),
+  openPath: (filePath: string) => ipcRenderer.invoke('open-path', filePath),
   getSetting: (key: string) => ipcRenderer.invoke('get-setting', key),
   setSetting: (key: string, value: string) => ipcRenderer.invoke('set-setting', key, value),
   onModelsUpdated: (callback: () => void) => {

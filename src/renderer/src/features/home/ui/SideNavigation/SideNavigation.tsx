@@ -51,7 +51,7 @@ export function SideNavigation({
         <span className={styles.brandMark} aria-hidden="true">
           <SparklesIcon size={15} />
         </span>
-        <span className={styles.brandName}>Canvas</span>
+        <span className={styles.brandName}>AI Creative Workstation</span>
       </div>
 
       {/* Navigation items */}

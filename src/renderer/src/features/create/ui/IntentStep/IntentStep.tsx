@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { useTranslation } from 'react-i18next';
+import { WorkspaceFlow } from '../../../studio/ui/WorkspaceFlow';
 import { IntentInput } from '../../../../shared/ui/IntentInput/IntentInput';
 import type { GenerationFormat, GenerationStyle } from '../../api/generationApi';
 import { useCreateStore } from '../../store/createStore';
@@ -23,8 +24,8 @@ export function IntentStep(): ReactNode {
   const setPrompt = useCreateStore((s) => s.setPrompt);
   const setFormat = useCreateStore((s) => s.setFormat);
   const setStyle = useCreateStore((s) => s.setStyle);
-  const referenceImage = useCreateStore((s) => s.referenceImage);
-  const setReferenceImage = useCreateStore((s) => s.setReferenceImage);
+  const referenceImages = useCreateStore((s) => s.referenceImages);
+  const setReferenceImages = useCreateStore((s) => s.setReferenceImages);
   const startGeneration = useCreateStore((s) => s.startGeneration);
   const [readyModels, setReadyModels] = useState<ReadyModel[]>([]);
   const [activeModelId, setActiveModelId] = useState<string>('');
@@ -33,7 +34,7 @@ export function IntentStep(): ReactNode {
     if (!window.api) return;
     const models = await window.api.getModels();
     const ready = models
-      .filter((m: { status: string }) => m.status === 'ready')
+      .filter((m: { status: string; type?: string }) => m.status === 'ready' && m.type === 'image')
       .map((m: { id: string; name: string }) => ({ id: m.id, name: m.name }));
     setReadyModels(ready);
     const active = await window.api.getActiveModel();
@@ -59,14 +60,17 @@ export function IntentStep(): ReactNode {
   return (
     <div className={styles.container}>
       <h2 className={styles.title}>{t('create.what_to_create')}</h2>
+      <p className={styles.lead}>{t('create.photos_lead')}</p>
+      <WorkspaceFlow kind="create" />
 
       <IntentInput
         value={prompt}
         onChange={setPrompt}
         onSubmit={() => { if (canCreate) startGeneration(); }}
         placeholder={t('create.intent_placeholder')}
-        reference={referenceImage}
-        onReferenceChange={setReferenceImage}
+        hint={t('create.intent_hint')}
+        references={referenceImages}
+        onReferencesChange={setReferenceImages}
       />
 
       <div className={styles.options}>

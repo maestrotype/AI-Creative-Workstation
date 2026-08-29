@@ -23,6 +23,45 @@
   letter-spacing: var(--tracking-tight);
 }
 
+.lead {
+  margin: 0;
+  color: var(--color-text-secondary);
+  max-width: 46rem;
+}
+
+.hint {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.pill {
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-secondary);
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+
+.pill[data-on='true'] {
+  color: var(--color-text-primary);
+  background-color: var(--color-accent-subtle);
+  border-color: var(--color-accent-border);
+}
+
+.gated {
+  font-size: 11px;
+  margin-left: 6px;
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+}
+
 .modelList {
   display: flex;
   flex-direction: column;
@@ -101,6 +140,7 @@
   padding: 4px 10px;
   cursor: pointer;
   font-size: 12px;
+  text-decoration: none;
 }
 
 .textButton:hover:not(:disabled) {
@@ -115,4 +155,10 @@
 .textButtonDanger:hover {
   color: #e53e3e;
   border-color: #e53e3e;
+}
+
+.unloadError {
+  margin: 0;
+  color: #e53e3e;
+  font-size: var(--text-body-sm);
 }
