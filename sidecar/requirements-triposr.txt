@@ -1,0 +1,8 @@
+# TripoSR runtime deps (code lives in sidecar/vendor/TripoSR — run scripts/setup-triposr.sh)
+omegaconf>=2.3.0
+einops>=0.7.0
+transformers>=4.35.0
+trimesh>=4.0.5
+rembg[cpu]
+imageio
+git+https://github.com/tatsy/torchmcubes.git

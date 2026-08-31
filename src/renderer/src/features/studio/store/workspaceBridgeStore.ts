@@ -12,6 +12,6 @@ export const useWorkspaceBridgeStore = create<WorkspaceBridgeState>()((set) => (
 
 export function filePathFromAssetUrl(url: string | null | undefined): string | null {
   if (!url) return null;
-  if (!url.startsWith('asset://')) return url;
-  return decodeURIComponent(url.slice('asset://'.length).split('?')[0]);
+  const withoutScheme = url.startsWith('asset://') ? url.slice('asset://'.length) : url;
+  return decodeURIComponent(withoutScheme.split('?')[0]);
 }

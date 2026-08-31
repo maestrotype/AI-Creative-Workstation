@@ -4,6 +4,11 @@ import os
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
 
+# rembg → pymatting → numba: default cache next to site-packages fails under Electron.
+_numba_cache = os.path.expanduser("~/Library/Caches/canvas-numba")
+os.makedirs(_numba_cache, exist_ok=True)
+os.environ.setdefault("NUMBA_CACHE_DIR", _numba_cache)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import faulthandler
@@ -16,6 +21,7 @@ faulthandler.enable()
 from api import generation
 from api import video as video_api
 from api import audio as audio_api
+from api import threed as threed_api
 
 app = FastAPI(title="AI Creative Workstation Inference Sidecar")
 
@@ -31,6 +37,7 @@ app.add_middleware(
 app.include_router(generation.router, prefix="/api")
 app.include_router(video_api.router, prefix="/api")
 app.include_router(audio_api.router, prefix="/api")
+app.include_router(threed_api.router, prefix="/api")
 
 @app.get("/health")
 def health_check():

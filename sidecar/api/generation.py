@@ -416,9 +416,37 @@ def _is_mps_placeholder(err: BaseException) -> bool:
     return "placeholder storage" in msg or ("mps device" in msg and "allocat" in msg) or msg.startswith("mps_oom")
 
 
+def _is_device_mismatch(err: BaseException) -> bool:
+    msg = str(err).lower()
+    return "expected on mps" in msg and "on cpu" in msg
+
+
+def _flux_exec_device(pipe):
+    """Where the transformer actually runs. cpu_offload leaves weights on CPU until the step."""
+    try:
+        dev = pipe._execution_device
+        if dev is not None and getattr(dev, "type", str(dev)) != "cpu":
+            return torch.device(dev)
+    except Exception:  # noqa: BLE001
+        pass
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
 def _encode_flux_prompts(pipe, clip_prompt: str, t5_prompt: str, max_sequence_length: int) -> dict:
-    """Encode CLIP+T5 on CPU, then cast to transformer dtype. Detect NaN embeddings."""
+    """Encode CLIP+T5 on CPU (T5 on MPS is NaN), then move embeds to the MPS execution device.
+
+    Do not use transformer.parameters().device: with enable_model_cpu_offload that is CPU,
+    so embeds stay on CPU while the hooked transformer runs on MPS.
+    """
     _pin_flux_t5(pipe)
+    te = getattr(pipe, "text_encoder", None)
+    if te is not None:
+        try:
+            te.to("cpu")
+        except Exception as e:  # noqa: BLE001
+            print(f"CLIP pin skipped: {e}", flush=True)
     try:
         encoded = pipe.encode_prompt(
             prompt=clip_prompt,
@@ -441,14 +469,15 @@ def _encode_flux_prompts(pipe, clip_prompt: str, t5_prompt: str, max_sequence_le
             "FLUX text embeddings are NaN. Unload the model in Studio and generate again."
         )
     dtype = next(pipe.transformer.parameters()).dtype
+    device = _flux_exec_device(pipe)
     out = {
-        "prompt_embeds": prompt_embeds.to(dtype=dtype),
-        "pooled_prompt_embeds": pooled.to(dtype=dtype),
+        "prompt_embeds": prompt_embeds.to(device=device, dtype=dtype),
+        "pooled_prompt_embeds": pooled.to(device=device, dtype=dtype),
     }
-    if len(encoded) >= 3 and encoded[2] is not None:
-        out["text_ids"] = encoded[2]
+    # FluxPipeline.__call__ has no text_ids kwarg; it rebuilds ids on the execution device.
     print(
-        f"FLUX prompts clip={clip_prompt!r} t5={t5_prompt!r} embeds={tuple(prompt_embeds.shape)}",
+        f"FLUX prompts clip={clip_prompt!r} t5={t5_prompt!r} embeds={tuple(out['prompt_embeds'].shape)} "
+        f"embed_device={out['prompt_embeds'].device} exec={device}",
         flush=True,
     )
     return out
@@ -523,7 +552,11 @@ def _run_inference(pipe, request: GenerationRequest, job_id: str) -> str:
     try:
         image = _run_pipe(pipe, request, infer_kwargs, init_image, width, height, strength)
     except RuntimeError as err:
-        if _is_dtype_mismatch(err) and _is_flux(request.model_id):
+        if _is_device_mismatch(err) and _is_flux(request.model_id):
+            print(f"[{job_id}] embeds on CPU vs MPS transformer — retrying with exec-device embeds", flush=True)
+            _pin_flux_t5(pipe)
+            image = _run_pipe(pipe, request, infer_kwargs, init_image, width, height, strength)
+        elif _is_dtype_mismatch(err) and _is_flux(request.model_id):
             print(f"[{job_id}] dtype mismatch — aligning T5 with transformer and retrying", flush=True)
             _pin_flux_t5(pipe)
             image = _run_pipe(pipe, request, infer_kwargs, init_image, width, height, strength)

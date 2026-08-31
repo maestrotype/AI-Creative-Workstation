@@ -5,9 +5,26 @@ import re
 import shutil
 import subprocess
 import tempfile
+import uuid
 from typing import List
+from urllib.parse import unquote
 
 router = APIRouter()
+
+
+def _video_draft_dir() -> str:
+    """Working copies only. The app copies out via Save As, like 3D mesh drafts."""
+    path = os.path.expanduser("~/Documents/Canvas/Generated/Video/drafts")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _disk_image_path(path: str) -> str:
+    """asset:// URLs may include a cache-buster query; ffmpeg needs the real file."""
+    cleaned = (path or "").split("?", 1)[0]
+    if cleaned.startswith("asset://"):
+        cleaned = cleaned[len("asset://") :]
+    return unquote(cleaned)
 
 
 class AssembleRequest(BaseModel):
@@ -33,49 +50,123 @@ def assemble_video(request: AssembleRequest):
     if not request.image_paths or len(request.image_paths) != len(request.durations):
         raise HTTPException(status_code=400, detail="image_paths and durations must be non-empty and the same length")
 
-    for path in request.image_paths:
+    image_paths = [_disk_image_path(p) for p in request.image_paths]
+    for path in image_paths:
         if not os.path.isfile(path):
             raise HTTPException(status_code=400, detail=f"Missing image: {path}")
 
     ffmpeg = _ffmpeg_bin()
-    out_dir = os.path.expanduser("~/Documents/Canvas/Generated/Video")
-    os.makedirs(out_dir, exist_ok=True)
-    output_path = os.path.join(out_dir, f"{request.output_name}.mp4")
+    output_path = os.path.join(_video_draft_dir(), f"draft-{uuid.uuid4().hex[:12]}.mp4")
 
     w, h = request.width, request.height
-    scale = f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},fps=30,format=yuv420p"
+    # Even sizes required by libx264 / zoompan.
+    w = max(2, w - (w % 2))
+    h = max(2, h - (h % 2))
 
     with tempfile.TemporaryDirectory() as tmp:
-        list_path = os.path.join(tmp, "concat.txt")
-        with open(list_path, "w", encoding="utf-8") as handle:
-            for path, duration in zip(request.image_paths, request.durations):
-                safe = path.replace("'", "'\\''")
-                handle.write(f"file '{safe}'\n")
-                handle.write(f"duration {max(0.5, float(duration))}\n")
-            last = request.image_paths[-1].replace("'", "'\\''")
-            handle.write(f"file '{last}'\n")
+        clips = []
+        for idx, (path, duration) in enumerate(zip(image_paths, request.durations)):
+            frames = max(45, int(round(max(1.0, float(duration)) * 30)))
+            clip = os.path.join(tmp, f"clip_{idx:03d}.mp4")
+            vf = _ken_burns_filter(idx, w, h, frames)
+            cmd = [
+                ffmpeg, "-y",
+                "-loop", "1",
+                "-i", path,
+                "-frames:v", str(frames),
+                "-vf", vf,
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-an",
+                clip,
+            ]
+            try:
+                subprocess.run(cmd, check=True, capture_output=True, text=True)
+            except subprocess.CalledProcessError as exc:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(exc.stderr or exc.stdout or "ffmpeg still clip failed")[:500],
+                ) from exc
+            clips.append(clip)
 
-        cmd = [
-            ffmpeg,
-            "-y",
-            "-f", "concat",
-            "-safe", "0",
-            "-i", list_path,
-            "-vf", scale,
-            "-c:v", "libx264",
-            "-pix_fmt", "yuv420p",
-            "-movflags", "+faststart",
-            output_path,
-        ]
-        try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
-        except subprocess.CalledProcessError as exc:
-            raise HTTPException(
-                status_code=500,
-                detail=(exc.stderr or exc.stdout or "ffmpeg failed")[:500],
-            ) from exc
+        _concat_with_xfade(ffmpeg, clips, request.durations, output_path)
 
     return {"status": "completed", "file_path": output_path}
+
+
+def _ken_burns_filter(index: int, w: int, h: int, frames: int) -> str:
+    """Visible camera move on a still. Not generative motion — just Ken Burns."""
+    last = max(1, frames - 1)
+    # Scale large so zoom/pan has pixels to travel.
+    prep = f"scale={w * 2}:{h * 2}:force_original_aspect_ratio=increase,crop={w * 2}:{h * 2}"
+    kind = index % 6
+    if kind == 0:
+        z, x, y = "min(1+0.0018*on,1.32)", "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
+    elif kind == 1:
+        z, x, y = "min(1+0.0014*on,1.28)", f"min((iw-iw/zoom)*on/{last},iw-iw/zoom)", "ih/2-(ih/zoom/2)"
+    elif kind == 2:
+        z, x, y = "min(1+0.0014*on,1.28)", f"max((iw-iw/zoom)*(1-on/{last}),0)", "ih/2-(ih/zoom/2)"
+    elif kind == 3:
+        z, x, y = "if(lte(on,1),1.28,max(1.28-0.0015*on,1.02))", "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
+    elif kind == 4:
+        z, x, y = "min(1+0.0013*on,1.24)", "iw/2-(iw/zoom/2)", f"min((ih-ih/zoom)*on/{last},ih-ih/zoom)"
+    else:
+        z, x, y = "min(1+0.0016*on,1.3)", "iw/2-(iw/zoom/2)", f"max((ih-ih/zoom)*(1-on/{last}),0)"
+    return (
+        f"{prep},zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps=30,format=yuv420p"
+    )
+
+
+def _concat_with_xfade(ffmpeg: str, clips: list, durations: list, output_path: str) -> None:
+    """Crossfade still-clips so cuts are not a hard slideshow."""
+    if len(clips) == 1:
+        cmd = [
+            ffmpeg, "-y", "-i", clips[0],
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+            output_path,
+        ]
+        _run_ffmpeg(cmd, "ffmpeg assemble failed")
+        return
+
+    fade = 0.7
+    inputs: list[str] = []
+    for clip in clips:
+        inputs.extend(["-i", clip])
+
+    parts = ["[0]setpts=PTS-STARTPTS[v0]"]
+    last = "[v0]"
+    offset = max(0.2, float(durations[0]) - fade)
+    for i in range(1, len(clips)):
+        cur = f"v{i}"
+        nxt = f"x{i}"
+        parts.append(f"[{i}]setpts=PTS-STARTPTS[{cur}]")
+        parts.append(
+            f"{last}[{cur}]xfade=transition=fade:duration={fade}:offset={offset:.3f}[{nxt}]"
+        )
+        last = f"[{nxt}]"
+        offset += max(0.2, float(durations[i]) - fade)
+
+    graph = ";".join(parts)
+    cmd = [
+        ffmpeg, "-y", *inputs,
+        "-filter_complex", graph,
+        "-map", last,
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        output_path,
+    ]
+    _run_ffmpeg(cmd, "ffmpeg xfade failed")
+
+
+def _run_ffmpeg(cmd: list, fallback: str) -> None:
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(exc.stderr or exc.stdout or fallback)[:500],
+        ) from exc
 
 
 class CleanScreencastRequest(BaseModel):
@@ -216,10 +307,7 @@ def clean_screencast(request: CleanScreencastRequest):
         f"floor(iw*{left}/2)*2:floor(ih*{top}/2)*2,format=yuv420p"
     )
 
-    out_dir = os.path.expanduser("~/Documents/Canvas/Generated/Video")
-    os.makedirs(out_dir, exist_ok=True)
-    base = os.path.splitext(os.path.basename(src))[0]
-    output_path = os.path.join(out_dir, f"{base}-cleaned.mp4")
+    output_path = os.path.join(_video_draft_dir(), f"draft-{uuid.uuid4().hex[:12]}.mp4")
 
     cmd = [
         ffmpeg, "-y",

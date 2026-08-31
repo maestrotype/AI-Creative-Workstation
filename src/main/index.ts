@@ -1,11 +1,11 @@
 import { app, shell, BrowserWindow, ipcMain, protocol, net, dialog, desktopCapturer, session } from 'electron';
-import { extname, join } from 'path';
+import { extname, join, resolve } from 'path';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 // import icon from '../../resources/icon.png?asset'
 
 import { spawn, ChildProcess, execFileSync } from 'child_process';
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'fs';
-import { homedir } from 'os';
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, statfsSync, unlinkSync, writeFileSync } from 'fs';
+import { homedir, freemem, totalmem } from 'os';
 import { initDb, getDb } from './db';
 import { models, settings } from './db/schema';
 import { eq } from 'drizzle-orm';
@@ -27,6 +27,7 @@ process.on('uncaughtException', (err) => {
 const SIDECAR_URL = 'http://127.0.0.1:57291';
 const SIDECAR_PORT = 57291;
 const ACTIVE_MODEL_KEY = 'active_model_id';
+const ACTIVE_3D_MODEL_KEY = 'active_3d_model_id';
 let sidecarProcess: ChildProcess | null = null;
 let engineStatus: 'stopped' | 'starting' | 'ready' | 'error' = 'stopped';
 let engineDetail = '';
@@ -44,6 +45,108 @@ function ffmpegBin(): string {
   } catch {
     throw new Error('ffmpeg is not installed (brew install ffmpeg)');
   }
+}
+
+function ffprobeBin(): string {
+  try {
+    return execFileSync('which', ['ffprobe'], { encoding: 'utf8' }).trim();
+  } catch {
+    return ffmpegBin().replace(/ffmpeg$/i, 'ffprobe');
+  }
+}
+
+function probeVideoCodec(filePath: string): string {
+  try {
+    return execFileSync(
+      ffprobeBin(),
+      ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', filePath],
+      { encoding: 'utf8', timeout: 20_000 },
+    )
+      .trim()
+      .split('\n')[0]
+      ?.trim()
+      .toLowerCase() ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function needsH264Proxy(codec: string): boolean {
+  if (!codec) return true;
+  return !['h264', 'avc1', 'vp8', 'theora'].includes(codec);
+}
+
+function previewProxyPath(sourcePath: string): string {
+  const st = statSync(sourcePath);
+  const stamp = `${sourcePath}:${st.size}:${Math.floor(st.mtimeMs)}`;
+  let hash = 0;
+  for (let i = 0; i < stamp.length; i += 1) hash = (hash * 31 + stamp.charCodeAt(i)) >>> 0;
+  const dir = join(homedir(), 'Documents/Canvas/Generated/Video/drafts');
+  mkdirSync(dir, { recursive: true });
+  return join(dir, `preview-${hash.toString(16)}.mp4`);
+}
+
+function runFfmpeg(args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpegBin(), args);
+    let err = '';
+    child.stderr.on('data', (chunk) => {
+      err += String(chunk);
+      if (err.length > 8000) err = err.slice(-4000);
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(err.slice(-400) || `ffmpeg exited ${code}`));
+    });
+  });
+}
+
+async function ensureH264Preview(sourcePath: string, force: boolean): Promise<{ path: string; transcoded: boolean }> {
+  const codec = probeVideoCodec(sourcePath);
+  const out = previewProxyPath(sourcePath);
+  if (!force && !needsH264Proxy(codec)) {
+    return { path: sourcePath, transcoded: false };
+  }
+  if (existsSync(out) && !force) {
+    rememberPickedMedia(out);
+    return { path: out, transcoded: true };
+  }
+  await runFfmpeg([
+    '-y',
+    '-i', sourcePath,
+    '-map', '0:v:0',
+    '-map', '0:a?',
+    '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+    '-c:v', 'libx264',
+    '-pix_fmt', 'yuv420p',
+    '-preset', 'veryfast',
+    '-crf', '23',
+    '-c:a', 'aac',
+    '-ac', '2',
+    '-b:a', '128k',
+    '-movflags', '+faststart',
+    out,
+  ]);
+  rememberPickedMedia(out);
+  return { path: out, transcoded: true };
+}
+
+function formatSidecarDetail(detail: unknown, status: number, raw: string): string {
+  if (typeof detail === 'string' && detail.trim()) return detail.slice(0, 400);
+  if (Array.isArray(detail)) {
+    const parts = detail.map((item) => {
+      if (item && typeof item === 'object' && 'msg' in item) return String((item as { msg: unknown }).msg);
+      return JSON.stringify(item);
+    });
+    const joined = parts.filter(Boolean).join('; ');
+    if (joined) return joined.slice(0, 400);
+  }
+  if (detail != null && String(detail).trim() && String(detail) !== '[object Object]') {
+    return String(detail).slice(0, 400);
+  }
+  const clipped = raw.replace(/\s+/g, ' ').trim().slice(0, 400);
+  return clipped || `HTTP ${status}`;
 }
 
 async function sidecarJson(path: string, body: unknown, timeoutMs = 120_000): Promise<Record<string, unknown>> {
@@ -139,6 +242,17 @@ function resolveActiveModelId(): string | null {
   return ready[0].id;
 }
 
+function resolveActive3dModelId(): string | null {
+  const ready = listReadyModels('3d');
+  if (ready.length === 0) return null;
+  const stored = getSettingValue(ACTIVE_3D_MODEL_KEY);
+  if (stored && ready.some((m) => m.id === stored)) return stored;
+  const hunyuan = ready.find((m) => m.id === 'tencent/Hunyuan3D-2mini');
+  const pick = hunyuan ?? ready[0];
+  putSettingValue(ACTIVE_3D_MODEL_KEY, pick.id);
+  return pick.id;
+}
+
 function startSidecar(): void {
   const sidecarDir = join(__dirname, '../../sidecar');
   const sidecarPath = join(sidecarDir, 'main.py');
@@ -218,11 +332,66 @@ function toCacheKey(modelId: string): string {
 }
 
 function modelDirFor(modelId: string): string {
-  const os = require('os');
-  return join(os.homedir(), 'Documents/Canvas/Models', toCacheKey(modelId));
+  return join(homedir(), 'Documents/Canvas/Models', toCacheKey(modelId));
+}
+
+function modelsRootDir(): string {
+  return join(homedir(), 'Documents/Canvas/Models');
+}
+
+function dirSizeBytes(dir: string): number {
+  if (!existsSync(dir)) return 0;
+  let total = 0;
+  for (const name of readdirSync(dir)) {
+    const filePath = join(dir, name);
+    try {
+      const st = statSync(filePath);
+      if (st.isDirectory()) total += dirSizeBytes(filePath);
+      else total += st.size;
+    } catch {
+      // skip unreadable
+    }
+  }
+  return total;
+}
+
+function getStudioResourcesSnapshot() {
+  const modelsDir = modelsRootDir();
+  if (!existsSync(modelsDir)) mkdirSync(modelsDir, { recursive: true });
+  let diskFree = 0;
+  let diskTotal = 0;
+  try {
+    const fsStats = statfsSync(modelsDir);
+    diskFree = fsStats.bavail * fsStats.bsize;
+    diskTotal = fsStats.blocks * fsStats.bsize;
+  } catch {
+    // leave zeros
+  }
+  return {
+    ram_total: totalmem(),
+    ram_free: freemem(),
+    disk_total: diskTotal,
+    disk_free: diskFree,
+    models_dir: modelsDir,
+  };
 }
 
 async function unloadFromSidecar(modelId: string): Promise<{ unloaded: boolean; reason?: string }> {
+  const row = getDb().select().from(models).where(eq(models.id, modelId)).get();
+  if (row?.type === '3d') {
+    try {
+      const res = await net.fetch(`${SIDECAR_URL}/api/3d/unload`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(180_000),
+      });
+      if (!res.ok) return { unloaded: false, reason: `http-${res.status}` };
+      const body = (await res.json()) as { unloaded?: boolean };
+      return { unloaded: Boolean(body.unloaded), reason: undefined };
+    } catch (e) {
+      console.warn('unload 3d sidecar:', e);
+      return { unloaded: false, reason: 'sidecar-unavailable' };
+    }
+  }
   const cacheKey = toCacheKey(modelId);
   try {
     const res = await net.fetch(`${SIDECAR_URL}/api/models/unload`, {
@@ -245,10 +414,88 @@ async function unloadFromSidecar(modelId: string): Promise<{ unloaded: boolean; 
   }
 }
 
+const pickedMediaPaths = new Set<string>();
+
+const MEDIA_EXTS = new Set([
+  '.mp4', '.mov', '.m4v', '.webm', '.mkv',
+  '.png', '.jpg', '.jpeg', '.webp',
+  '.wav', '.mp3', '.flac', '.m4a', '.aac', '.ogg',
+]);
+
+function rememberPickedMedia(filePath: string | null): string | null {
+  if (!filePath) return null;
+  const resolved = resolve(filePath);
+  if (!existsSync(resolved)) return null;
+  pickedMediaPaths.add(resolved);
+  return resolved;
+}
+
+function isUnderDir(filePath: string, dir: string): boolean {
+  const base = resolve(dir);
+  return filePath === base || filePath.startsWith(`${base}/`);
+}
+
+function resolveAllowedVideoFile(sourcePath: string): string | null {
+  const ext = extname(sourcePath).toLowerCase();
+  if (ext !== '.mp4' && ext !== '.mov' && ext !== '.m4v' && ext !== '.webm') return null;
+  if (!sourcePath || !existsSync(sourcePath)) return null;
+  const resolved = resolve(sourcePath);
+  if (pickedMediaPaths.has(resolved)) return resolved;
+  const allowed = [
+    join(app.getPath('userData'), 'video-drafts'),
+    join(homedir(), 'Library/Application Support/canvas/video-drafts'),
+    join(homedir(), 'Documents/Canvas/Generated/Video'),
+  ];
+  const ok = allowed.some((dir) => isUnderDir(resolved, dir));
+  return ok ? resolved : null;
+}
+
+function resolveAllowedMediaFile(sourcePath: string): string | null {
+  if (!sourcePath) return null;
+  const ext = extname(sourcePath).toLowerCase();
+  if (!MEDIA_EXTS.has(ext)) return null;
+  if (!existsSync(sourcePath)) return null;
+  const resolved = resolve(sourcePath);
+  if (pickedMediaPaths.has(resolved)) return resolved;
+  if (isUnderDir(resolved, join(homedir(), 'Documents/Canvas'))) return resolved;
+  if (isUnderDir(resolved, join(app.getPath('userData'), 'video-drafts'))) return resolved;
+  if (isUnderDir(resolved, join(homedir(), 'Library/Application Support/canvas/video-drafts'))) return resolved;
+  return resolveAllowedVideoFile(sourcePath);
+}
+
+function resolveAllowedMeshFile(sourcePath: string): string | null {
+  const ext = extname(sourcePath).toLowerCase();
+  if (ext !== '.glb' && ext !== '.obj') return null;
+  if (!sourcePath || !existsSync(sourcePath)) return null;
+  const allowed = [
+    join(app.getPath('userData'), 'mesh-drafts'),
+    join(homedir(), 'Library/Application Support/canvas/mesh-drafts'),
+    join(homedir(), 'Documents/Canvas/Generated/3D'),
+  ];
+  const resolved = resolve(sourcePath);
+  const ok = allowed.some((dir) => {
+    const base = resolve(dir);
+    return resolved === base || resolved.startsWith(`${base}/`);
+  });
+  return ok ? resolved : null;
+}
+
 function setupIpc() {
   ipcMain.handle('get-models', async () => {
     const db = getDb();
     return db.select().from(models).all();
+  });
+
+  ipcMain.handle('get-studio-resources', async () => getStudioResourcesSnapshot());
+
+  ipcMain.handle('get-model-disk-usage', async () => {
+    const db = getDb();
+    const rows = db.select().from(models).all();
+    const usage: Record<string, number> = {};
+    for (const row of rows) {
+      usage[row.id] = dirSizeBytes(modelDirFor(row.id));
+    }
+    return usage;
   });
 
   ipcMain.handle('get-loaded-models', async () => {
@@ -285,6 +532,18 @@ function setupIpc() {
       throw new Error('Model is not installed');
     }
     putSettingValue(ACTIVE_MODEL_KEY, modelId);
+    broadcast('models-updated');
+    return true;
+  });
+
+  ipcMain.handle('get-active-3d-model', async () => resolveActive3dModelId());
+
+  ipcMain.handle('set-active-3d-model', async (_, modelId: string) => {
+    const ready = listReadyModels('3d');
+    if (!ready.some((m) => m.id === modelId)) {
+      throw new Error('Model is not installed');
+    }
+    putSettingValue(ACTIVE_3D_MODEL_KEY, modelId);
     broadcast('models-updated');
     return true;
   });
@@ -357,6 +616,41 @@ function setupIpc() {
     return { file_path: body.file_path as string };
   });
 
+  const videoHistoryPath = () => join(homedir(), 'Documents/Canvas/Generated/Video/idea-history.json');
+
+  ipcMain.handle('load-video-history', async () => {
+    const p = videoHistoryPath();
+    if (!existsSync(p)) return null;
+    try {
+      return JSON.parse(readFileSync(p, 'utf8'));
+    } catch {
+      return null;
+    }
+  });
+
+  ipcMain.handle('save-video-history', async (_, payload: unknown) => {
+    const dir = join(homedir(), 'Documents/Canvas/Generated/Video');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(videoHistoryPath(), JSON.stringify(payload, null, 2), 'utf8');
+    return true;
+  });
+
+  ipcMain.handle('list-generated-stills', async () => {
+    const dir = join(homedir(), 'Documents/Canvas/Generated');
+    if (!existsSync(dir)) return [];
+    const rows: { path: string; mtime: number }[] = [];
+    for (const name of readdirSync(dir)) {
+      if (!/\.(png|jpe?g|webp)$/i.test(name)) continue;
+      const path = join(dir, name);
+      try {
+        rows.push({ path, mtime: statSync(path).mtimeMs });
+      } catch {
+        /* skip */
+      }
+    }
+    return rows.sort((a, b) => b.mtime - a.mtime).slice(0, 24);
+  });
+
   ipcMain.handle('pick-video', async () => {
     const result = await dialog.showOpenDialog({
       title: 'Choose a screen recording',
@@ -364,7 +658,7 @@ function setupIpc() {
       filters: [{ name: 'Video', extensions: ['mp4', 'mov', 'm4v', 'webm', 'mkv'] }],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0];
+    return rememberPickedMedia(result.filePaths[0]);
   });
 
   ipcMain.handle('pick-image', async () => {
@@ -374,7 +668,17 @@ function setupIpc() {
       filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0];
+    return rememberPickedMedia(result.filePaths[0]);
+  });
+
+  ipcMain.handle('pick-images', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Choose reference photos',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths.map((p) => rememberPickedMedia(p)).filter((p): p is string => Boolean(p));
   });
 
   ipcMain.handle('clean-screencast', async (_, payload: { input_path: string; prompt: string; dry_run?: boolean }) => {
@@ -406,7 +710,7 @@ function setupIpc() {
       filters: [{ name: 'Audio', extensions: ['wav', 'mp3', 'flac', 'm4a', 'aac', 'ogg', 'webm'] }],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0];
+    return rememberPickedMedia(result.filePaths[0]);
   });
 
   ipcMain.handle('list-media-library', async () => {
@@ -508,8 +812,142 @@ function setupIpc() {
     dry_run?: boolean;
   }) => sidecarJson('/api/video/timeline', payload, 20 * 60 * 1000));
 
+  ipcMain.handle('get-3d-status', async () => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) {
+      return { ready: false, detail: ready.error || 'Sidecar unavailable', weights_local: false };
+    }
+    const res = await net.fetch(`${SIDECAR_URL}/api/3d/status`, { signal: AbortSignal.timeout(5000) });
+    return res.json();
+  });
+
+  ipcMain.handle('get-3d-progress', async () => {
+    try {
+      const res = await net.fetch(`${SIDECAR_URL}/api/3d/progress`, { signal: AbortSignal.timeout(2000) });
+      if (!res.ok) return { stage: 'idle', percent: 0, detail: '', device: '', engine: '', weights_cached: false };
+      return res.json();
+    } catch {
+      return { stage: 'idle', percent: 0, detail: '', device: '', engine: '', weights_cached: false };
+    }
+  });
+
+  ipcMain.handle('generate-mesh', async (_, payload: {
+    image_path: string;
+    model_id?: string;
+    output_format?: 'glb' | 'obj';
+    mc_resolution?: number;
+    remove_background?: boolean;
+  }) => {
+    const sidecarReady = await ensureSidecarReady();
+    if (!sidecarReady.ok) {
+      throw new Error(sidecarReady.error || 'Sidecar unavailable');
+    }
+    const modelId = payload.model_id || resolveActive3dModelId() || 'tencent/Hunyuan3D-2mini';
+    const res = await net.fetch(`${SIDECAR_URL}/api/3d/mesh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image_path: payload.image_path,
+        model_id: modelId,
+        output_format: payload.output_format ?? 'glb',
+        mc_resolution: payload.mc_resolution ?? 256,
+        remove_background: payload.remove_background ?? true,
+      }),
+      signal: AbortSignal.timeout(40 * 60 * 1000),
+    });
+    const raw = await res.text();
+    let body: {
+      detail?: unknown;
+      job_id?: string;
+      file_path?: string | null;
+      model_id?: string;
+      format?: string;
+    } = {};
+    try {
+      body = raw ? (JSON.parse(raw) as typeof body) : {};
+    } catch {
+      body = {};
+    }
+    if (!res.ok) {
+      throw new Error(formatSidecarDetail(body.detail, res.status, raw));
+    }
+    return body;
+  });
+
   ipcMain.handle('open-path', async (_, filePath: string) => {
     await shell.openPath(filePath);
+    return true;
+  });
+
+  ipcMain.handle('save-mesh-as', async (_, sourcePath: string) => {
+    const resolved = resolveAllowedMeshFile(sourcePath);
+    if (!resolved) {
+      throw new Error('No mesh draft to save');
+    }
+    const ext = extname(resolved).replace('.', '').toLowerCase() || 'glb';
+    const result = await dialog.showSaveDialog({
+      title: 'Save mesh',
+      defaultPath: `mesh.${ext}`,
+      filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    copyFileSync(resolved, result.filePath);
+    return result.filePath;
+  });
+
+  ipcMain.handle('save-video-as', async (_, sourcePath: string) => {
+    const resolved = resolveAllowedVideoFile(sourcePath);
+    if (!resolved) {
+      throw new Error('No video draft to save');
+    }
+    const result = await dialog.showSaveDialog({
+      title: 'Save video',
+      defaultPath: 'video.mp4',
+      filters: [{ name: 'MP4', extensions: ['mp4'] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    copyFileSync(resolved, result.filePath);
+    return result.filePath;
+  });
+
+  ipcMain.handle('discard-video-draft', async (_, sourcePath: string) => {
+    const resolved = resolveAllowedVideoFile(sourcePath);
+    if (!resolved) return false;
+    unlinkSync(resolved);
+    return true;
+  });
+
+  ipcMain.handle('read-mesh-file', async (_, sourcePath: string) => {
+    const resolved = resolveAllowedMeshFile(sourcePath);
+    if (!resolved) throw new Error('Mesh file is not available to preview');
+    const buf = readFileSync(resolved);
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  });
+
+  ipcMain.handle('read-video-draft', async (_, sourcePath: string) => {
+    const resolved = resolveAllowedVideoFile(sourcePath);
+    if (!resolved) throw new Error('Video file is not available to preview');
+    const buf = readFileSync(resolved);
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  });
+
+  ipcMain.handle('read-media-file', async (_, sourcePath: string) => {
+    const resolved = resolveAllowedMediaFile(sourcePath);
+    if (!resolved) throw new Error('Media file is not available to preview');
+    const buf = readFileSync(resolved);
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  });
+
+  ipcMain.handle('ensure-video-preview', async (_, sourcePath: string, force?: boolean) => {
+    const resolved = resolveAllowedMediaFile(sourcePath);
+    if (!resolved) throw new Error('Video is not available to preview');
+    return ensureH264Preview(resolved, Boolean(force));
+  });
+
+  ipcMain.handle('discard-mesh-draft', async (_, sourcePath: string) => {
+    const resolved = resolveAllowedMeshFile(sourcePath);
+    if (!resolved) return false;
+    unlinkSync(resolved);
     return true;
   });
 
@@ -560,6 +998,11 @@ function setupIpc() {
       const next = listReadyModels('image')[0];
       if (next) putSettingValue(ACTIVE_MODEL_KEY, next.id);
       else getDb().delete(settings).where(eq(settings.key, ACTIVE_MODEL_KEY)).run();
+    }
+    if (getSettingValue(ACTIVE_3D_MODEL_KEY) === modelId) {
+      const next3d = listReadyModels('3d')[0];
+      if (next3d) putSettingValue(ACTIVE_3D_MODEL_KEY, next3d.id);
+      else getDb().delete(settings).where(eq(settings.key, ACTIVE_3D_MODEL_KEY)).run();
     }
 
     broadcast('models-updated');
@@ -625,10 +1068,18 @@ function setupDownload(db: ReturnType<typeof getDb>, model: any): boolean {
         // The sidecar prints the real error here; stderr only has tqdm bars.
         sidecarError = output.split('ERROR:')[1].trim();
       } else if (output.includes('PROGRESS:')) {
-        // Byte-based progress reported by the sidecar.
-        const percent = parseInt(output.split('PROGRESS:')[1].trim(), 10);
+        const line = output.split('PROGRESS:')[1]?.trim().split('\n')[0] ?? '';
+        const parts = line.split(':');
+        const percent = parseInt(parts[0] ?? '', 10);
+        const downloadedBytes = parseInt(parts[1] ?? '', 10);
+        const totalBytes = parseInt(parts[2] ?? '', 10);
         if (!Number.isNaN(percent)) {
-          broadcast('download-progress', { modelId: model.id, percent });
+          broadcast('download-progress', {
+            modelId: model.id,
+            percent,
+            downloadedBytes: Number.isNaN(downloadedBytes) ? 0 : downloadedBytes,
+            totalBytes: Number.isNaN(totalBytes) ? 0 : totalBytes,
+          });
         }
       }
     });
@@ -669,8 +1120,81 @@ function setupDownload(db: ReturnType<typeof getDb>, model: any): boolean {
 
 // Register custom protocol for local assets
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'asset', privileges: { bypassCSP: true, supportFetchAPI: true, secure: true } }
+  { scheme: 'asset', privileges: { bypassCSP: true, supportFetchAPI: true, secure: true, stream: true } },
 ]);
+
+const ASSET_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.m4v': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mkv': 'video/x-matroska',
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg',
+  '.flac': 'audio/flac',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.ogg': 'audio/ogg',
+};
+
+function assetPathFromUrl(url: string): string {
+  const stripped = url.replace(/^asset:\/\//, '').split('?')[0];
+  const decoded = decodeURIComponent(stripped);
+  return decoded.startsWith('/') ? decoded : `/${decoded}`;
+}
+
+function serveAssetFile(request: Request): Response {
+  const filePath = assetPathFromUrl(request.url);
+  if (!existsSync(filePath)) {
+    return new Response('Not found', { status: 404 });
+  }
+
+  const stat = statSync(filePath);
+  const fileSize = stat.size;
+  const contentType = ASSET_MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
+  const range = request.headers.get('Range');
+
+  if (range) {
+    const match = /^bytes=(\d*)-(\d*)$/i.exec(range.trim());
+    if (!match) {
+      return new Response('Invalid range', { status: 416 });
+    }
+    const start = match[1] ? parseInt(match[1], 10) : 0;
+    const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+    if (Number.isNaN(start) || Number.isNaN(end) || start >= fileSize || end >= fileSize || start > end) {
+      return new Response('Range not satisfiable', {
+        status: 416,
+        headers: { 'Content-Range': `bytes */${fileSize}` },
+      });
+    }
+    const chunkSize = end - start + 1;
+    const stream = createReadStream(filePath, { start, end });
+    return new Response(stream as unknown as BodyInit, {
+      status: 206,
+      headers: {
+        'Content-Type': contentType,
+        'Content-Length': String(chunkSize),
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+      },
+    });
+  }
+
+  const stream = createReadStream(filePath);
+  return new Response(stream as unknown as BodyInit, {
+    status: 200,
+    headers: {
+      'Content-Type': contentType,
+      'Content-Length': String(fileSize),
+      'Accept-Ranges': 'bytes',
+    },
+  });
+}
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -715,13 +1239,8 @@ app.whenReady().then(() => {
     }).catch(() => callback({}));
   });
 
-  // Handle custom asset:// protocol to load generated images
-  protocol.handle('asset', (request) => {
-    const stripped = request.url.replace(/^asset:\/\//, '').split('?')[0];
-    const decodedPath = decodeURIComponent(stripped);
-    const absolutePath = decodedPath.startsWith('/') ? decodedPath : `/${decodedPath}`;
-    return net.fetch(`file://${absolutePath}`);
-  });
+  // Local files for images and video preview (video needs byte-range + stream privilege).
+  protocol.handle('asset', (request) => serveAssetFile(request));
 
   initDb();
   setupIpc();
