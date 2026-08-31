@@ -8,11 +8,10 @@ import { filePathFromAssetUrl } from '../../studio/store/workspaceBridgeStore';
 import {
   estimateStoryboard,
   planYoutubeVideo,
-  voiceoverPromptFromPlan,
   type YoutubeFormat,
   type YoutubePlan,
 } from '../model/planYoutubeVideo';
-import { fileName, type DirectorSeed } from '../model/directorTimeline';
+import { fileName } from '../model/directorTimeline';
 import {
   drawnCount as countDrawn,
   loadHistory,
@@ -24,8 +23,12 @@ import {
   type VideoHistoryFile,
 } from '../model/videoDraftStore';
 import styles from './VideoPage.module.css';
-import { VideoPreviewPane } from './VideoPreviewPane';
-import { VideoTimelineCard } from './VideoTimelineCard';
+
+export interface StoryboardStill {
+  path: string;
+  name: string;
+  durationSec: number;
+}
 
 function formatClock(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -33,19 +36,24 @@ function formatClock(sec: number): string {
   return m > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${s}s`;
 }
 
-export function FromIdeaPanel({ onOpenDirector, embedded }: { onOpenDirector?: (seed: DirectorSeed) => void; embedded?: boolean }): ReactNode {
+export function FromIdeaPanel({
+  onSendToTimeline,
+  embedded,
+}: {
+  onSendToTimeline?: (items: StoryboardStill[]) => void;
+  embedded?: boolean;
+}): ReactNode {
   const { t } = useTranslation();
   const [topic, setTopic] = useState('');
   const [format, setFormat] = useState<YoutubeFormat>('landscape');
   const [durationSec, setDurationSec] = useState(60);
   const [plan, setPlan] = useState<YoutubePlan | null>(null);
-  const [busy, setBusy] = useState<'idle' | 'scenes' | 'assemble'>('idle');
+  const [busy, setBusy] = useState<'idle' | 'scenes'>('idle');
   const [progress, setProgress] = useState('');
   const [frameTick, setFrameTick] = useState<GenerationProgress | null>(null);
   const [drawingIndex, setDrawingIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [outputPath, setOutputPath] = useState<string | null>(null);
-  const [savedTo, setSavedTo] = useState<string | null>(null);
+  const [sentNote, setSentNote] = useState(false);
   const [hasImageEngine, setHasImageEngine] = useState<boolean | null>(null);
   const [engineName, setEngineName] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<VideoDraftRecord[]>([]);
@@ -58,7 +66,6 @@ export function FromIdeaPanel({ onOpenDirector, embedded }: { onOpenDirector?: (
 
   const commit = (
     nextPlan: YoutubePlan | null,
-    nextOutput: string | null = outputPath,
     fields?: { topic: string; format: YoutubeFormat; durationSec: number },
   ) => {
     const rec: VideoDraftRecord = {
@@ -68,7 +75,7 @@ export function FromIdeaPanel({ onOpenDirector, embedded }: { onOpenDirector?: (
       format: fields?.format ?? format,
       durationSec: fields?.durationSec ?? durationSec,
       plan: nextPlan,
-      outputPath: nextOutput,
+      outputPath: null,
     };
     historyRef.current = upsertDraft(historyRef.current, rec);
     setDrafts(historyRef.current.drafts);
@@ -87,8 +94,6 @@ export function FromIdeaPanel({ onOpenDirector, embedded }: { onOpenDirector?: (
         setFormat(current.format);
         setDurationSec(current.durationSec);
         setPlan(current.plan);
-        setOutputPath(current.outputPath);
-        setSavedTo(null);
       }
       try {
         const stills = await window.api.listGeneratedStills();
@@ -120,15 +125,14 @@ export function FromIdeaPanel({ onOpenDirector, embedded }: { onOpenDirector?: (
   const applyPlan = (nextTopic: string, nextFormat: YoutubeFormat, nextDuration: number) => {
     if (!nextTopic.trim()) return;
     if (plan && countDrawn(plan) > 0) {
-      commit(plan, outputPath, { topic: plan.topic, format: plan.format, durationSec: plan.durationSec });
+      commit(plan, { topic: plan.topic, format: plan.format, durationSec: plan.durationSec });
       draftIdRef.current = newDraftId();
     }
     setError(null);
-    setOutputPath(null);
-    setSavedTo(null);
+    setSentNote(false);
     const next = planYoutubeVideo(nextTopic, nextFormat, nextDuration);
     setPlan(next);
-    commit(next, null, { topic: nextTopic, format: nextFormat, durationSec: nextDuration });
+    commit(next, { topic: nextTopic, format: nextFormat, durationSec: nextDuration });
   };
 
   const handlePlan = () => applyPlan(topic, format, durationSec);
@@ -174,37 +178,6 @@ export function FromIdeaPanel({ onOpenDirector, embedded }: { onOpenDirector?: (
     }
   };
 
-  const handleAssemble = async () => {
-    if (!plan || !window.api?.assembleVideo) return;
-    const ready = plan.scenes.filter((s) => s.imagePath);
-    if (ready.length !== plan.scenes.length) {
-      setError(t('video.need_all_scenes'));
-      return;
-    }
-    setBusy('assemble');
-    setError(null);
-    setProgress(t('video.assembling'));
-    try {
-      const slug = plan.topic.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'youtube-video';
-      const result = await window.api.assembleVideo({
-        image_paths: ready.map((s) => filePathFromAssetUrl(s.imagePath) as string),
-        durations: ready.map((s) => s.durationSec),
-        width: plan.width,
-        height: plan.height,
-        output_name: `${slug}-${Date.now()}`,
-      });
-      setOutputPath(result.file_path);
-      setSavedTo(null);
-      commit(plan, result.file_path);
-    } catch (err) {
-      const raw = err instanceof Error ? err.message : String(err);
-      setError(raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, ''));
-    } finally {
-      setBusy('idle');
-      setProgress('');
-    }
-  };
-
   const handleRestore = (id: string) => {
     const rec = historyRef.current.drafts.find((d) => d.id === id);
     if (!rec) return;
@@ -214,30 +187,10 @@ export function FromIdeaPanel({ onOpenDirector, embedded }: { onOpenDirector?: (
     setFormat(rec.format);
     setDurationSec(rec.durationSec);
     setPlan(rec.plan);
-    setOutputPath(rec.outputPath);
-    setSavedTo(null);
+    setSentNote(false);
     setError(null);
     void persistHistory(historyRef.current);
     setDrafts(historyRef.current.drafts);
-  };
-
-  const handleSaveAs = async () => {
-    if (!outputPath || !window.api?.saveVideoAs) return;
-    try {
-      const dest = await window.api.saveVideoAs(outputPath);
-      if (dest) setSavedTo(dest);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const handleDiscard = async () => {
-    if (outputPath) {
-      await window.api?.discardVideoDraft?.(outputPath);
-    }
-    setOutputPath(null);
-    setSavedTo(null);
-    commit(plan, null);
   };
 
   const handleDeleteDraft = (id: string) => {
@@ -249,8 +202,6 @@ export function FromIdeaPanel({ onOpenDirector, embedded }: { onOpenDirector?: (
       else {
         draftIdRef.current = newDraftId();
         setPlan(null);
-        setOutputPath(null);
-        setSavedTo(null);
       }
     }
     void persistHistory(historyRef.current);
@@ -270,37 +221,22 @@ export function FromIdeaPanel({ onOpenDirector, embedded }: { onOpenDirector?: (
     commit(next);
   };
 
-  const handleOpenDirector = () => {
-    if (!onOpenDirector) return;
-    const bins: DirectorSeed['bins'] = [];
-    if (outputPath) {
-      bins.push({
-        kind: 'video',
-        path: outputPath,
-        name: fileName(outputPath),
-        durationSec: plan?.durationSec ?? 60,
-      });
-    }
-    plan?.scenes.forEach((scene) => {
+  const handleSendToTimeline = () => {
+    if (!onSendToTimeline || !plan) return;
+    const items: StoryboardStill[] = [];
+    plan.scenes.forEach((scene) => {
       const path = filePathFromAssetUrl(scene.imagePath);
       if (!path) return;
-      bins.push({
-        kind: 'image',
-        path,
-        name: fileName(path),
-        durationSec: scene.durationSec,
-      });
+      items.push({ path, name: fileName(path), durationSec: scene.durationSec });
     });
-    onOpenDirector({
-      title: plan?.topic || topic,
-      totalSec: plan?.durationSec ?? durationSec,
-      bins,
-    });
+    if (items.length === 0) return;
+    onSendToTimeline(items);
+    setSentNote(true);
   };
 
-  const allScenesReady = Boolean(plan && plan.scenes.every((s) => s.imagePath));
   const drawnCount = countDrawn(plan);
   const remaining = plan ? plan.scenes.length - drawnCount : 0;
+  const allScenesReady = Boolean(plan && plan.scenes.every((s) => s.imagePath));
   const topicDirty = Boolean(plan && topic.trim() !== plan.topic);
   const canFillDisk = Boolean(plan && remaining > 0 && diskStills.length > 0);
   const sceneTitle = (scene: YoutubePlan['scenes'][number]) => {
@@ -317,24 +253,17 @@ export function FromIdeaPanel({ onOpenDirector, embedded }: { onOpenDirector?: (
 
   return (
     <>
-      {embedded ? null : !plan ? (
+      {embedded ? null : (
         <ol className={styles.howto}>
           <li>{t('video.step_1')}</li>
           <li>{t('video.step_2', { count: estimate.count, seconds: estimate.eachSec })}</li>
           <li>{t('video.step_3')}</li>
         </ol>
-      ) : (
-        <p className={styles.nextHint}>
-          {!allScenesReady
-            ? t('video.next_draw', { count: plan.scenes.length, drawn: drawnCount })
-            : t('video.next_assemble')}
-        </p>
       )}
 
       {drafts.length > 0 ? (
         <section className={styles.card}>
           <h2 className={styles.subtitle}>{t('video.history_title')}</h2>
-          <p className={styles.lead}>{t('video.history_help')}</p>
           <ul className={styles.history}>
             {drafts.map((d) => (
               <li key={d.id} className={styles.historyRow} data-on={d.id === draftIdRef.current}>
@@ -357,8 +286,6 @@ export function FromIdeaPanel({ onOpenDirector, embedded }: { onOpenDirector?: (
         </section>
       ) : null}
 
-      <div className={styles.split}>
-      <div className={styles.workCol}>
       {hasImageEngine === false ? (
         <section className={styles.card}>
           <p className={styles.error}>{t('video.need_image_engine')}</p>
@@ -421,23 +348,25 @@ export function FromIdeaPanel({ onOpenDirector, embedded }: { onOpenDirector?: (
             <div className={styles.actions}>
               <button
                 type="button"
-                className={styles.primary}
+                className={allScenesReady ? styles.secondary : styles.primary}
                 onClick={() => { void handleGenerateScenes(); }}
                 disabled={busy !== 'idle' || hasImageEngine !== true || allScenesReady}
               >
                 {drawnCount > 0 && !allScenesReady ? t('video.generate_remaining', { count: remaining }) : t('video.generate_scenes')}
               </button>
-              <button type="button" className={styles.secondary} onClick={() => { void handleAssemble(); }} disabled={busy !== 'idle' || !allScenesReady}>
-                {t('video.assemble')}
-              </button>
-              {onOpenDirector ? (
-                <button type="button" className={styles.secondary} onClick={handleOpenDirector} disabled={busy !== 'idle'}>
-                  {t('video.open_director')}
+              {onSendToTimeline ? (
+                <button
+                  type="button"
+                  className={allScenesReady ? styles.primary : styles.secondary}
+                  onClick={handleSendToTimeline}
+                  disabled={busy !== 'idle' || drawnCount === 0}
+                >
+                  {t('video.dir_to_timeline')}
                 </button>
               ) : null}
             </div>
           </div>
-          <p className={styles.lead}>{t('video.storyboard_help')}</p>
+          {sentNote ? <p className={styles.nextHint}>{t('video.dir_sent_to_timeline')}</p> : null}
           {canFillDisk ? (
             <p className={styles.hint}>
               {t('video.fill_from_disk_help', { n: Math.min(remaining, diskStills.length) })}{' '}
@@ -493,24 +422,6 @@ export function FromIdeaPanel({ onOpenDirector, embedded }: { onOpenDirector?: (
           </ol>
         </section>
       ) : null}
-      </div>
-
-      <div className={styles.previewCol}>
-      <VideoPreviewPane
-        filePath={outputPath}
-        savedTo={savedTo}
-        onSaveAs={() => { void handleSaveAs(); }}
-        onDiscard={() => { void handleDiscard(); }}
-      />
-      {outputPath ? (
-        <VideoTimelineCard
-          videoPath={outputPath}
-          initialPrompt={plan ? voiceoverPromptFromPlan(plan) : ''}
-          hidePath
-        />
-      ) : null}
-      </div>
-      </div>
     </>
   );
 }

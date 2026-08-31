@@ -63,7 +63,7 @@ export async function loadHistory(): Promise<VideoHistoryFile> {
   const local = readLocal();
   let disk: VideoHistoryFile | null = null;
   try {
-    disk = (await window.api?.loadVideoHistory?.()) ?? null;
+    disk = ((await window.api?.loadVideoHistory?.()) ?? null) as VideoHistoryFile | null;
   } catch {
     disk = null;
   }

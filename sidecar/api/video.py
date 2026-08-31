@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
-from typing import List
+from typing import List, Optional
 from urllib.parse import unquote
 
 router = APIRouter()
@@ -163,9 +163,10 @@ def _run_ffmpeg(cmd: list, fallback: str) -> None:
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
     except subprocess.CalledProcessError as exc:
+        # The tail of stderr carries the actual error; the head is the banner.
         raise HTTPException(
             status_code=500,
-            detail=(exc.stderr or exc.stdout or fallback)[:500],
+            detail=(exc.stderr or exc.stdout or fallback)[-600:],
         ) from exc
 
 
@@ -333,3 +334,289 @@ def clean_screencast(request: CleanScreencastRequest):
         ) from exc
 
     return {"status": "completed", "file_path": output_path, "plan": plan}
+
+
+# ── Timeline render: the single "make MP4" for the director desk ──────────────
+
+
+class TimelineClipModel(BaseModel):
+    kind: str  # video | image | audio | text
+    track: str  # v1 | v2 | a1 | t1
+    path: Optional[str] = None
+    text: Optional[str] = None
+    start_sec: float
+    duration_sec: float
+    source_in_sec: float = 0.0
+
+
+class RenderTimelineRequest(BaseModel):
+    clips: List[TimelineClipModel]
+    width: int = 1920
+    height: int = 1080
+    fps: int = 30
+
+
+_SEG_AUDIO = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"]
+
+
+def _caption_font() -> Optional[str]:
+    for candidate in (
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ):
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def _render_caption_png(text: str, video_w: int, video_h: int, out: str) -> None:
+    """Captions as PNG overlays: many ffmpeg builds ship without drawtext."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Pillow is required for captions (pip install pillow).",
+        ) from exc
+
+    size = max(18, video_h // 18)
+    font_path = _caption_font()
+    font = ImageFont.truetype(font_path, size) if font_path else ImageFont.load_default()
+    pad = size // 2
+
+    probe = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
+    box = probe.textbbox((0, 0), text, font=font)
+    tw, th = box[2] - box[0], box[3] - box[1]
+    img = Image.new("RGBA", (min(video_w - 16, tw + pad * 2), th + pad * 2), (0, 0, 0, 115))
+    draw = ImageDraw.Draw(img)
+    draw.text((pad - box[0], pad - box[1]), text, font=font, fill=(255, 255, 255, 255))
+    img.save(out)
+
+
+def _fit_filter(w: int, h: int, fps: int) -> str:
+    return (
+        f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+        f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,fps={fps},format=yuv420p"
+    )
+
+
+def _encode_segment(ffmpeg: str, clip: TimelineClipModel, dur: float, index: int,
+                    w: int, h: int, fps: int, out: str) -> None:
+    """Uniform WxH/fps/aac segments so the base track can be concat-copied."""
+    src = _disk_image_path(clip.path or "")
+    if not os.path.isfile(src):
+        raise HTTPException(status_code=400, detail=f"Missing source: {src}")
+    silence = ["-f", "lavfi", "-t", f"{dur:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
+    if clip.kind == "image":
+        frames = max(2, int(round(dur * fps)))
+        cmd = [
+            ffmpeg, "-y", "-loop", "1", "-t", f"{dur:.3f}", "-i", src, *silence,
+            "-frames:v", str(frames),
+            "-vf", _ken_burns_filter(index, w, h, frames),
+            "-map", "0:v", "-map", "1:a",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", *_SEG_AUDIO,
+            out,
+        ]
+    else:
+        audio_map = ["-map", "0:a"] if _has_audio(src) else ["-map", "1:a"]
+        cmd = [
+            ffmpeg, "-y",
+            "-ss", f"{max(0.0, clip.source_in_sec):.3f}", "-t", f"{dur:.3f}", "-i", src,
+            *silence,
+            "-vf", _fit_filter(w, h, fps),
+            "-map", "0:v", *audio_map,
+            "-t", f"{dur:.3f}",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", *_SEG_AUDIO,
+            out,
+        ]
+    _run_ffmpeg(cmd, "ffmpeg segment failed")
+
+
+def _encode_gap(ffmpeg: str, dur: float, w: int, h: int, fps: int, out: str) -> None:
+    cmd = [
+        ffmpeg, "-y",
+        "-f", "lavfi", "-t", f"{dur:.3f}", "-i", f"color=black:s={w}x{h}:r={fps}",
+        "-f", "lavfi", "-t", f"{dur:.3f}", "-i", "anullsrc=r=48000:cl=stereo",
+        "-vf", "format=yuv420p",
+        "-c:v", "libx264", *_SEG_AUDIO,
+        out,
+    ]
+    _run_ffmpeg(cmd, "ffmpeg gap failed")
+
+
+@router.post("/video/render-timeline")
+def render_timeline(request: RenderTimelineRequest):
+    if not request.clips:
+        raise HTTPException(status_code=400, detail="Timeline is empty")
+
+    ffmpeg = _ffmpeg_bin()
+    w = max(2, request.width - (request.width % 2))
+    h = max(2, request.height - (request.height % 2))
+    fps = max(10, min(60, request.fps))
+    total = max(c.start_sec + c.duration_sec for c in request.clips)
+    if total <= 0.1:
+        raise HTTPException(status_code=400, detail="Timeline is too short")
+
+    v1 = sorted([c for c in request.clips if c.track == "v1"], key=lambda c: c.start_sec)
+    overlays = sorted(
+        [c for c in request.clips if c.track.startswith("v") and c.track != "v1"],
+        key=lambda c: (c.track, c.start_sec),
+    )
+    if not v1 and overlays:
+        first = min(overlays, key=lambda c: int(c.track[1:]) if c.track[1:].isdigit() else 99).track
+        v1 = sorted([c for c in overlays if c.track == first], key=lambda c: c.start_sec)
+        overlays = [c for c in overlays if c.track != first]
+    audio_clips = [c for c in request.clips if c.track.startswith("a") and c.path]
+    title_clips = [c for c in request.clips if c.track.startswith("t") and (c.text or "").strip()]
+
+    OVERLAY_POSITIONS = [
+        ("W-w-32", "32"),
+        ("32", "32"),
+        ("W-w-32", "H-h-32"),
+        ("32", "H-h-32"),
+    ]
+
+    def overlay_xy(track: str) -> tuple[str, str]:
+        try:
+            idx = max(0, int(track[1:]) - 2)
+        except ValueError:
+            idx = 0
+        return OVERLAY_POSITIONS[idx % len(OVERLAY_POSITIONS)]
+
+    output_path = os.path.join(_video_draft_dir(), f"draft-{uuid.uuid4().hex[:12]}.mp4")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # Pass 1: main track (V1) into one uniform base file, gaps become black.
+        segments: List[str] = []
+        cursor = 0.0
+        for idx, clip in enumerate(v1):
+            start = max(clip.start_sec, cursor)
+            dur = clip.duration_sec - (start - clip.start_sec)
+            if dur <= 0.05:
+                continue
+            if start - cursor > 0.05:
+                gap = os.path.join(tmp, f"gap_{idx:03d}.mp4")
+                _encode_gap(ffmpeg, start - cursor, w, h, fps, gap)
+                segments.append(gap)
+            seg = os.path.join(tmp, f"seg_{idx:03d}.mp4")
+            shifted = TimelineClipModel(
+                **{**clip.dict(), "source_in_sec": clip.source_in_sec + (start - clip.start_sec)}
+            )
+            _encode_segment(ffmpeg, shifted, dur, idx, w, h, fps, seg)
+            segments.append(seg)
+            cursor = start + dur
+        if total - cursor > 0.05:
+            tail = os.path.join(tmp, "gap_tail.mp4")
+            _encode_gap(ffmpeg, total - cursor, w, h, fps, tail)
+            segments.append(tail)
+        if not segments:
+            raise HTTPException(status_code=400, detail="Main track (V1) is empty")
+
+        base = os.path.join(tmp, "base.mp4")
+        if len(segments) == 1:
+            shutil.copyfile(segments[0], base)
+        else:
+            listing = os.path.join(tmp, "concat.txt")
+            with open(listing, "w", encoding="utf-8") as fh:
+                for seg in segments:
+                    fh.write(f"file '{seg}'\n")
+            _run_ffmpeg(
+                [ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", listing, "-c", "copy", base],
+                "ffmpeg concat failed",
+            )
+
+        # Pass 2: overlays (V2), captions (T1), extra audio (A1) on top of the base.
+        if not overlays and not audio_clips and not title_clips:
+            _run_ffmpeg(
+                [ffmpeg, "-y", "-i", base, "-c", "copy", "-movflags", "+faststart", output_path],
+                "ffmpeg finalize failed",
+            )
+            return {"status": "completed", "file_path": output_path, "duration_sec": total}
+
+        inputs: List[str] = ["-i", base]
+        parts: List[str] = []
+        input_idx = 1
+
+        vcur = "[0:v]"
+        pip_w = int(w * 0.38) // 2 * 2
+        for k, clip in enumerate(overlays):
+            src = _disk_image_path(clip.path or "")
+            if not os.path.isfile(src):
+                raise HTTPException(status_code=400, detail=f"Missing overlay source: {src}")
+            end = clip.start_sec + clip.duration_sec
+            ox, oy = overlay_xy(clip.track)
+            if clip.kind == "image":
+                inputs += ["-loop", "1", "-t", f"{clip.duration_sec:.3f}", "-i", src]
+            else:
+                inputs += [
+                    "-ss", f"{max(0.0, clip.source_in_sec):.3f}",
+                    "-t", f"{clip.duration_sec:.3f}", "-i", src,
+                ]
+            parts.append(
+                f"[{input_idx}:v]scale={pip_w}:-2,"
+                f"setpts=PTS-STARTPTS+{clip.start_sec:.3f}/TB[ov{k}]"
+            )
+            parts.append(
+                f"{vcur}[ov{k}]overlay=x={ox}:y={oy}:eof_action=pass:"
+                f"enable='between(t,{clip.start_sec:.3f},{end:.3f})'[vo{k}]"
+            )
+            vcur = f"[vo{k}]"
+            input_idx += 1
+
+        for k, clip in enumerate(title_clips):
+            end = clip.start_sec + clip.duration_sec
+            png = os.path.join(tmp, f"caption_{k:02d}.png")
+            _render_caption_png((clip.text or "").strip(), w, h, png)
+            inputs += ["-loop", "1", "-t", f"{clip.duration_sec:.3f}", "-i", png]
+            parts.append(
+                f"[{input_idx}:v]setpts=PTS-STARTPTS+{clip.start_sec:.3f}/TB[cap{k}]"
+            )
+            parts.append(
+                f"{vcur}[cap{k}]overlay=x=(W-w)/2:y=H-h-H*0.08:eof_action=pass:"
+                f"enable='between(t,{clip.start_sec:.3f},{end:.3f})'[tx{k}]"
+            )
+            vcur = f"[tx{k}]"
+            input_idx += 1
+
+        audio_labels = ["[0:a]"]
+        for k, clip in enumerate(audio_clips):
+            src = _disk_image_path(clip.path or "")
+            if not os.path.isfile(src):
+                raise HTTPException(status_code=400, detail=f"Missing audio source: {src}")
+            inputs += [
+                "-ss", f"{max(0.0, clip.source_in_sec):.3f}",
+                "-t", f"{clip.duration_sec:.3f}", "-i", src,
+            ]
+            ms = int(round(clip.start_sec * 1000))
+            parts.append(
+                f"[{input_idx}:a]aresample=48000,adelay={ms}:all=1[au{k}]"
+            )
+            audio_labels.append(f"[au{k}]")
+            input_idx += 1
+
+        if len(audio_labels) > 1:
+            parts.append(
+                f"{''.join(audio_labels)}amix=inputs={len(audio_labels)}:"
+                f"duration=first:dropout_transition=0:normalize=0[aout]"
+            )
+            amap = "[aout]"
+        else:
+            amap = "0:a"
+
+        graph = ";".join(parts)
+        vmap = vcur if vcur != "[0:v]" else "0:v"
+        cmd = [
+            ffmpeg, "-y", *inputs,
+            "-filter_complex", graph,
+            "-map", vmap,
+            "-map", amap,
+            "-t", f"{total:.3f}",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k",
+            "-movflags", "+faststart",
+            output_path,
+        ]
+        _run_ffmpeg(cmd, "ffmpeg timeline render failed")
+
+    return {"status": "completed", "file_path": output_path, "duration_sec": total}

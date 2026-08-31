@@ -2,9 +2,10 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-4);
-  min-height: 2.5rem;
-  padding: var(--space-2) var(--space-3);
+  gap: var(--space-3);
+  flex-shrink: 0;
+  min-height: 2.25rem;
+  padding: 0.25rem var(--space-3);
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
   background: var(--color-bg-card);
@@ -97,8 +98,11 @@
 .tileCanvas {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: var(--space-3);
+  gap: var(--space-2);
   align-content: start;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .freeCanvas {
@@ -171,7 +175,7 @@
   min-height: 0;
   min-width: 0;
   overflow: auto;
-  padding: var(--space-3);
+  padding: var(--space-2) var(--space-3);
 }
 
 /* ── resize handles ───────────────────────────────────────── */

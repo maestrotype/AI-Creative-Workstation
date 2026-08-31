@@ -1,7 +1,5 @@
-import { contextBridge } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { electronAPI } from '@electron-toolkit/preload';
-
-import { ipcRenderer } from 'electron';
 
 // Custom APIs for renderer
 const api = {
@@ -34,10 +32,34 @@ const api = {
     height: number;
     output_name: string;
   }) => ipcRenderer.invoke('assemble-video', payload),
+  renderTimeline: (payload: {
+    clips: Array<{
+      kind: string;
+      track: string;
+      path: string | null;
+      text: string | null;
+      start_sec: number;
+      duration_sec: number;
+      source_in_sec: number;
+    }>;
+    width: number;
+    height: number;
+    fps: number;
+  }) => ipcRenderer.invoke('render-timeline', payload),
   loadVideoHistory: () => ipcRenderer.invoke('load-video-history'),
   saveVideoHistory: (payload: unknown) => ipcRenderer.invoke('save-video-history', payload),
   listGeneratedStills: () => ipcRenderer.invoke('list-generated-stills') as Promise<{ path: string; mtime: number }[]>,
   pickVideo: () => ipcRenderer.invoke('pick-video'),
+  probeMediaDuration: (filePath: string) => ipcRenderer.invoke('probe-media-duration', filePath) as Promise<number>,
+  rememberDroppedMedia: (filePath: string) =>
+    ipcRenderer.invoke('remember-dropped-media', filePath) as Promise<string | null>,
+  getPathForFile: (file: File) => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return '';
+    }
+  },
   pickImage: () => ipcRenderer.invoke('pick-image'),
   pickImages: () => ipcRenderer.invoke('pick-images'),
   pickAudio: () => ipcRenderer.invoke('pick-audio'),

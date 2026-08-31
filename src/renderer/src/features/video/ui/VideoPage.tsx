@@ -1,39 +1,64 @@
-import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { useTranslation } from 'react-i18next';
 
 import { FromIdeaPanel } from './FromIdeaPanel';
 import { FromRecordingPanel } from './FromRecordingPanel';
-import { WorkspaceFlow } from '../../studio/ui/WorkspaceFlow';
+import { DirectorProvider, useDirector } from './DirectorBoard';
+import {
+  DirectorResultPane,
+  DirectorSourcesPane,
+  DirectorTimelinePane,
+} from './DirectorPanes';
+import { VideoDock, VideoMenuBar, useDockLayout } from './VideoDock';
 import styles from './VideoPage.module.css';
 
-type VideoMode = 'idea' | 'recording';
+function StoryboardPane(): ReactNode {
+  const d = useDirector();
+  return (
+    <div className={styles.densePane}>
+      <FromIdeaPanel
+        embedded
+        onSendToTimeline={(items) => {
+          d.addSources(
+            items.map((it) => ({ kind: 'image' as const, path: it.path, name: it.name, durationSec: it.durationSec })),
+            true,
+          );
+        }}
+      />
+    </div>
+  );
+}
+
+function RecordingPane(): ReactNode {
+  const d = useDirector();
+  return (
+    <div className={styles.densePane}>
+      <FromRecordingPanel
+        embedded
+        onProduced={(path) => { d.addSources([{ kind: 'video', path }], true); }}
+      />
+    </div>
+  );
+}
 
 export function VideoPage(): ReactNode {
-  const { t } = useTranslation();
-  const [mode, setMode] = useState<VideoMode>('idea');
+  const [dock, setDock] = useDockLayout();
 
   return (
-    <div className={styles.container}>
-      <header className={styles.header}>
-        <div>
-          <h1 className={styles.title}>{t('video.title')}</h1>
-          <p className={styles.lead}>{t('video.lead')}</p>
-        </div>
-      </header>
-
-      <WorkspaceFlow kind="video" />
-
-      <div className={styles.pills}>
-        <button type="button" className={styles.pill} data-on={mode === 'idea'} onClick={() => setMode('idea')}>
-          {t('video.mode_idea')}
-        </button>
-        <button type="button" className={styles.pill} data-on={mode === 'recording'} onClick={() => setMode('recording')}>
-          {t('video.mode_recording')}
-        </button>
-      </div>
-
-      {mode === 'idea' ? <FromIdeaPanel /> : <FromRecordingPanel />}
+    <div className={styles.container} data-mode="studio">
+      <VideoMenuBar state={dock} onState={setDock} />
+      <DirectorProvider>
+        <VideoDock
+          state={dock}
+          onState={setDock}
+          panels={{
+            timeline: <DirectorTimelinePane />,
+            preview: <DirectorResultPane />,
+            sources: <DirectorSourcesPane />,
+            storyboard: <StoryboardPane />,
+            recording: <RecordingPane />,
+          }}
+        />
+      </DirectorProvider>
     </div>
   );
 }

@@ -55,6 +55,20 @@ function ffprobeBin(): string {
   }
 }
 
+function probeMediaDurationSec(filePath: string): number {
+  try {
+    const raw = execFileSync(
+      ffprobeBin(),
+      ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', filePath],
+      { encoding: 'utf8', timeout: 30_000 },
+    ).trim();
+    const n = Number.parseFloat(raw.split('\n')[0] ?? '');
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function probeVideoCodec(filePath: string): string {
   try {
     return execFileSync(
@@ -422,11 +436,45 @@ const MEDIA_EXTS = new Set([
   '.wav', '.mp3', '.flac', '.m4a', '.aac', '.ogg',
 ]);
 
+const VIDEO_EXTS = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv']);
+
+function pickedMediaStorePath(): string {
+  return join(app.getPath('userData'), 'picked-media.json');
+}
+
+function loadPickedMedia(): void {
+  try {
+    const raw = JSON.parse(readFileSync(pickedMediaStorePath(), 'utf8')) as unknown;
+    if (!Array.isArray(raw)) return;
+    for (const item of raw) {
+      if (typeof item !== 'string') continue;
+      const resolved = resolve(item);
+      if (existsSync(resolved)) pickedMediaPaths.add(resolved);
+    }
+  } catch {
+    /* first run */
+  }
+}
+
+function persistPickedMedia(): void {
+  try {
+    mkdirSync(app.getPath('userData'), { recursive: true });
+    writeFileSync(pickedMediaStorePath(), JSON.stringify([...pickedMediaPaths].slice(-500)));
+  } catch {
+    /* ignore */
+  }
+}
+
 function rememberPickedMedia(filePath: string | null): string | null {
   if (!filePath) return null;
   const resolved = resolve(filePath);
   if (!existsSync(resolved)) return null;
-  pickedMediaPaths.add(resolved);
+  const ext = extname(resolved).toLowerCase();
+  if (!MEDIA_EXTS.has(ext)) return null;
+  if (!pickedMediaPaths.has(resolved)) {
+    pickedMediaPaths.add(resolved);
+    persistPickedMedia();
+  }
   return resolved;
 }
 
@@ -437,7 +485,7 @@ function isUnderDir(filePath: string, dir: string): boolean {
 
 function resolveAllowedVideoFile(sourcePath: string): string | null {
   const ext = extname(sourcePath).toLowerCase();
-  if (ext !== '.mp4' && ext !== '.mov' && ext !== '.m4v' && ext !== '.webm') return null;
+  if (!VIDEO_EXTS.has(ext)) return null;
   if (!sourcePath || !existsSync(sourcePath)) return null;
   const resolved = resolve(sourcePath);
   if (pickedMediaPaths.has(resolved)) return resolved;
@@ -481,6 +529,7 @@ function resolveAllowedMeshFile(sourcePath: string): string | null {
 }
 
 function setupIpc() {
+  loadPickedMedia();
   ipcMain.handle('get-models', async () => {
     const db = getDb();
     return db.select().from(models).all();
@@ -616,6 +665,37 @@ function setupIpc() {
     return { file_path: body.file_path as string };
   });
 
+  ipcMain.handle('render-timeline', async (_, payload: {
+    clips: Array<{
+      kind: string;
+      track: string;
+      path: string | null;
+      text: string | null;
+      start_sec: number;
+      duration_sec: number;
+      source_in_sec: number;
+    }>;
+    width: number;
+    height: number;
+    fps: number;
+  }) => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) {
+      throw new Error(ready.error || 'Sidecar unavailable');
+    }
+    const res = await net.fetch(`${SIDECAR_URL}/api/video/render-timeline`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30 * 60 * 1000),
+    });
+    const body = (await res.json().catch(() => ({}))) as { detail?: unknown; file_path?: string };
+    if (!res.ok) {
+      throw new Error(body.detail != null ? String(body.detail).slice(0, 400) : `HTTP ${res.status}`);
+    }
+    return { file_path: body.file_path as string };
+  });
+
   const videoHistoryPath = () => join(homedir(), 'Documents/Canvas/Generated/Video/idea-history.json');
 
   ipcMain.handle('load-video-history', async () => {
@@ -659,6 +739,15 @@ function setupIpc() {
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return rememberPickedMedia(result.filePaths[0]);
+  });
+
+  ipcMain.handle('probe-media-duration', async (_, filePath: string) => {
+    if (!filePath || !existsSync(filePath)) return 0;
+    return probeMediaDurationSec(filePath);
+  });
+
+  ipcMain.handle('remember-dropped-media', async (_, filePath: string) => {
+    return rememberPickedMedia(filePath);
   });
 
   ipcMain.handle('pick-image', async () => {
@@ -932,14 +1021,16 @@ function setupIpc() {
   });
 
   ipcMain.handle('read-media-file', async (_, sourcePath: string) => {
-    const resolved = resolveAllowedMediaFile(sourcePath);
+    const remembered = rememberPickedMedia(sourcePath);
+    const resolved = remembered ?? resolveAllowedMediaFile(sourcePath);
     if (!resolved) throw new Error('Media file is not available to preview');
     const buf = readFileSync(resolved);
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   });
 
   ipcMain.handle('ensure-video-preview', async (_, sourcePath: string, force?: boolean) => {
-    const resolved = resolveAllowedMediaFile(sourcePath);
+    const remembered = rememberPickedMedia(sourcePath);
+    const resolved = remembered ?? resolveAllowedMediaFile(sourcePath);
     if (!resolved) throw new Error('Video is not available to preview');
     return ensureH264Preview(resolved, Boolean(force));
   });
