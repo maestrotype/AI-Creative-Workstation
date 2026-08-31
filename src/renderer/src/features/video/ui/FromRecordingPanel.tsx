@@ -6,7 +6,7 @@ import styles from './VideoPage.module.css';
 import { VideoPreviewPane } from './VideoPreviewPane';
 import { VideoTimelineCard } from './VideoTimelineCard';
 
-export function FromRecordingPanel(): ReactNode {
+export function FromRecordingPanel({ embedded }: { embedded?: boolean }): ReactNode {
   const { t } = useTranslation();
 
   const [screencastPath, setScreencastPath] = useState<string | null>(null);
@@ -61,11 +61,13 @@ export function FromRecordingPanel(): ReactNode {
 
   return (
     <>
+      {embedded ? null : (
       <ol className={styles.howto}>
         <li>{t('video.rec_step_1')}</li>
         <li>{t('video.rec_step_2')}</li>
         <li>{t('video.rec_step_3')}</li>
       </ol>
+      )}
       <div className={styles.split}>
         <div className={styles.workCol}>
           <section className={styles.card}>

@@ -47,6 +47,91 @@ function ffmpegBin(): string {
   }
 }
 
+function ffprobeBin(): string {
+  try {
+    return execFileSync('which', ['ffprobe'], { encoding: 'utf8' }).trim();
+  } catch {
+    return ffmpegBin().replace(/ffmpeg$/i, 'ffprobe');
+  }
+}
+
+function probeVideoCodec(filePath: string): string {
+  try {
+    return execFileSync(
+      ffprobeBin(),
+      ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', filePath],
+      { encoding: 'utf8', timeout: 20_000 },
+    )
+      .trim()
+      .split('\n')[0]
+      ?.trim()
+      .toLowerCase() ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function needsH264Proxy(codec: string): boolean {
+  if (!codec) return true;
+  return !['h264', 'avc1', 'vp8', 'theora'].includes(codec);
+}
+
+function previewProxyPath(sourcePath: string): string {
+  const st = statSync(sourcePath);
+  const stamp = `${sourcePath}:${st.size}:${Math.floor(st.mtimeMs)}`;
+  let hash = 0;
+  for (let i = 0; i < stamp.length; i += 1) hash = (hash * 31 + stamp.charCodeAt(i)) >>> 0;
+  const dir = join(homedir(), 'Documents/Canvas/Generated/Video/drafts');
+  mkdirSync(dir, { recursive: true });
+  return join(dir, `preview-${hash.toString(16)}.mp4`);
+}
+
+function runFfmpeg(args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpegBin(), args);
+    let err = '';
+    child.stderr.on('data', (chunk) => {
+      err += String(chunk);
+      if (err.length > 8000) err = err.slice(-4000);
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(err.slice(-400) || `ffmpeg exited ${code}`));
+    });
+  });
+}
+
+async function ensureH264Preview(sourcePath: string, force: boolean): Promise<{ path: string; transcoded: boolean }> {
+  const codec = probeVideoCodec(sourcePath);
+  const out = previewProxyPath(sourcePath);
+  if (!force && !needsH264Proxy(codec)) {
+    return { path: sourcePath, transcoded: false };
+  }
+  if (existsSync(out) && !force) {
+    rememberPickedMedia(out);
+    return { path: out, transcoded: true };
+  }
+  await runFfmpeg([
+    '-y',
+    '-i', sourcePath,
+    '-map', '0:v:0',
+    '-map', '0:a?',
+    '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+    '-c:v', 'libx264',
+    '-pix_fmt', 'yuv420p',
+    '-preset', 'veryfast',
+    '-crf', '23',
+    '-c:a', 'aac',
+    '-ac', '2',
+    '-b:a', '128k',
+    '-movflags', '+faststart',
+    out,
+  ]);
+  rememberPickedMedia(out);
+  return { path: out, transcoded: true };
+}
+
 function formatSidecarDetail(detail: unknown, status: number, raw: string): string {
   if (typeof detail === 'string' && detail.trim()) return detail.slice(0, 400);
   if (Array.isArray(detail)) {
@@ -329,21 +414,53 @@ async function unloadFromSidecar(modelId: string): Promise<{ unloaded: boolean; 
   }
 }
 
+const pickedMediaPaths = new Set<string>();
+
+const MEDIA_EXTS = new Set([
+  '.mp4', '.mov', '.m4v', '.webm', '.mkv',
+  '.png', '.jpg', '.jpeg', '.webp',
+  '.wav', '.mp3', '.flac', '.m4a', '.aac', '.ogg',
+]);
+
+function rememberPickedMedia(filePath: string | null): string | null {
+  if (!filePath) return null;
+  const resolved = resolve(filePath);
+  if (!existsSync(resolved)) return null;
+  pickedMediaPaths.add(resolved);
+  return resolved;
+}
+
+function isUnderDir(filePath: string, dir: string): boolean {
+  const base = resolve(dir);
+  return filePath === base || filePath.startsWith(`${base}/`);
+}
+
 function resolveAllowedVideoFile(sourcePath: string): string | null {
   const ext = extname(sourcePath).toLowerCase();
   if (ext !== '.mp4' && ext !== '.mov' && ext !== '.m4v' && ext !== '.webm') return null;
   if (!sourcePath || !existsSync(sourcePath)) return null;
+  const resolved = resolve(sourcePath);
+  if (pickedMediaPaths.has(resolved)) return resolved;
   const allowed = [
     join(app.getPath('userData'), 'video-drafts'),
     join(homedir(), 'Library/Application Support/canvas/video-drafts'),
     join(homedir(), 'Documents/Canvas/Generated/Video'),
   ];
-  const resolved = resolve(sourcePath);
-  const ok = allowed.some((dir) => {
-    const base = resolve(dir);
-    return resolved === base || resolved.startsWith(`${base}/`);
-  });
+  const ok = allowed.some((dir) => isUnderDir(resolved, dir));
   return ok ? resolved : null;
+}
+
+function resolveAllowedMediaFile(sourcePath: string): string | null {
+  if (!sourcePath) return null;
+  const ext = extname(sourcePath).toLowerCase();
+  if (!MEDIA_EXTS.has(ext)) return null;
+  if (!existsSync(sourcePath)) return null;
+  const resolved = resolve(sourcePath);
+  if (pickedMediaPaths.has(resolved)) return resolved;
+  if (isUnderDir(resolved, join(homedir(), 'Documents/Canvas'))) return resolved;
+  if (isUnderDir(resolved, join(app.getPath('userData'), 'video-drafts'))) return resolved;
+  if (isUnderDir(resolved, join(homedir(), 'Library/Application Support/canvas/video-drafts'))) return resolved;
+  return resolveAllowedVideoFile(sourcePath);
 }
 
 function resolveAllowedMeshFile(sourcePath: string): string | null {
@@ -541,7 +658,7 @@ function setupIpc() {
       filters: [{ name: 'Video', extensions: ['mp4', 'mov', 'm4v', 'webm', 'mkv'] }],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0];
+    return rememberPickedMedia(result.filePaths[0]);
   });
 
   ipcMain.handle('pick-image', async () => {
@@ -551,7 +668,7 @@ function setupIpc() {
       filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0];
+    return rememberPickedMedia(result.filePaths[0]);
   });
 
   ipcMain.handle('pick-images', async () => {
@@ -561,7 +678,7 @@ function setupIpc() {
       filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths;
+    return result.filePaths.map((p) => rememberPickedMedia(p)).filter((p): p is string => Boolean(p));
   });
 
   ipcMain.handle('clean-screencast', async (_, payload: { input_path: string; prompt: string; dry_run?: boolean }) => {
@@ -593,7 +710,7 @@ function setupIpc() {
       filters: [{ name: 'Audio', extensions: ['wav', 'mp3', 'flac', 'm4a', 'aac', 'ogg', 'webm'] }],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0];
+    return rememberPickedMedia(result.filePaths[0]);
   });
 
   ipcMain.handle('list-media-library', async () => {
@@ -814,6 +931,19 @@ function setupIpc() {
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   });
 
+  ipcMain.handle('read-media-file', async (_, sourcePath: string) => {
+    const resolved = resolveAllowedMediaFile(sourcePath);
+    if (!resolved) throw new Error('Media file is not available to preview');
+    const buf = readFileSync(resolved);
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  });
+
+  ipcMain.handle('ensure-video-preview', async (_, sourcePath: string, force?: boolean) => {
+    const resolved = resolveAllowedMediaFile(sourcePath);
+    if (!resolved) throw new Error('Video is not available to preview');
+    return ensureH264Preview(resolved, Boolean(force));
+  });
+
   ipcMain.handle('discard-mesh-draft', async (_, sourcePath: string) => {
     const resolved = resolveAllowedMeshFile(sourcePath);
     if (!resolved) return false;
@@ -1003,6 +1133,13 @@ const ASSET_MIME: Record<string, string> = {
   '.mov': 'video/quicktime',
   '.m4v': 'video/mp4',
   '.webm': 'video/webm',
+  '.mkv': 'video/x-matroska',
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg',
+  '.flac': 'audio/flac',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.ogg': 'audio/ogg',
 };
 
 function assetPathFromUrl(url: string): string {

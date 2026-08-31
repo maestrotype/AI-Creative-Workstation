@@ -121,6 +121,8 @@ interface Window {
     saveMeshAs: (sourcePath: string) => Promise<string | null>;
     readMeshFile: (sourcePath: string) => Promise<ArrayBuffer>;
     readVideoDraft: (sourcePath: string) => Promise<ArrayBuffer>;
+    readMediaFile: (sourcePath: string) => Promise<ArrayBuffer>;
+    ensureVideoPreview: (sourcePath: string, force?: boolean) => Promise<{ path: string; transcoded: boolean }>;
     discardMeshDraft: (sourcePath: string) => Promise<boolean>;
     saveVideoAs: (sourcePath: string) => Promise<string | null>;
     discardVideoDraft: (sourcePath: string) => Promise<boolean>;

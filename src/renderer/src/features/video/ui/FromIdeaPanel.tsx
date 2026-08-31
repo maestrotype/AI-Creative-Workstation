@@ -12,6 +12,7 @@ import {
   type YoutubeFormat,
   type YoutubePlan,
 } from '../model/planYoutubeVideo';
+import { fileName, type DirectorSeed } from '../model/directorTimeline';
 import {
   drawnCount as countDrawn,
   loadHistory,
@@ -32,7 +33,7 @@ function formatClock(sec: number): string {
   return m > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${s}s`;
 }
 
-export function FromIdeaPanel(): ReactNode {
+export function FromIdeaPanel({ onOpenDirector, embedded }: { onOpenDirector?: (seed: DirectorSeed) => void; embedded?: boolean }): ReactNode {
   const { t } = useTranslation();
   const [topic, setTopic] = useState('');
   const [format, setFormat] = useState<YoutubeFormat>('landscape');
@@ -269,6 +270,34 @@ export function FromIdeaPanel(): ReactNode {
     commit(next);
   };
 
+  const handleOpenDirector = () => {
+    if (!onOpenDirector) return;
+    const bins: DirectorSeed['bins'] = [];
+    if (outputPath) {
+      bins.push({
+        kind: 'video',
+        path: outputPath,
+        name: fileName(outputPath),
+        durationSec: plan?.durationSec ?? 60,
+      });
+    }
+    plan?.scenes.forEach((scene) => {
+      const path = filePathFromAssetUrl(scene.imagePath);
+      if (!path) return;
+      bins.push({
+        kind: 'image',
+        path,
+        name: fileName(path),
+        durationSec: scene.durationSec,
+      });
+    });
+    onOpenDirector({
+      title: plan?.topic || topic,
+      totalSec: plan?.durationSec ?? durationSec,
+      bins,
+    });
+  };
+
   const allScenesReady = Boolean(plan && plan.scenes.every((s) => s.imagePath));
   const drawnCount = countDrawn(plan);
   const remaining = plan ? plan.scenes.length - drawnCount : 0;
@@ -288,7 +317,7 @@ export function FromIdeaPanel(): ReactNode {
 
   return (
     <>
-      {!plan ? (
+      {embedded ? null : !plan ? (
         <ol className={styles.howto}>
           <li>{t('video.step_1')}</li>
           <li>{t('video.step_2', { count: estimate.count, seconds: estimate.eachSec })}</li>
@@ -401,6 +430,11 @@ export function FromIdeaPanel(): ReactNode {
               <button type="button" className={styles.secondary} onClick={() => { void handleAssemble(); }} disabled={busy !== 'idle' || !allScenesReady}>
                 {t('video.assemble')}
               </button>
+              {onOpenDirector ? (
+                <button type="button" className={styles.secondary} onClick={handleOpenDirector} disabled={busy !== 'idle'}>
+                  {t('video.open_director')}
+                </button>
+              ) : null}
             </div>
           </div>
           <p className={styles.lead}>{t('video.storyboard_help')}</p>

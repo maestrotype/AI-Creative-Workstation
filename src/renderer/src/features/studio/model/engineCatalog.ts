@@ -69,6 +69,15 @@ export const CATALOG_ENGINES: CatalogEngine[] = [
     noteKey: 'studio.note_wan',
   },
   {
+    id: 'MiniMaxAI/MiniMax-H3',
+    name: 'MiniMax H3 Base',
+    type: 'video',
+    gated: false,
+    size: '33B · multi-GPU',
+    downloadable: false,
+    noteKey: 'studio.note_minimax_h3',
+  },
+  {
     id: 'stabilityai/TripoSR',
     name: 'TripoSR',
     type: '3d',

@@ -70,6 +70,9 @@ const api = {
   saveMeshAs: (sourcePath: string) => ipcRenderer.invoke('save-mesh-as', sourcePath),
   readMeshFile: (sourcePath: string) => ipcRenderer.invoke('read-mesh-file', sourcePath) as Promise<ArrayBuffer>,
   readVideoDraft: (sourcePath: string) => ipcRenderer.invoke('read-video-draft', sourcePath) as Promise<ArrayBuffer>,
+  readMediaFile: (sourcePath: string) => ipcRenderer.invoke('read-media-file', sourcePath) as Promise<ArrayBuffer>,
+  ensureVideoPreview: (sourcePath: string, force?: boolean) =>
+    ipcRenderer.invoke('ensure-video-preview', sourcePath, force) as Promise<{ path: string; transcoded: boolean }>,
   discardMeshDraft: (sourcePath: string) => ipcRenderer.invoke('discard-mesh-draft', sourcePath),
   saveVideoAs: (sourcePath: string) => ipcRenderer.invoke('save-video-as', sourcePath),
   discardVideoDraft: (sourcePath: string) => ipcRenderer.invoke('discard-video-draft', sourcePath),
