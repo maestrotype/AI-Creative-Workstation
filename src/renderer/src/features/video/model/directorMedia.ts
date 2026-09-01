@@ -15,6 +15,11 @@ export function mediaMime(path: string): string {
   if (lower.endsWith('.wav')) return 'audio/wav';
   if (lower.endsWith('.mp3')) return 'audio/mpeg';
   if (lower.endsWith('.m4a') || lower.endsWith('.aac')) return 'audio/mp4';
+  if (lower.endsWith('.flac')) return 'audio/flac';
+  if (lower.endsWith('.ogg') || lower.endsWith('.oga')) return 'audio/ogg';
+  if (lower.endsWith('.opus')) return 'audio/ogg';
+  if (lower.endsWith('.aiff') || lower.endsWith('.aif')) return 'audio/aiff';
+  if (lower.endsWith('.caf')) return 'audio/x-caf';
   return 'video/mp4';
 }
 

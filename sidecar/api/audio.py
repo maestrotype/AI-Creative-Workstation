@@ -1,10 +1,14 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+import json
 import os
 import re
 import shutil
 import subprocess
-from typing import List, Optional
+import sys
+import threading
+import time
+from typing import Any, Dict, List, Optional
 
 router = APIRouter()
 
@@ -12,6 +16,54 @@ AUDIO_DIR = os.path.expanduser("~/Documents/Canvas/Generated/Audio")
 VOICE_DIR = os.path.expanduser("~/Documents/Canvas/Voice")
 VIDEO_DIR = os.path.expanduser("~/Documents/Canvas/Generated/Video")
 SPEAKER_WAV = os.path.join(VOICE_DIR, "speaker.wav")
+SOURCE_META = os.path.join(VOICE_DIR, "source.json")
+
+_tts_lock = threading.Lock()
+_tts_job: Dict[str, Any] = {
+    "active": False,
+    "stage": "idle",
+    "percent": 0,
+    "detail": "",
+    "started_at": 0.0,
+    "error": None,
+}
+
+
+def _reset_tts_job() -> None:
+    _tts_job.update({
+        "active": False,
+        "stage": "idle",
+        "percent": 0,
+        "detail": "",
+        "started_at": 0.0,
+        "error": None,
+    })
+
+
+def _set_tts_job(**patch: Any) -> None:
+    _tts_job.update(patch)
+
+
+def _read_source_meta() -> Optional[dict]:
+    try:
+        with open(SOURCE_META, encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict):
+            return data
+    except OSError:
+        pass
+    return None
+
+
+def _write_source_meta(input_path: str) -> None:
+    os.makedirs(VOICE_DIR, exist_ok=True)
+    resolved = os.path.expanduser(input_path)
+    payload = {
+        "path": resolved,
+        "name": os.path.basename(resolved),
+    }
+    with open(SOURCE_META, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False)
 
 
 def _ffmpeg_bin() -> str:
@@ -84,29 +136,153 @@ def convert_audio(request: ConvertAudioRequest):
     return {"status": "completed", "file_path": dest, "format": fmt}
 
 
+def _clone_python() -> Optional[str]:
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    verify = os.path.join(here, "verify_xtts.py")
+    candidates = [
+        os.path.join(here, ".venv-tts", "bin", "python"),
+        os.path.join(here, ".venv-tts", "bin", "python3"),
+    ]
+    env = {**os.environ, "COQUI_TOS_AGREED": "1"}
+    for py in candidates:
+        if not py or not os.path.isfile(py):
+            continue
+        if not os.path.isfile(verify):
+            continue
+        try:
+            proc = subprocess.run(
+                [py, verify],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env=env,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if proc.returncode == 0:
+            return py
+    return None
+
+
+def _coqui_available() -> bool:
+    return _clone_python() is not None
+
+
+def _run_xtts_clone(text: str, dest: str, language: str) -> None:
+    py = _clone_python()
+    if not py:
+        raise HTTPException(
+            status_code=503,
+            detail="Voice clone is not installed. The Mac system voice is no longer used as a stand-in.",
+        )
+    worker = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tts_clone.py")
+    with _tts_lock:
+        if _tts_job.get("active"):
+            raise HTTPException(status_code=409, detail="Another voiceover is already running.")
+        _set_tts_job(
+            active=True,
+            stage="starting",
+            percent=3,
+            detail="Starting voice clone",
+            started_at=time.time(),
+            error=None,
+        )
+    try:
+        proc = subprocess.Popen(
+            [py, worker, SPEAKER_WAV, dest, language, text],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        stderr = ""
+        last_line = ""
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("{") and '"progress"' in line:
+                last_line = line
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if "progress" in payload:
+                    _set_tts_job(
+                        active=True,
+                        stage=str(payload.get("stage") or "working"),
+                        percent=int(payload.get("percent") or 0),
+                        detail=str(payload.get("detail") or ""),
+                        started_at=_tts_job.get("started_at") or time.time(),
+                    )
+                continue
+            if line.startswith("{") and '"ok"' in line:
+                last_line = line
+        proc.wait()
+        if proc.returncode != 0 or not os.path.isfile(dest):
+            raw = last_line or stderr
+            try:
+                payload = json.loads(last_line)
+                raw = str(payload.get("error") or raw)
+            except json.JSONDecodeError:
+                pass
+            _set_tts_job(active=False, stage="error", error=str(raw)[:500])
+            raise HTTPException(status_code=500, detail=str(raw)[:500])
+        _set_tts_job(active=False, stage="done", percent=100, detail="Voiceover ready")
+    except subprocess.TimeoutExpired as exc:
+        _set_tts_job(active=False, stage="error", error="Voice clone timed out.")
+        raise HTTPException(status_code=504, detail="Voice clone timed out.") from exc
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        _set_tts_job(active=False, stage="error", error=str(exc)[:500])
+        raise
+
+
 @router.get("/audio/voice")
 def voice_status():
+    engine = "xtts" if _coqui_available() else "none"
+    meta = _read_source_meta()
     return {
         "has_sample": os.path.isfile(SPEAKER_WAV),
         "file_path": SPEAKER_WAV if os.path.isfile(SPEAKER_WAV) else None,
-        "tts_ready": _tts_available(),
+        "source_path": meta.get("path") if meta else None,
+        "source_name": meta.get("name") if meta else None,
+        "tts_ready": engine == "xtts",
+        "engine": engine,
+    }
+
+
+@router.get("/audio/tts/progress")
+def tts_progress():
+    elapsed = 0.0
+    if _tts_job.get("started_at"):
+        elapsed = max(0.0, time.time() - float(_tts_job["started_at"]))
+    return {
+        "active": bool(_tts_job.get("active")),
+        "stage": _tts_job.get("stage") or "idle",
+        "percent": int(_tts_job.get("percent") or 0),
+        "detail": _tts_job.get("detail") or "",
+        "elapsed_sec": round(elapsed, 1),
+        "error": _tts_job.get("error"),
     }
 
 
 @router.post("/audio/voice")
 def save_voice(request: SaveVoiceRequest):
     os.makedirs(VOICE_DIR, exist_ok=True)
-    _convert(os.path.expanduser(request.input_path), SPEAKER_WAV, "wav")
-    return {"status": "saved", "file_path": SPEAKER_WAV, "has_sample": True}
-
-
-def _tts_available() -> bool:
-    try:
-        import TTS  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
+    src = os.path.expanduser(request.input_path)
+    _convert(src, SPEAKER_WAV, "wav")
+    _write_source_meta(src)
+    meta = _read_source_meta()
+    return {
+        "status": "saved",
+        "file_path": SPEAKER_WAV,
+        "has_sample": True,
+        "source_path": meta.get("path") if meta else src,
+        "source_name": meta.get("name") if meta else os.path.basename(src),
+    }
 
 
 @router.post("/audio/tts")
@@ -119,28 +295,14 @@ def synthesize_voice(request: TtsRequest):
             status_code=400,
             detail="No voice sample yet. Record your voice first (10+ seconds, clear speech).",
         )
-    if not _tts_available():
-        raise HTTPException(
-            status_code=503,
-            detail="Voice clone needs Coqui TTS in the sidecar: pip3 install TTS",
-        )
-
-    from TTS.api import TTS as CoquiTTS
+    if not _coqui_available():
+        raise HTTPException(status_code=503, detail="CLONE_ENGINE_MISSING")
 
     os.makedirs(AUDIO_DIR, exist_ok=True)
     dest = _audio_out(f"tts-{abs(hash(text)) % 10_000_000}", "wav")
     lang = "ru" if re.search(r"[а-яА-ЯёЁ]", text) else (request.language or "en")
-    try:
-        tts = CoquiTTS("tts_models/multilingual/multi-dataset/xtts_v2")
-        tts.tts_to_file(
-            text=text,
-            speaker_wav=SPEAKER_WAV,
-            language="ru" if lang.startswith("ru") else "en",
-            file_path=dest,
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=str(exc)[:500]) from exc
-    return {"status": "completed", "file_path": dest}
+    _run_xtts_clone(text, dest, lang)
+    return {"status": "completed", "file_path": dest, "engine": "xtts"}
 
 
 def _parse_timestamp(raw: str) -> float:

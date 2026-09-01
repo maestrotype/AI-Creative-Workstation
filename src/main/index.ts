@@ -1,10 +1,10 @@
 import { app, shell, BrowserWindow, ipcMain, protocol, net, dialog, desktopCapturer, session } from 'electron';
-import { extname, join, resolve } from 'path';
+import { basename, extname, join, resolve, sep } from 'path';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 // import icon from '../../resources/icon.png?asset'
 
-import { spawn, ChildProcess, execFileSync } from 'child_process';
-import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, statfsSync, unlinkSync, writeFileSync } from 'fs';
+import { spawn, spawnSync, ChildProcess, execFileSync } from 'child_process';
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, statfsSync, unlinkSync, writeFileSync } from 'fs';
 import { homedir, freemem, totalmem } from 'os';
 import { initDb, getDb } from './db';
 import { models, settings } from './db/schema';
@@ -39,6 +39,130 @@ const activeDownloads: Map<string, ChildProcess> = new Map();
 let micRecorder: ChildProcess | null = null;
 let micOutPath: string | null = null;
 
+const voiceInstallJob = {
+  active: false,
+  stage: 'idle',
+  percent: 0,
+  detail: '',
+};
+
+function sidecarRootDir(): string {
+  return join(__dirname, '../../sidecar');
+}
+
+function voiceVenvPython(): string {
+  return join(sidecarRootDir(), '.venv-tts/bin/python3');
+}
+
+function coquiTtsCacheDir(): string {
+  return join(homedir(), 'Library/Application Support/tts');
+}
+
+function xttsWeightsDir(): string {
+  return join(coquiTtsCacheDir(), 'tts_models--multilingual--multi-dataset--xtts_v2');
+}
+
+function voiceVerifyScript(): string {
+  return join(sidecarRootDir(), 'verify_xtts.py');
+}
+
+function voicePackagesReady(): boolean {
+  const py = voiceVenvPython();
+  const script = voiceVerifyScript();
+  if (!existsSync(py) || !existsSync(script)) return false;
+  const check = spawnSync(py, [script], {
+    encoding: 'utf8',
+    timeout: 60_000,
+    env: { ...process.env, COQUI_TOS_AGREED: '1' },
+  });
+  return check.status === 0;
+}
+
+function voiceWeightsReady(): boolean {
+  const dir = xttsWeightsDir();
+  if (!existsSync(dir)) return false;
+  try {
+    return readdirSync(dir).some(
+      (name) => name.endsWith('.pth') || name === 'config.json' || name === 'model.pth',
+    );
+  } catch {
+    return false;
+  }
+}
+
+function voiceEngineStatusPayload() {
+  return {
+    packages_ready: voicePackagesReady(),
+    weights_ready: voiceWeightsReady(),
+    installing: voiceInstallJob.active,
+    stage: voiceInstallJob.stage,
+    percent: voiceInstallJob.percent,
+    detail: voiceInstallJob.detail,
+    cache_path: coquiTtsCacheDir(),
+  };
+}
+
+function parseVoiceProgressLine(line: string): void {
+  if (!line.startsWith('{')) return;
+  try {
+    const payload = JSON.parse(line) as { progress?: number; stage?: string; detail?: string };
+    if (payload.progress == null) return;
+    voiceInstallJob.stage = String(payload.stage ?? voiceInstallJob.stage);
+    voiceInstallJob.percent = Number(payload.progress);
+    voiceInstallJob.detail = String(payload.detail ?? voiceInstallJob.detail);
+    broadcast('voice-engine-updated', voiceEngineStatusPayload());
+  } catch {
+    /* ignore non-json lines */
+  }
+}
+
+async function downloadXttsWeights(): Promise<void> {
+  const py = voiceVenvPython();
+  const script = join(sidecarRootDir(), 'download_xtts.py');
+  if (!existsSync(py) || !existsSync(script)) {
+    throw new Error('Voice packages are not installed yet.');
+  }
+  voiceInstallJob.stage = 'weights';
+  voiceInstallJob.percent = 35;
+  voiceInstallJob.detail = 'Downloading XTTS v2 weights (~2 GB)';
+  broadcast('voice-engine-updated', voiceEngineStatusPayload());
+
+  await new Promise<void>((resolve, reject) => {
+    const proc = spawn(py, [script], {
+      cwd: sidecarRootDir(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, COQUI_TOS_AGREED: '1' },
+    });
+    let lastError = 'XTTS download failed';
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      for (const line of chunk.toString().split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        parseVoiceProgressLine(trimmed);
+        if (trimmed.includes('"ok"')) {
+          try {
+            const payload = JSON.parse(trimmed) as { ok?: boolean; error?: string };
+            if (payload.ok === false) lastError = payload.error ?? lastError;
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    });
+    proc.stderr?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString().trim();
+      if (text) voiceInstallJob.detail = text.slice(-200);
+    });
+    proc.on('error', (err) => reject(err));
+    proc.on('close', (code) => {
+      if (code === 0 && voiceWeightsReady()) resolve();
+      else if (/EOF when reading a line|CPML|confirm/i.test(lastError)) {
+        reject(new Error('Coqui license prompt failed. Restart the app and click Download again.'));
+      } else reject(new Error(lastError));
+    });
+  });
+}
+
 function ffmpegBin(): string {
   try {
     return execFileSync('which', ['ffmpeg'], { encoding: 'utf8' }).trim();
@@ -52,6 +176,20 @@ function ffprobeBin(): string {
     return execFileSync('which', ['ffprobe'], { encoding: 'utf8' }).trim();
   } catch {
     return ffmpegBin().replace(/ffmpeg$/i, 'ffprobe');
+  }
+}
+
+function probeMediaDurationSec(filePath: string): number {
+  try {
+    const raw = execFileSync(
+      ffprobeBin(),
+      ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', filePath],
+      { encoding: 'utf8', timeout: 30_000 },
+    ).trim();
+    const n = Number.parseFloat(raw.split('\n')[0] ?? '');
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
   }
 }
 
@@ -416,17 +554,136 @@ async function unloadFromSidecar(modelId: string): Promise<{ unloaded: boolean; 
 
 const pickedMediaPaths = new Set<string>();
 
+const AUDIO_EXTS = new Set([
+  '.wav', '.mp3', '.flac', '.m4a', '.aac',
+  '.ogg', '.oga', '.opus', '.webm',
+  '.wma', '.aiff', '.aif', '.caf',
+]);
+
 const MEDIA_EXTS = new Set([
   '.mp4', '.mov', '.m4v', '.webm', '.mkv',
   '.png', '.jpg', '.jpeg', '.webp',
-  '.wav', '.mp3', '.flac', '.m4a', '.aac', '.ogg',
+  ...AUDIO_EXTS,
 ]);
+
+function audioLibraryDir(): string {
+  return join(homedir(), 'Documents/Canvas/Generated/Audio');
+}
+
+function isAudioExtension(filePath: string): boolean {
+  return AUDIO_EXTS.has(extname(filePath).toLowerCase());
+}
+
+function isInsideDir(filePath: string, dir: string): boolean {
+  const file = resolve(filePath);
+  const root = resolve(dir);
+  return file === root || file.startsWith(root.endsWith(sep) ? root : root + sep);
+}
+
+function uniqueLibraryDest(fileName: string): string {
+  const dir = audioLibraryDir();
+  mkdirSync(dir, { recursive: true });
+  const ext = extname(fileName).toLowerCase() || '.wav';
+  const stem = basename(fileName, extname(fileName)).replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 80) || 'audio';
+  let dest = join(dir, `${stem}${ext}`);
+  let n = 2;
+  while (existsSync(dest)) {
+    dest = join(dir, `${stem}-${n}${ext}`);
+    n += 1;
+  }
+  return dest;
+}
+
+const TRANSCODE_AUDIO_EXTS = new Set(['.ogg', '.oga', '.opus', '.wma', '.webm']);
+
+function transcodeAudioToWav(src: string, dest: string): void {
+  const result = spawnSync(
+    ffmpegBin(),
+    ['-y', '-i', src, '-vn', '-ac', '2', '-ar', '48000', '-c:a', 'pcm_s16le', dest],
+    { encoding: 'utf8' },
+  );
+  if (result.status !== 0 || !existsSync(dest)) {
+    throw new Error((result.stderr || result.stdout || 'ffmpeg could not convert this audio').slice(0, 400));
+  }
+}
+
+function importAudioIntoLibrary(src: string): string | null {
+  const resolved = resolve(src);
+  if (!existsSync(resolved) || !statSync(resolved).isFile() || !isAudioExtension(resolved)) {
+    return null;
+  }
+  const dir = audioLibraryDir();
+  mkdirSync(dir, { recursive: true });
+  const ext = extname(resolved).toLowerCase();
+  const stem = basename(resolved, extname(resolved));
+  const shouldWav = TRANSCODE_AUDIO_EXTS.has(ext);
+  if (isInsideDir(resolved, dir) && !shouldWav) {
+    return rememberPickedMedia(resolved);
+  }
+  if (shouldWav) {
+    const dest = uniqueLibraryDest(`${stem}.wav`);
+    try {
+      transcodeAudioToWav(resolved, dest);
+      if (isInsideDir(resolved, dir) && dest !== resolved) {
+        try {
+          unlinkSync(resolved);
+        } catch {
+          /* keep original copy if delete fails */
+        }
+        pickedMediaPaths.delete(resolved);
+      }
+      return rememberPickedMedia(dest);
+    } catch {
+      if (isInsideDir(resolved, dir)) return rememberPickedMedia(resolved);
+      const copied = uniqueLibraryDest(basename(resolved));
+      copyFileSync(resolved, copied);
+      return rememberPickedMedia(copied);
+    }
+  }
+  const dest = uniqueLibraryDest(basename(resolved));
+  copyFileSync(resolved, dest);
+  return rememberPickedMedia(dest);
+}
+
+const VIDEO_EXTS = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv']);
+
+function pickedMediaStorePath(): string {
+  return join(app.getPath('userData'), 'picked-media.json');
+}
+
+function loadPickedMedia(): void {
+  try {
+    const raw = JSON.parse(readFileSync(pickedMediaStorePath(), 'utf8')) as unknown;
+    if (!Array.isArray(raw)) return;
+    for (const item of raw) {
+      if (typeof item !== 'string') continue;
+      const resolved = resolve(item);
+      if (existsSync(resolved)) pickedMediaPaths.add(resolved);
+    }
+  } catch {
+    /* first run */
+  }
+}
+
+function persistPickedMedia(): void {
+  try {
+    mkdirSync(app.getPath('userData'), { recursive: true });
+    writeFileSync(pickedMediaStorePath(), JSON.stringify([...pickedMediaPaths].slice(-500)));
+  } catch {
+    /* ignore */
+  }
+}
 
 function rememberPickedMedia(filePath: string | null): string | null {
   if (!filePath) return null;
   const resolved = resolve(filePath);
   if (!existsSync(resolved)) return null;
-  pickedMediaPaths.add(resolved);
+  const ext = extname(resolved).toLowerCase();
+  if (!MEDIA_EXTS.has(ext)) return null;
+  if (!pickedMediaPaths.has(resolved)) {
+    pickedMediaPaths.add(resolved);
+    persistPickedMedia();
+  }
   return resolved;
 }
 
@@ -437,7 +694,7 @@ function isUnderDir(filePath: string, dir: string): boolean {
 
 function resolveAllowedVideoFile(sourcePath: string): string | null {
   const ext = extname(sourcePath).toLowerCase();
-  if (ext !== '.mp4' && ext !== '.mov' && ext !== '.m4v' && ext !== '.webm') return null;
+  if (!VIDEO_EXTS.has(ext)) return null;
   if (!sourcePath || !existsSync(sourcePath)) return null;
   const resolved = resolve(sourcePath);
   if (pickedMediaPaths.has(resolved)) return resolved;
@@ -481,6 +738,7 @@ function resolveAllowedMeshFile(sourcePath: string): string | null {
 }
 
 function setupIpc() {
+  loadPickedMedia();
   ipcMain.handle('get-models', async () => {
     const db = getDb();
     return db.select().from(models).all();
@@ -616,6 +874,37 @@ function setupIpc() {
     return { file_path: body.file_path as string };
   });
 
+  ipcMain.handle('render-timeline', async (_, payload: {
+    clips: Array<{
+      kind: string;
+      track: string;
+      path: string | null;
+      text: string | null;
+      start_sec: number;
+      duration_sec: number;
+      source_in_sec: number;
+    }>;
+    width: number;
+    height: number;
+    fps: number;
+  }) => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) {
+      throw new Error(ready.error || 'Sidecar unavailable');
+    }
+    const res = await net.fetch(`${SIDECAR_URL}/api/video/render-timeline`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30 * 60 * 1000),
+    });
+    const body = (await res.json().catch(() => ({}))) as { detail?: unknown; file_path?: string };
+    if (!res.ok) {
+      throw new Error(body.detail != null ? String(body.detail).slice(0, 400) : `HTTP ${res.status}`);
+    }
+    return { file_path: body.file_path as string };
+  });
+
   const videoHistoryPath = () => join(homedir(), 'Documents/Canvas/Generated/Video/idea-history.json');
 
   ipcMain.handle('load-video-history', async () => {
@@ -659,6 +948,15 @@ function setupIpc() {
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return rememberPickedMedia(result.filePaths[0]);
+  });
+
+  ipcMain.handle('probe-media-duration', async (_, filePath: string) => {
+    if (!filePath || !existsSync(filePath)) return 0;
+    return probeMediaDurationSec(filePath);
+  });
+
+  ipcMain.handle('remember-dropped-media', async (_, filePath: string) => {
+    return rememberPickedMedia(filePath);
   });
 
   ipcMain.handle('pick-image', async () => {
@@ -706,25 +1004,73 @@ function setupIpc() {
   ipcMain.handle('pick-audio', async () => {
     const result = await dialog.showOpenDialog({
       title: 'Choose an audio file',
-      properties: ['openFile'],
-      filters: [{ name: 'Audio', extensions: ['wav', 'mp3', 'flac', 'm4a', 'aac', 'ogg', 'webm'] }],
+      properties: ['openFile', 'multiSelections'],
+      filters: [{
+        name: 'Audio',
+        extensions: [...AUDIO_EXTS].map((ext) => ext.slice(1)),
+      }],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return rememberPickedMedia(result.filePaths[0]);
   });
 
+  ipcMain.handle('import-library-audio', async (_, paths?: string[]) => {
+    let files = Array.isArray(paths) ? paths.filter((p) => typeof p === 'string' && p.length > 0) : [];
+    if (files.length === 0) {
+      const result = await dialog.showOpenDialog({
+        title: 'Add audio to library',
+        properties: ['openFile', 'multiSelections'],
+        filters: [{
+          name: 'Audio',
+          extensions: [...AUDIO_EXTS].map((ext) => ext.slice(1)),
+        }],
+      });
+      if (result.canceled || result.filePaths.length === 0) return { imported: [] as string[] };
+      files = result.filePaths;
+    }
+    const imported: string[] = [];
+    for (const src of files) {
+      const dest = importAudioIntoLibrary(src);
+      if (dest) imported.push(dest);
+    }
+    return { imported };
+  });
+
+  ipcMain.handle('delete-library-audio', async (_, filePath: string) => {
+    if (typeof filePath !== 'string' || !filePath) {
+      throw new Error('No file selected');
+    }
+    const resolved = resolve(filePath);
+    if (!isInsideDir(resolved, audioLibraryDir()) || !isAudioExtension(resolved)) {
+      throw new Error('Can only delete files from the audio library folder');
+    }
+    if (micOutPath && resolve(micOutPath) === resolved) {
+      throw new Error('Stop recording before deleting this file');
+    }
+    if (existsSync(resolved)) unlinkSync(resolved);
+    pickedMediaPaths.delete(resolved);
+    persistPickedMedia();
+    return { deleted: true };
+  });
+
   ipcMain.handle('list-media-library', async () => {
-    const audioDir = join(homedir(), 'Documents/Canvas/Generated/Audio');
+    const audioDir = audioLibraryDir();
     const voicePath = join(homedir(), 'Documents/Canvas/Voice/speaker.wav');
-    const audioExt = new Set(['wav', 'mp3', 'flac', 'm4a', 'aac', 'ogg', 'webm']);
     const audio: { path: string; name: string; mtime: number }[] = [];
     if (existsSync(audioDir)) {
       for (const name of readdirSync(audioDir)) {
-        const ext = extname(name).slice(1).toLowerCase();
-        if (!audioExt.has(ext)) continue;
-        const filePath = join(audioDir, name);
+        if (!isAudioExtension(name)) continue;
+        let filePath = join(audioDir, name);
+        if (TRANSCODE_AUDIO_EXTS.has(extname(name).toLowerCase())) {
+          try {
+            const converted = importAudioIntoLibrary(filePath);
+            if (converted) filePath = converted;
+          } catch {
+            /* keep ogg entry; play will retry */
+          }
+        }
         try {
-          audio.push({ path: filePath, name, mtime: statSync(filePath).mtimeMs });
+          audio.push({ path: filePath, name: basename(filePath), mtime: statSync(filePath).mtimeMs });
         } catch {
           // skip unreadable entries
         }
@@ -736,6 +1082,140 @@ function setupIpc() {
       voice_path: existsSync(voicePath) ? voicePath : null,
     };
   });
+
+  ipcMain.handle('prepare-library-audio', async (_, filePath: string) => {
+    if (typeof filePath !== 'string' || !filePath) {
+      throw new Error('No file selected');
+    }
+    const resolved = resolve(filePath);
+    if (!isInsideDir(resolved, audioLibraryDir()) || !isAudioExtension(resolved)) {
+      throw new Error('File is not in the audio library');
+    }
+    if (TRANSCODE_AUDIO_EXTS.has(extname(resolved).toLowerCase())) {
+      const converted = importAudioIntoLibrary(resolved);
+      if (!converted) throw new Error('Could not convert this audio for playback');
+      return { path: converted, converted: converted !== resolved };
+    }
+    rememberPickedMedia(resolved);
+    return { path: resolved, converted: false };
+  });
+
+  function findUvBin(): string | null {
+    const candidates = ['/opt/homebrew/bin/uv', '/usr/local/bin/uv'];
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) return candidate;
+    }
+    try {
+      const found = execFileSync('which', ['uv'], { encoding: 'utf8' }).trim();
+      return found || null;
+    } catch {
+      return null;
+    }
+  }
+
+  ipcMain.handle('get-voice-engine-status', async () => voiceEngineStatusPayload());
+
+  ipcMain.handle('install-voice-engine', async () => {
+    if (voiceInstallJob.active) {
+      throw new Error('Voice engine install is already running.');
+    }
+    voiceInstallJob.active = true;
+    voiceInstallJob.stage = 'packages';
+    voiceInstallJob.percent = 5;
+    voiceInstallJob.detail = 'Installing Coqui TTS packages';
+    broadcast('voice-engine-updated', voiceEngineStatusPayload());
+
+    const sidecarDir = sidecarRootDir();
+    const venvDir = join(sidecarDir, '.venv-tts');
+    const venvPy = voiceVenvPython();
+    const reqFile = join(sidecarDir, 'requirements-tts.txt');
+    const uv = findUvBin();
+
+    try {
+      if (!uv) {
+        throw new Error('Install uv first (brew install uv), then download XTTS in Studio → Voice.');
+      }
+
+      if (!existsSync(venvDir)) {
+        const pyInstall = spawnSync(uv, ['python', 'install', '3.11'], {
+          cwd: sidecarDir,
+          encoding: 'utf8',
+          timeout: 10 * 60 * 1000,
+        });
+        if (pyInstall.status !== 0 && !existsSync(venvPy)) {
+          throw new Error((pyInstall.stderr || pyInstall.stdout || 'Could not install Python 3.11').slice(-400));
+        }
+        voiceInstallJob.percent = 12;
+        voiceInstallJob.detail = 'Creating voice engine environment';
+        broadcast('voice-engine-updated', voiceEngineStatusPayload());
+        const venv = spawnSync(uv, ['venv', '--python', '3.11', '.venv-tts'], {
+          cwd: sidecarDir,
+          encoding: 'utf8',
+          timeout: 2 * 60 * 1000,
+        });
+        if (venv.status !== 0) {
+          throw new Error((venv.stderr || venv.stdout || 'Could not create voice engine environment').slice(-400));
+        }
+      }
+
+      voiceInstallJob.percent = 18;
+      voiceInstallJob.detail = voicePackagesReady()
+        ? 'Checking voice engine'
+        : existsSync(venvPy)
+          ? 'Repairing voice engine dependencies'
+          : 'Installing Coqui TTS (~1.7 GB packages)';
+      broadcast('voice-engine-updated', voiceEngineStatusPayload());
+
+      const pipArgs = existsSync(reqFile)
+        ? ['pip', 'install', '-r', 'requirements-tts.txt', '-p', '.venv-tts']
+        : ['pip', 'install', 'TTS==0.22.0', 'transformers>=4.33.0,<4.50.0', '-p', '.venv-tts'];
+      const install = spawnSync(uv, pipArgs, {
+        cwd: sidecarDir,
+        encoding: 'utf8',
+        timeout: 45 * 60 * 1000,
+        maxBuffer: 16 * 1024 * 1024,
+      });
+      if (install.status !== 0) {
+        throw new Error((install.stderr || install.stdout || 'Could not install Coqui TTS').slice(-500));
+      }
+
+      const verifyScript = voiceVerifyScript();
+      const verify = spawnSync(venvPy, [verifyScript], {
+        encoding: 'utf8',
+        timeout: 60_000,
+        env: { ...process.env, COQUI_TOS_AGREED: '1' },
+      });
+      if (verify.status !== 0) {
+        const detail = (verify.stderr || verify.stdout || 'Voice engine verification failed').trim();
+        throw new Error(detail.slice(-500));
+      }
+
+      if (!voiceWeightsReady()) {
+        await downloadXttsWeights();
+      }
+
+      voiceInstallJob.percent = 100;
+      voiceInstallJob.stage = 'done';
+      voiceInstallJob.detail = 'XTTS ready';
+      broadcast('voice-engine-updated', voiceEngineStatusPayload());
+      return { ok: true };
+    } finally {
+      voiceInstallJob.active = false;
+      broadcast('voice-engine-updated', voiceEngineStatusPayload());
+    }
+  });
+
+  ipcMain.handle('delete-voice-engine', async () => {
+    if (voiceInstallJob.active) {
+      throw new Error('Wait until the voice engine install finishes.');
+    }
+    const venvDir = join(sidecarRootDir(), '.venv-tts');
+    if (existsSync(venvDir)) rmSync(venvDir, { recursive: true, force: true });
+    if (existsSync(coquiTtsCacheDir())) rmSync(coquiTtsCacheDir(), { recursive: true, force: true });
+    broadcast('voice-engine-updated', voiceEngineStatusPayload());
+    return { deleted: true };
+  });
+
 
   ipcMain.handle('start-mic-record', async (_, format: string = 'wav') => {
     if (micRecorder && !micRecorder.killed) {
@@ -796,6 +1276,15 @@ function setupIpc() {
       throw new Error(ready.error || 'Sidecar unavailable');
     }
     const res = await net.fetch(`${SIDECAR_URL}/api/audio/voice`, { signal: AbortSignal.timeout(5000) });
+    return res.json();
+  });
+
+  ipcMain.handle('get-voice-tts-progress', async () => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) {
+      return { active: false, stage: 'idle', percent: 0, detail: '', elapsed_sec: 0, error: null };
+    }
+    const res = await net.fetch(`${SIDECAR_URL}/api/audio/tts/progress`, { signal: AbortSignal.timeout(3000) });
     return res.json();
   });
 
@@ -932,14 +1421,16 @@ function setupIpc() {
   });
 
   ipcMain.handle('read-media-file', async (_, sourcePath: string) => {
-    const resolved = resolveAllowedMediaFile(sourcePath);
+    const remembered = rememberPickedMedia(sourcePath);
+    const resolved = remembered ?? resolveAllowedMediaFile(sourcePath);
     if (!resolved) throw new Error('Media file is not available to preview');
     const buf = readFileSync(resolved);
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   });
 
   ipcMain.handle('ensure-video-preview', async (_, sourcePath: string, force?: boolean) => {
-    const resolved = resolveAllowedMediaFile(sourcePath);
+    const remembered = rememberPickedMedia(sourcePath);
+    const resolved = remembered ?? resolveAllowedMediaFile(sourcePath);
     if (!resolved) throw new Error('Video is not available to preview');
     return ensureH264Preview(resolved, Boolean(force));
   });
@@ -1140,6 +1631,12 @@ const ASSET_MIME: Record<string, string> = {
   '.m4a': 'audio/mp4',
   '.aac': 'audio/aac',
   '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.opus': 'audio/opus',
+  '.wma': 'audio/x-ms-wma',
+  '.aiff': 'audio/aiff',
+  '.aif': 'audio/aiff',
+  '.caf': 'audio/x-caf',
 };
 
 function assetPathFromUrl(url: string): string {

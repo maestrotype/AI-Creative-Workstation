@@ -46,6 +46,16 @@ export function StudioPage(): ReactNode {
   const [unloadError, setUnloadError] = useState<string | null>(null);
   const [voiceHas, setVoiceHas] = useState(false);
   const [ttsReady, setTtsReady] = useState(false);
+  const [voiceEngine, setVoiceEngine] = useState({
+    packages_ready: false,
+    weights_ready: false,
+    installing: false,
+    stage: 'idle',
+    percent: 0,
+    detail: '',
+    cache_path: '',
+  });
+  const [voiceBusy, setVoiceBusy] = useState(false);
 
   const toCacheKey = (modelId: string) => modelId.replaceAll('/', '__');
   const familyModels = models.filter((m) => m.type === family);
@@ -90,13 +100,28 @@ export function StudioPage(): ReactNode {
     }
   };
 
+  const refreshVoice = useCallback(async () => {
+    try {
+      const profile = await window.api?.getVoiceProfile?.();
+      if (profile) {
+        setVoiceHas(profile.has_sample);
+        setTtsReady(profile.tts_ready);
+      }
+    } catch {
+      /* optional */
+    }
+    try {
+      const status = await window.api?.getVoiceEngineStatus?.();
+      if (status) setVoiceEngine(status);
+    } catch {
+      /* optional */
+    }
+  }, []);
+
   useEffect(() => {
     void loadModels();
     void refreshResources();
-    void window.api?.getVoiceProfile?.().then((profile) => {
-      setVoiceHas(profile.has_sample);
-      setTtsReady(profile.tts_ready);
-    }).catch(() => {});
+    void refreshVoice();
 
     const cleanupModels = window.api?.onModelsUpdated(() => { void loadModels(); }) ?? (() => {});
     const cleanupProgress = window.api?.onDownloadProgress(({ modelId, percent, downloadedBytes, totalBytes }) => {
@@ -105,6 +130,10 @@ export function StudioPage(): ReactNode {
         [modelId]: { percent, downloadedBytes, totalBytes },
       }));
       void refreshResources();
+    }) ?? (() => {});
+    const cleanupVoice = window.api?.onVoiceEngineUpdated?.((status) => {
+      setVoiceEngine(status);
+      setTtsReady(status.packages_ready && status.weights_ready);
     }) ?? (() => {});
 
     const timer = window.setInterval(() => { void refreshResources(); }, 8000);
@@ -115,10 +144,11 @@ export function StudioPage(): ReactNode {
     return () => {
       cleanupModels();
       cleanupProgress();
+      cleanupVoice();
       window.clearInterval(timer);
       window.clearInterval(loadedTimer);
     };
-  }, [refreshResources]);
+  }, [refreshResources, refreshVoice]);
 
   const handleDownload = async (model: (typeof CATALOG_ENGINES)[number]) => {
     if (!model.downloadable || !window.api) return;
@@ -131,6 +161,35 @@ export function StudioPage(): ReactNode {
 
   const handleRetry = async (model: (typeof CATALOG_ENGINES)[number]) => {
     if (window.api) await window.api.retryDownload(model);
+  };
+
+  const handleVoiceDownload = async () => {
+    if (!window.api?.installVoiceEngine) return;
+    setVoiceBusy(true);
+    setUnloadError(null);
+    try {
+      await window.api.installVoiceEngine();
+      await refreshVoice();
+    } catch (err: unknown) {
+      setUnloadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  const handleVoiceDelete = async () => {
+    if (!window.api?.deleteVoiceEngine) return;
+    if (!window.confirm(t('studio.voice_delete_confirm'))) return;
+    setVoiceBusy(true);
+    setUnloadError(null);
+    try {
+      await window.api.deleteVoiceEngine();
+      await refreshVoice();
+    } catch (err: unknown) {
+      setUnloadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setVoiceBusy(false);
+    }
   };
 
   const handleUse = async (modelId: string) => {
@@ -284,17 +343,62 @@ export function StudioPage(): ReactNode {
       {unloadError ? <p className={styles.unloadError}>{unloadError}</p> : null}
 
       {family === 'voice' ? (
-        <div className={styles.modelCard}>
-          <div className={styles.modelInfo}>
-            <span className={styles.modelName}>{t('studio.voice_engine')}</span>
-            <span className={styles.modelType}>
-              {voiceHas ? t('studio.voice_sample_on') : t('studio.voice_sample_off')}
-              {' · '}
-              {ttsReady ? t('studio.tts_on') : t('studio.tts_off')}
-            </span>
+        <>
+          <div className={styles.modelCard}>
+            <div className={styles.modelInfo}>
+              <span className={styles.modelName}>Coqui XTTS v2</span>
+              <span className={styles.modelType}>
+                {t('studio.voice_xtts_size')}
+                {' · '}
+                {voiceEngine.packages_ready ? t('studio.voice_packages_on') : t('studio.voice_packages_off')}
+                {' · '}
+                {voiceEngine.weights_ready ? t('studio.voice_weights_on') : t('studio.voice_weights_off')}
+              </span>
+              <span className={styles.modelType}>
+                {voiceHas ? t('studio.voice_sample_on') : t('studio.voice_sample_off')}
+                {' · '}
+                {ttsReady ? t('studio.tts_on') : t('studio.tts_off')}
+              </span>
+            </div>
+            <div className={styles.voiceActions}>
+              {!voiceEngine.packages_ready || !voiceEngine.weights_ready ? (
+                <button
+                  type="button"
+                  className={styles.downloadButton}
+                  disabled={voiceBusy || voiceEngine.installing}
+                  onClick={() => { void handleVoiceDownload(); }}
+                >
+                  {voiceEngine.installing ? t('studio.voice_downloading') : t('studio.download')}
+                </button>
+              ) : (
+                <span className={styles.status}>✓ {t('studio.installed')}</span>
+              )}
+              {(voiceEngine.packages_ready || voiceEngine.weights_ready) && !voiceEngine.installing ? (
+                <button
+                  type="button"
+                  className={styles.textButton}
+                  disabled={voiceBusy}
+                  onClick={() => { void handleVoiceDelete(); }}
+                >
+                  {t('studio.voice_delete')}
+                </button>
+              ) : null}
+            </div>
           </div>
+          {voiceEngine.installing || voiceBusy ? (
+            <DownloadProgress progress={{
+              percent: voiceEngine.percent,
+              downloadedBytes: 0,
+              totalBytes: 0,
+            }} />
+          ) : null}
+          {voiceEngine.detail && (voiceEngine.installing || voiceBusy) ? (
+            <p className={styles.hint}>{voiceEngine.detail}</p>
+          ) : null}
+          <p className={styles.hint}>{t('studio.voice_xtts_hint')}</p>
+          <p className={styles.hint}>{t('studio.voice_xtts_license')}</p>
           <Link className={styles.textButton} to="/assets">{t('studio.voice_record_in_assets')}</Link>
-        </div>
+        </>
       ) : (
         <>
           <div>

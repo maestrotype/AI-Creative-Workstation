@@ -30,12 +30,19 @@ interface Window {
       image_base64?: string;
       images_base64?: string[];
     }) => Promise<{ job_id: string; file_path: string | null; model_id: string }>;
-    assembleVideo: (payload: {
-      image_paths: string[];
-      durations: number[];
+    renderTimeline: (payload: {
+      clips: Array<{
+        kind: string;
+        track: string;
+        path: string | null;
+        text: string | null;
+        start_sec: number;
+        duration_sec: number;
+        source_in_sec: number;
+      }>;
       width: number;
       height: number;
-      output_name: string;
+      fps: number;
     }) => Promise<{ file_path: string }>;
     loadVideoHistory: () => Promise<{
       savedAt: number;
@@ -53,6 +60,9 @@ interface Window {
     saveVideoHistory: (payload: unknown) => Promise<boolean>;
     listGeneratedStills: () => Promise<{ path: string; mtime: number }[]>;
     pickVideo: () => Promise<string | null>;
+    probeMediaDuration: (filePath: string) => Promise<number>;
+    rememberDroppedMedia: (filePath: string) => Promise<string | null>;
+    getPathForFile: (file: File) => string;
     pickImage: () => Promise<string | null>;
     pickImages: () => Promise<string[] | null>;
     pickAudio: () => Promise<string | null>;
@@ -60,10 +70,48 @@ interface Window {
       audio: { path: string; name: string; mtime: number }[];
       voice_path: string | null;
     }>;
+    importLibraryAudio: (paths?: string[]) => Promise<{ imported: string[] }>;
+    deleteLibraryAudio: (filePath: string) => Promise<{ deleted: boolean }>;
+    prepareLibraryAudio: (filePath: string) => Promise<{ path: string; converted: boolean }>;
+    installVoiceEngine: () => Promise<{ ok: boolean }>;
+    deleteVoiceEngine: () => Promise<{ deleted: boolean }>;
+    getVoiceEngineStatus: () => Promise<{
+      packages_ready: boolean;
+      weights_ready: boolean;
+      installing: boolean;
+      stage: string;
+      percent: number;
+      detail: string;
+      cache_path: string;
+    }>;
+    onVoiceEngineUpdated: (callback: (data: {
+      packages_ready: boolean;
+      weights_ready: boolean;
+      installing: boolean;
+      stage: string;
+      percent: number;
+      detail: string;
+      cache_path: string;
+    }) => void) => () => void;
     startMicRecord: (format: string) => Promise<{ file_path: string }>;
     stopMicRecord: () => Promise<{ file_path: string }>;
     saveAudioBuffer: (payload: { data: ArrayBuffer; format: string; name?: string }) => Promise<{ file_path: string }>;
-    getVoiceProfile: () => Promise<{ has_sample: boolean; file_path: string | null; tts_ready: boolean }>;
+    getVoiceProfile: () => Promise<{
+      has_sample: boolean;
+      file_path: string | null;
+      source_path?: string | null;
+      source_name?: string | null;
+      tts_ready: boolean;
+      engine?: 'xtts' | 'macos' | 'none' | string;
+    }>;
+    getVoiceTtsProgress: () => Promise<{
+      active: boolean;
+      stage: string;
+      percent: number;
+      detail: string;
+      elapsed_sec: number;
+      error: string | null;
+    }>;
     saveVoiceSample: (inputPath: string) => Promise<{ file_path: string }>;
     synthesizeVoice: (payload: { text: string; language?: string }) => Promise<{ file_path: string }>;
     applyVideoTimeline: (payload: {
