@@ -1290,9 +1290,18 @@ function setupIpc() {
 
   ipcMain.handle('save-voice-sample', async (_, inputPath: string) => sidecarJson('/api/audio/voice', { input_path: inputPath }));
 
-  ipcMain.handle('synthesize-voice', async (_, payload: { text: string; language?: string }) =>
-    sidecarJson('/api/audio/tts', payload, 10 * 60 * 1000),
-  );
+  ipcMain.handle('synthesize-voice', async (_, payload: {
+    text: string;
+    language?: string;
+    skip_prepare?: boolean;
+    prepared_text?: string;
+  }) => sidecarJson('/api/audio/tts', payload, 10 * 60 * 1000));
+
+  ipcMain.handle('prepare-voice-text', async (_, payload: {
+    text: string;
+    language?: string;
+    apply_stress?: boolean;
+  }) => sidecarJson('/api/audio/prepare-text', payload, 120_000));
 
   ipcMain.handle('apply-video-timeline', async (_, payload: {
     prompt: string;

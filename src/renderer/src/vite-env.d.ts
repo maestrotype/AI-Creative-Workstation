@@ -113,7 +113,21 @@ interface Window {
       error: string | null;
     }>;
     saveVoiceSample: (inputPath: string) => Promise<{ file_path: string }>;
-    synthesizeVoice: (payload: { text: string; language?: string }) => Promise<{ file_path: string }>;
+    synthesizeVoice: (payload: {
+      text: string;
+      language?: string;
+      skip_prepare?: boolean;
+      prepared_text?: string;
+    }) => Promise<{ file_path: string; spoken_text?: string }>;
+    prepareVoiceText: (payload: { text: string; language?: string; apply_stress?: boolean }) => Promise<{
+      status: string;
+      original: string;
+      normalized: string;
+      stressed: string;
+      language: string;
+      warnings: string[];
+      stress_available: boolean;
+    }>;
     applyVideoTimeline: (payload: {
       prompt: string;
       video_path?: string;

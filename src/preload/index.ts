@@ -77,8 +77,14 @@ const api = {
   getVoiceProfile: () => ipcRenderer.invoke('get-voice-profile'),
   getVoiceTtsProgress: () => ipcRenderer.invoke('get-voice-tts-progress'),
   saveVoiceSample: (inputPath: string) => ipcRenderer.invoke('save-voice-sample', inputPath),
-  synthesizeVoice: (payload: { text: string; language?: string }) =>
-    ipcRenderer.invoke('synthesize-voice', payload),
+  synthesizeVoice: (payload: {
+    text: string;
+    language?: string;
+    skip_prepare?: boolean;
+    prepared_text?: string;
+  }) => ipcRenderer.invoke('synthesize-voice', payload),
+  prepareVoiceText: (payload: { text: string; language?: string; apply_stress?: boolean }) =>
+    ipcRenderer.invoke('prepare-voice-text', payload),
   applyVideoTimeline: (payload: {
     prompt: string;
     video_path?: string;

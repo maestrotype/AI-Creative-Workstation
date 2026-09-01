@@ -3,7 +3,6 @@
 
 ## Current Focus
 **Branch:** `feat/voice-pronunciation`
-**Living plans:**
 - Pronunciation / TTS quality — [VOICE_PRONUNCIATION_PLAN.md](product/VOICE_PRONUNCIATION_PLAN.md) (**active**)
 - Video content voiceover (analyze → script → TTS) — [VIDEO_VOICEOVER_PLAN.md](product/VIDEO_VOICEOVER_PLAN.md) (**next branch:** `feat/video-voiceover`)
 - Video + local TTS baseline — [VIDEO_STUDIO_PLAN.md](product/VIDEO_STUDIO_PLAN.md)
@@ -13,10 +12,10 @@
 ## Active work (feat/voice-pronunciation)
 
 ### Phase A — automation baseline
-- [ ] `sidecar/text_ru.py` — normalize + RUAccent stress
-- [ ] `POST /api/audio/prepare-text`
-- [ ] Extend `POST /api/audio/tts` with prepared text path
-- [ ] Assets UI: test phrase → show processed text → TTS preview
+- [x] `sidecar/text_ru.py` — normalize + RUAccent stress
+- [x] `POST /api/audio/prepare-text`
+- [x] Extend `POST /api/audio/tts` with prepared text path
+- [x] Assets UI: test phrase → show processed text → TTS preview
 
 ### Phase B — human-in-the-loop
 - [ ] Lexicon file `~/Documents/Canvas/Voice/lexicon.json` + API

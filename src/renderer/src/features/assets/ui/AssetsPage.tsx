@@ -66,6 +66,14 @@ export function AssetsPage(): ReactNode {
   const [ttsReady, setTtsReady] = useState(false);
   const [ttsEngine, setTtsEngine] = useState<string>('none');
   const [voiceText, setVoiceText] = useState('');
+  const [skipPrepare, setSkipPrepare] = useState(false);
+  const [prepareBusy, setPrepareBusy] = useState(false);
+  const [prepareResult, setPrepareResult] = useState<{
+    normalized: string;
+    stressed: string;
+    warnings: string[];
+    stress_available: boolean;
+  } | null>(null);
   const [voiceSourcePath, setVoiceSourcePath] = useState<string | null>(null);
   const [voiceSourceName, setVoiceSourceName] = useState<string | null>(null);
   const [samplePick, setSamplePick] = useState('');
@@ -109,6 +117,10 @@ export function AssetsPage(): ReactNode {
     void refreshVoiceEngine();
     return () => clearJobTimers();
   }, [loadLibrary]);
+
+  useEffect(() => {
+    setPrepareResult(null);
+  }, [voiceText]);
 
   const startElapsedTimer = (kind: VoiceJob['kind'], stage: string, detail: string, percent = 5) => {
     const started = Date.now();
@@ -257,6 +269,26 @@ export function AssetsPage(): ReactNode {
     }
   };
 
+  const handlePrepare = async () => {
+    if (!voiceText.trim() || !window.api?.prepareVoiceText) return;
+    setPrepareBusy(true);
+    setVoiceError(null);
+    try {
+      const result = await window.api.prepareVoiceText({ text: voiceText.trim() });
+      setPrepareResult({
+        normalized: result.normalized,
+        stressed: result.stressed,
+        warnings: result.warnings ?? [],
+        stress_available: result.stress_available,
+      });
+    } catch (err) {
+      setVoiceError(ipcMessage(err));
+      setPrepareResult(null);
+    } finally {
+      setPrepareBusy(false);
+    }
+  };
+
   const handleTts = async () => {
     if (!voiceText.trim() || !ttsReady || !voicePath) return;
     setVoiceBusy(true);
@@ -265,7 +297,11 @@ export function AssetsPage(): ReactNode {
     startElapsedTimer('tts', 'starting', t('assets.stage_tts_start'), 5);
     startTtsPoll();
     try {
-      const result = await window.api.synthesizeVoice({ text: voiceText.trim() });
+      const result = await window.api.synthesizeVoice({
+        text: voiceText.trim(),
+        skip_prepare: skipPrepare,
+        prepared_text: !skipPrepare && prepareResult ? prepareResult.stressed : undefined,
+      });
       setJob((prev) => (prev ? { ...prev, percent: 100, stage: 'done', detail: t('assets.stage_tts_done') } : prev));
       await rememberPath(result.file_path);
     } catch (err) {
@@ -376,6 +412,7 @@ export function AssetsPage(): ReactNode {
   }, [playingPath]);
 
   const sampleLabel = voiceSourceName ?? (voicePath ? t('assets.voice_sample_default') : null);
+  const canPrepare = voiceText.trim().length > 0 && !voiceBusy && !prepareBusy && recording === 'idle';
   const canGenerate = ttsReady && voicePath && voiceText.trim().length > 0 && !voiceBusy && recording === 'idle';
 
   return (
@@ -494,6 +531,47 @@ export function AssetsPage(): ReactNode {
           placeholder={t('assets.voice_prompt_placeholder')}
           disabled={voiceBusy}
         />
+        <label className={styles.prepareSkip}>
+          <input
+            type="checkbox"
+            checked={skipPrepare}
+            onChange={(e) => setSkipPrepare(e.target.checked)}
+            disabled={voiceBusy}
+          />
+          {t('assets.voice_skip_prepare')}
+        </label>
+        <div className={ui.actions}>
+          <button
+            type="button"
+            className={ui.secondary}
+            onClick={() => { void handlePrepare(); }}
+            disabled={!canPrepare}
+          >
+            {prepareBusy ? t('assets.voice_prepare_busy') : t('assets.voice_prepare')}
+          </button>
+        </div>
+        {prepareResult && !skipPrepare ? (
+          <div className={styles.prepareBox}>
+            {prepareResult.normalized !== voiceText.trim() ? (
+              <div className={styles.prepareRow}>
+                <span className={styles.prepareLabel}>{t('assets.voice_prepare_normalized')}</span>
+                <p className={styles.prepareText}>{prepareResult.normalized}</p>
+              </div>
+            ) : null}
+            <div className={styles.prepareRow}>
+              <span className={styles.prepareLabel}>{t('assets.voice_prepare_stressed')}</span>
+              <p className={styles.prepareText}>{prepareResult.stressed}</p>
+            </div>
+            {prepareResult.stress_available ? (
+              <p className={styles.prepareWarn}>{t('assets.voice_prepare_stress_hint')}</p>
+            ) : (
+              <p className={styles.prepareWarn}>{t('assets.voice_prepare_no_stress')}</p>
+            )}
+            {prepareResult.warnings.length > 0 ? (
+              <p className={styles.prepareWarn}>{prepareResult.warnings.join(' · ')}</p>
+            ) : null}
+          </div>
+        ) : null}
         {canGenerate && sampleLabel ? (
           <p className={styles.generateHint}>{t('assets.voice_generate_as', { name: sampleLabel })}</p>
         ) : null}

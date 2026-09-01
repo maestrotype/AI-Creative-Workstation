@@ -10,6 +10,8 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
+from text_ru import LEXICON_PATH, load_lexicon, prepare_text, stress_status
+
 router = APIRouter()
 
 AUDIO_DIR = os.path.expanduser("~/Documents/Canvas/Generated/Audio")
@@ -92,9 +94,17 @@ class SaveVoiceRequest(BaseModel):
     input_path: str
 
 
+class PrepareTextRequest(BaseModel):
+    text: str
+    language: str = "auto"
+    apply_stress: bool = True
+
+
 class TtsRequest(BaseModel):
     text: str
     language: str = "ru"
+    skip_prepare: bool = False
+    prepared_text: Optional[str] = None
 
 
 class TimelineRequest(BaseModel):
@@ -285,10 +295,52 @@ def save_voice(request: SaveVoiceRequest):
     }
 
 
-@router.post("/audio/tts")
-def synthesize_voice(request: TtsRequest):
+def _tts_language(text: str, hint: str) -> str:
+    if re.search(r"[а-яА-ЯёЁ]", text):
+        return "ru"
+    return hint or "en"
+
+
+def _resolve_tts_text(request: TtsRequest) -> tuple[str, dict]:
+    raw = (request.text or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="text is required")
+
+    if request.prepared_text and request.prepared_text.strip():
+        return request.prepared_text.strip(), {"skipped": True, "source": "prepared_text"}
+
+    if request.skip_prepare:
+        return raw, {"skipped": True, "source": "raw"}
+
+    prepared = prepare_text(raw, language=request.language or "auto", apply_stress=True)
+    return prepared["stressed"], {"skipped": False, "preparation": prepared}
+
+
+@router.post("/audio/prepare-text")
+def prepare_voice_text(request: PrepareTextRequest):
     text = (request.text or "").strip()
     if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    result = prepare_text(text, language=request.language, apply_stress=request.apply_stress)
+    return {"status": "ok", **result}
+
+
+@router.get("/audio/stress-status")
+def get_stress_status():
+    status = stress_status()
+    lexicon = load_lexicon()
+    return {
+        "stress_available": bool(status.get("available")),
+        "error": status.get("error"),
+        "lexicon_path": LEXICON_PATH,
+        "lexicon_count": len(lexicon),
+    }
+
+
+@router.post("/audio/tts")
+def synthesize_voice(request: TtsRequest):
+    raw = (request.text or "").strip()
+    if not raw:
         raise HTTPException(status_code=400, detail="text is required")
     if not os.path.isfile(SPEAKER_WAV):
         raise HTTPException(
@@ -298,11 +350,18 @@ def synthesize_voice(request: TtsRequest):
     if not _coqui_available():
         raise HTTPException(status_code=503, detail="CLONE_ENGINE_MISSING")
 
+    tts_text, prep_meta = _resolve_tts_text(request)
     os.makedirs(AUDIO_DIR, exist_ok=True)
-    dest = _audio_out(f"tts-{abs(hash(text)) % 10_000_000}", "wav")
-    lang = "ru" if re.search(r"[а-яА-ЯёЁ]", text) else (request.language or "en")
-    _run_xtts_clone(text, dest, lang)
-    return {"status": "completed", "file_path": dest, "engine": "xtts"}
+    dest = _audio_out(f"tts-{abs(hash(tts_text)) % 10_000_000}", "wav")
+    lang = _tts_language(tts_text, request.language or "en")
+    _run_xtts_clone(tts_text, dest, lang)
+    return {
+        "status": "completed",
+        "file_path": dest,
+        "engine": "xtts",
+        "spoken_text": tts_text,
+        "preparation": prep_meta,
+    }
 
 
 def _parse_timestamp(raw: str) -> float:
