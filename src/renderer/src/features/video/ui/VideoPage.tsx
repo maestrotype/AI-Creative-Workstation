@@ -46,19 +46,21 @@ export function VideoPage(): ReactNode {
   return (
     <div className={styles.container} data-mode="studio">
       <VideoMenuBar state={dock} onState={setDock} />
-      <DirectorProvider>
-        <VideoDock
-          state={dock}
-          onState={setDock}
-          panels={{
-            timeline: <DirectorTimelinePane />,
-            preview: <DirectorResultPane />,
-            sources: <DirectorSourcesPane />,
-            storyboard: <StoryboardPane />,
-            recording: <RecordingPane />,
-          }}
-        />
-      </DirectorProvider>
+      <div className={styles.studioBody}>
+        <DirectorProvider>
+          <VideoDock
+            state={dock}
+            onState={setDock}
+            panels={{
+              timeline: <DirectorTimelinePane />,
+              preview: <DirectorResultPane />,
+              sources: <DirectorSourcesPane />,
+              storyboard: <StoryboardPane />,
+              recording: <RecordingPane />,
+            }}
+          />
+        </DirectorProvider>
+      </div>
     </div>
   );
 }

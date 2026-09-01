@@ -5,6 +5,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import type { NavId } from '../../../core/types';
 import { NAVIGATION_ITEMS, isValidNavId } from '../../../features/home/model/navigation';
 import { SideNavigation } from '../../../features/home/ui/SideNavigation/SideNavigation';
+import { cx } from '../../../shared/lib/cx';
 import styles from './Shell.module.css';
 
 type EngineStatus = 'stopped' | 'starting' | 'ready' | 'error';
@@ -16,6 +17,7 @@ export function Shell(): ReactNode {
 
   const pathNavId = location.pathname.split('/')[1] || 'home';
   const activeId: NavId = isValidNavId(pathNavId) ? pathNavId : 'home';
+  const workspaceLayout = activeId === 'video';
 
   const handleSelect = (id: NavId) => {
     if (id === 'home') navigate('/');
@@ -51,7 +53,7 @@ export function Shell(): ReactNode {
         onSelect={handleSelect}
         engineStatus={engineStatus}
       />
-      <main className={styles.main}>
+      <main className={cx(styles.main, workspaceLayout && styles.mainWorkspace)}>
         <Outlet />
       </main>
     </div>

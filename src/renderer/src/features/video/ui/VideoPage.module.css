@@ -605,9 +605,17 @@
   max-width: none;
   flex: 1;
   min-height: 0;
-  height: calc(100dvh - 6rem);
+  height: 100%;
+  margin-inline: 0;
   overflow: hidden;
-  gap: var(--space-2);
+  gap: 0;
+}
+
+.studioBody {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .directorDesk {
@@ -1077,7 +1085,6 @@
   display: flex;
   align-items: stretch;
   gap: 2px;
-  overflow: hidden;
   padding: 0 2px;
   border: 1px solid var(--color-accent-border);
   border-left-width: 3px;
