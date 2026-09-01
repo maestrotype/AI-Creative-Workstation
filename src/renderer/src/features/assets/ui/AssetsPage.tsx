@@ -71,6 +71,7 @@ export function AssetsPage(): ReactNode {
   const [prepareResult, setPrepareResult] = useState<{
     normalized: string;
     stressed: string;
+    spoken: string;
     warnings: string[];
     stress_available: boolean;
   } | null>(null);
@@ -278,6 +279,7 @@ export function AssetsPage(): ReactNode {
       setPrepareResult({
         normalized: result.normalized,
         stressed: result.stressed,
+        spoken: result.spoken,
         warnings: result.warnings ?? [],
         stress_available: result.stress_available,
       });
@@ -300,7 +302,7 @@ export function AssetsPage(): ReactNode {
       const result = await window.api.synthesizeVoice({
         text: voiceText.trim(),
         skip_prepare: skipPrepare,
-        prepared_text: !skipPrepare && prepareResult ? prepareResult.stressed : undefined,
+        prepared_text: !skipPrepare && prepareResult ? prepareResult.spoken : undefined,
       });
       setJob((prev) => (prev ? { ...prev, percent: 100, stage: 'done', detail: t('assets.stage_tts_done') } : prev));
       await rememberPath(result.file_path);
@@ -559,14 +561,19 @@ export function AssetsPage(): ReactNode {
               </div>
             ) : null}
             <div className={styles.prepareRow}>
-              <span className={styles.prepareLabel}>{t('assets.voice_prepare_stressed')}</span>
-              <p className={styles.prepareText}>{prepareResult.stressed}</p>
+              <span className={styles.prepareLabel}>{t('assets.voice_prepare_spoken')}</span>
+              <p className={styles.prepareText}>{prepareResult.spoken}</p>
             </div>
-            {prepareResult.stress_available ? (
-              <p className={styles.prepareWarn}>{t('assets.voice_prepare_stress_hint')}</p>
-            ) : (
+            {prepareResult.stress_available && prepareResult.stressed !== prepareResult.spoken ? (
+              <div className={styles.prepareRow}>
+                <span className={styles.prepareLabel}>{t('assets.voice_prepare_stressed')}</span>
+                <p className={styles.prepareText}>{prepareResult.stressed}</p>
+                <p className={styles.prepareWarn}>{t('assets.voice_prepare_stress_hint')}</p>
+              </div>
+            ) : null}
+            {!prepareResult.stress_available ? (
               <p className={styles.prepareWarn}>{t('assets.voice_prepare_no_stress')}</p>
-            )}
+            ) : null}
             {prepareResult.warnings.length > 0 ? (
               <p className={styles.prepareWarn}>{prepareResult.warnings.join(' · ')}</p>
             ) : null}

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
 
 VOICE_DIR = os.path.expanduser("~/Documents/Canvas/Voice")
@@ -11,6 +12,9 @@ LEXICON_PATH = os.path.join(VOICE_DIR, "lexicon.json")
 
 _CYRILLIC_RE = re.compile(r"[а-яА-ЯёЁ]")
 _INTEGER_RE = re.compile(r"\b(\d{1,9})\b")
+# RUAccent + marker; apostrophe stress; combining acute — XTTS treats these as breaks.
+_COMBINING_ACUTE_RE = re.compile(r"([\u0430-\u044F\u0451])\u0301", re.IGNORECASE)
+_APOSTROPHE_STRESS_RE = re.compile(r"([\u0430-\u044F\u0451])['\u2019](?=[\s\W]|$)", re.IGNORECASE)
 
 _accentizer: Any = None
 _lexicon_mtime: float = 0.0
@@ -180,6 +184,16 @@ def add_stress(text: str) -> Tuple[str, List[str]]:
         return text, warnings
 
 
+def to_spoken_text(text: str) -> str:
+    """Strip stress markup before XTTS — + and similar symbols cause glitches/pauses."""
+    if not text:
+        return text
+    out = text.replace("+", "")
+    out = _COMBINING_ACUTE_RE.sub(r"\1", out)
+    out = _APOSTROPHE_STRESS_RE.sub(r"\1", out)
+    return unicodedata.normalize("NFC", out)
+
+
 def prepare_text(
     text: str,
     language: str = "auto",
@@ -194,6 +208,7 @@ def prepare_text(
             "original": original,
             "normalized": original,
             "stressed": original,
+            "spoken": original,
             "language": lang,
             "warnings": warnings,
             "stress_available": False,
@@ -209,10 +224,13 @@ def prepare_text(
         accentizer, ok, _ = _get_accentizer()
         stress_available = ok and accentizer is not None
 
+    spoken = to_spoken_text(stressed)
+
     return {
         "original": original,
         "normalized": normalized,
         "stressed": stressed,
+        "spoken": spoken,
         "language": lang,
         "warnings": warnings,
         "stress_available": stress_available,

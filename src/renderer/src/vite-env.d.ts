@@ -124,6 +124,7 @@ interface Window {
       original: string;
       normalized: string;
       stressed: string;
+      spoken: string;
       language: string;
       warnings: string[];
       stress_available: boolean;

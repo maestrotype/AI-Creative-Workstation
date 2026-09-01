@@ -10,7 +10,7 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-from text_ru import LEXICON_PATH, load_lexicon, prepare_text, stress_status
+from text_ru import LEXICON_PATH, load_lexicon, prepare_text, stress_status, to_spoken_text
 
 router = APIRouter()
 
@@ -307,13 +307,14 @@ def _resolve_tts_text(request: TtsRequest) -> tuple[str, dict]:
         raise HTTPException(status_code=400, detail="text is required")
 
     if request.prepared_text and request.prepared_text.strip():
-        return request.prepared_text.strip(), {"skipped": True, "source": "prepared_text"}
+        spoken = to_spoken_text(request.prepared_text.strip())
+        return spoken, {"skipped": True, "source": "prepared_text", "spoken": spoken}
 
     if request.skip_prepare:
         return raw, {"skipped": True, "source": "raw"}
 
     prepared = prepare_text(raw, language=request.language or "auto", apply_stress=True)
-    return prepared["stressed"], {"skipped": False, "preparation": prepared}
+    return prepared["spoken"], {"skipped": False, "preparation": prepared}
 
 
 @router.post("/audio/prepare-text")
