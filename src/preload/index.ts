@@ -64,11 +64,18 @@ const api = {
   pickImages: () => ipcRenderer.invoke('pick-images'),
   pickAudio: () => ipcRenderer.invoke('pick-audio'),
   listMediaLibrary: () => ipcRenderer.invoke('list-media-library'),
+  importLibraryAudio: (paths?: string[]) => ipcRenderer.invoke('import-library-audio', paths),
+  deleteLibraryAudio: (filePath: string) => ipcRenderer.invoke('delete-library-audio', filePath),
+  prepareLibraryAudio: (filePath: string) => ipcRenderer.invoke('prepare-library-audio', filePath),
+  installVoiceEngine: () => ipcRenderer.invoke('install-voice-engine'),
+  deleteVoiceEngine: () => ipcRenderer.invoke('delete-voice-engine'),
+  getVoiceEngineStatus: () => ipcRenderer.invoke('get-voice-engine-status'),
   startMicRecord: (format: string) => ipcRenderer.invoke('start-mic-record', format),
   stopMicRecord: () => ipcRenderer.invoke('stop-mic-record'),
   saveAudioBuffer: (payload: { data: ArrayBuffer; format: string; name?: string }) =>
     ipcRenderer.invoke('save-audio-buffer', payload),
   getVoiceProfile: () => ipcRenderer.invoke('get-voice-profile'),
+  getVoiceTtsProgress: () => ipcRenderer.invoke('get-voice-tts-progress'),
   saveVoiceSample: (inputPath: string) => ipcRenderer.invoke('save-voice-sample', inputPath),
   synthesizeVoice: (payload: { text: string; language?: string }) =>
     ipcRenderer.invoke('synthesize-voice', payload),
@@ -124,6 +131,27 @@ const api = {
     }) => callback(data);
     ipcRenderer.on('download-progress', handler);
     return () => { ipcRenderer.removeListener('download-progress', handler); };
+  },
+  onVoiceEngineUpdated: (callback: (data: {
+    packages_ready: boolean;
+    weights_ready: boolean;
+    installing: boolean;
+    stage: string;
+    percent: number;
+    detail: string;
+    cache_path: string;
+  }) => void) => {
+    const handler = (_: unknown, data: {
+      packages_ready: boolean;
+      weights_ready: boolean;
+      installing: boolean;
+      stage: string;
+      percent: number;
+      detail: string;
+      cache_path: string;
+    }) => callback(data);
+    ipcRenderer.on('voice-engine-updated', handler);
+    return () => { ipcRenderer.removeListener('voice-engine-updated', handler); };
   },
 };
 

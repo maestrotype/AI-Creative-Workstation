@@ -1,0 +1,7 @@
+# Coqui TTS 0.22.0 breaks on transformers >=4.57 (BeamSearchScorer removed from top-level).
+# Pin torchaudio<2.9 to avoid torchcodec+FFmpeg on macOS; coqui_compat.py patches the rest.
+TTS==0.22.0
+transformers>=4.33.0,<4.50.0
+soundfile>=0.12.0
+torch>=2.1.0,<2.9.0
+torchaudio>=2.1.0,<2.9.0

@@ -233,6 +233,78 @@ export function placementStart(
   return avoidOverlap(clips, '', track, preferred, durationSec);
 }
 
+export function packTrack(clips: TimelineClip[], track: TrackId): TimelineClip[] {
+  const on = clips
+    .filter((c) => c.track === track)
+    .sort((a, b) => a.startSec - b.startSec || a.id.localeCompare(b.id));
+  if (on.length === 0) return clips;
+  let cursor = 0;
+  const starts = new Map<string, number>();
+  for (const clip of on) {
+    starts.set(clip.id, cursor);
+    cursor += clip.durationSec;
+  }
+  return clips.map((clip) => {
+    const start = starts.get(clip.id);
+    if (start == null || Math.abs(start - clip.startSec) < 0.02) return clip;
+    return { ...clip, startSec: start };
+  });
+}
+
+export function snapStart(
+  clips: TimelineClip[],
+  clipId: string,
+  track: TrackId,
+  startSec: number,
+  durationSec: number,
+  magnet = 0.35,
+): number {
+  const others = clips.filter((c) => c.track === track && c.id !== clipId);
+  let start = Math.max(0, startSec);
+  let best = magnet;
+  for (const other of others) {
+    const oEnd = other.startSec + other.durationSec;
+    const dStart = Math.abs(start - other.startSec);
+    const dEnd = Math.abs(start - oEnd);
+    const dTail = Math.abs(start + durationSec - other.startSec);
+    if (dEnd < best) {
+      start = oEnd;
+      best = dEnd;
+    }
+    if (dStart < best) {
+      start = other.startSec;
+      best = dStart;
+    }
+    if (dTail < best) {
+      start = Math.max(0, other.startSec - durationSec);
+      best = dTail;
+    }
+  }
+  return avoidOverlap(clips, clipId, track, start, durationSec);
+}
+
+export function trackHasGap(clips: TimelineClip[], track: TrackId): boolean {
+  const on = clips
+    .filter((c) => c.track === track)
+    .sort((a, b) => a.startSec - b.startSec || a.id.localeCompare(b.id));
+  if (on.length === 0) return false;
+  let cursor = 0;
+  for (const clip of on) {
+    if (clip.startSec > cursor + 0.08) return true;
+    cursor = clip.startSec + clip.durationSec;
+  }
+  return false;
+}
+
+export function packAllGaps(clips: TimelineClip[]): TimelineClip[] {
+  const tracks = [...new Set(clips.map((c) => c.track))].filter((id) => !id.startsWith('t'));
+  let next = clips;
+  for (const track of tracks) {
+    if (trackHasGap(next, track)) next = packTrack(next, track);
+  }
+  return next;
+}
+
 export function unstackAllTracks(clips: TimelineClip[]): TimelineClip[] {
   const tracks = [...new Set(clips.map((c) => c.track))].filter((id) => !id.startsWith('t'));
   let next = clips;
@@ -246,7 +318,7 @@ export function kindFromFileName(name: string): BinKind | null {
   const ext = name.toLowerCase().split('.').pop() ?? '';
   if (['mp4', 'mov', 'm4v', 'webm', 'mkv'].includes(ext)) return 'video';
   if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'].includes(ext)) return 'image';
-  if (['wav', 'mp3', 'flac', 'm4a', 'aac', 'ogg'].includes(ext)) return 'audio';
+  if (['wav', 'mp3', 'flac', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'wma', 'aiff', 'aif', 'caf'].includes(ext)) return 'audio';
   return null;
 }
 

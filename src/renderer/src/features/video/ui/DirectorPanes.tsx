@@ -131,6 +131,15 @@ export function DirectorTimelinePane(): ReactNode {
           >
             {d.t('video.dir_add_overlay')}
           </button>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            onClick={d.packGaps}
+            disabled={!d.hasTimelineGaps}
+            title={d.t('video.dir_pack_hint')}
+          >
+            {d.t('video.dir_pack_gaps')}
+          </button>
           <label className={styles.scaleLabel}>
             {d.t('video.dir_scale')}
             <input
@@ -349,6 +358,55 @@ export function DirectorSourcesPane(): ReactNode {
         <button type="button" className={styles.toolBtn} onClick={d.pickImage}>{d.t('video.dir_add_image')}</button>
         <button type="button" className={styles.toolBtn} onClick={d.pickAudio}>{d.t('video.dir_add_audio')}</button>
       </div>
+      <div className={styles.voiceStrip}>
+        <span className={styles.voiceLabel}>{d.t('video.dir_voice')}</span>
+        <button
+          type="button"
+          className={d.voiceRecording ? styles.toolPrimary : styles.toolBtn}
+          onClick={d.toggleVoiceRecord}
+          disabled={d.voiceBusy}
+        >
+          {d.voiceRecording ? d.t('video.dir_voice_stop') : d.t('video.dir_voice_record')}
+        </button>
+        {d.libraryAudio.length > 0 ? (
+          <select
+            className={styles.voiceSelect}
+            defaultValue=""
+            onChange={(e) => {
+              const path = e.target.value;
+              e.target.value = '';
+              if (path) d.placeLibraryAudio(path);
+            }}
+          >
+            <option value="" disabled>{d.t('video.dir_voice_lib')}</option>
+            {d.libraryAudio.map((clip) => (
+              <option key={clip.path} value={clip.path}>{clip.name}</option>
+            ))}
+          </select>
+        ) : null}
+        {d.ttsReady ? (
+          <>
+            <input
+              className={styles.voiceInput}
+              value={d.voiceLine}
+              onChange={(e) => d.setVoiceLine(e.target.value)}
+              placeholder={d.t('video.dir_voice_ph')}
+              disabled={d.voiceBusy || d.voiceRecording}
+            />
+            <button
+              type="button"
+              className={styles.toolBtn}
+              onClick={d.generateVoiceover}
+              disabled={d.voiceBusy || d.voiceRecording || !d.voiceLine.trim()}
+            >
+              {d.t('video.dir_voice_gen')}
+            </button>
+          </>
+        ) : null}
+        {d.voiceRecording ? <span className={styles.hintTight}>{d.t('video.dir_voice_recording')}</span> : null}
+        {d.voiceError ? <p className={styles.voiceError}>{d.voiceError}</p> : null}
+      </div>
+      <p className={styles.hintTight}>{d.t('video.dir_voice_help')}</p>
       {d.bins.length === 0 ? <p className={styles.hintTight}>{d.t('video.dir_bin_empty')}</p> : (
         <ul className={styles.binList}>
           {d.bins.map((item) => {

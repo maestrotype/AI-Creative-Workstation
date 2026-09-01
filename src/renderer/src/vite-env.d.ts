@@ -70,10 +70,48 @@ interface Window {
       audio: { path: string; name: string; mtime: number }[];
       voice_path: string | null;
     }>;
+    importLibraryAudio: (paths?: string[]) => Promise<{ imported: string[] }>;
+    deleteLibraryAudio: (filePath: string) => Promise<{ deleted: boolean }>;
+    prepareLibraryAudio: (filePath: string) => Promise<{ path: string; converted: boolean }>;
+    installVoiceEngine: () => Promise<{ ok: boolean }>;
+    deleteVoiceEngine: () => Promise<{ deleted: boolean }>;
+    getVoiceEngineStatus: () => Promise<{
+      packages_ready: boolean;
+      weights_ready: boolean;
+      installing: boolean;
+      stage: string;
+      percent: number;
+      detail: string;
+      cache_path: string;
+    }>;
+    onVoiceEngineUpdated: (callback: (data: {
+      packages_ready: boolean;
+      weights_ready: boolean;
+      installing: boolean;
+      stage: string;
+      percent: number;
+      detail: string;
+      cache_path: string;
+    }) => void) => () => void;
     startMicRecord: (format: string) => Promise<{ file_path: string }>;
     stopMicRecord: () => Promise<{ file_path: string }>;
     saveAudioBuffer: (payload: { data: ArrayBuffer; format: string; name?: string }) => Promise<{ file_path: string }>;
-    getVoiceProfile: () => Promise<{ has_sample: boolean; file_path: string | null; tts_ready: boolean }>;
+    getVoiceProfile: () => Promise<{
+      has_sample: boolean;
+      file_path: string | null;
+      source_path?: string | null;
+      source_name?: string | null;
+      tts_ready: boolean;
+      engine?: 'xtts' | 'macos' | 'none' | string;
+    }>;
+    getVoiceTtsProgress: () => Promise<{
+      active: boolean;
+      stage: string;
+      percent: number;
+      detail: string;
+      elapsed_sec: number;
+      error: string | null;
+    }>;
     saveVoiceSample: (inputPath: string) => Promise<{ file_path: string }>;
     synthesizeVoice: (payload: { text: string; language?: string }) => Promise<{ file_path: string }>;
     applyVideoTimeline: (payload: {

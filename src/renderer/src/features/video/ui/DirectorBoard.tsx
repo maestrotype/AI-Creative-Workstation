@@ -21,6 +21,9 @@ import {
   newId,
   placementStart,
   avoidOverlap,
+  packAllGaps,
+  snapStart,
+  trackHasGap,
   maxDurationBeforeNext,
   syncClipDuration,
   timelineLength,
@@ -119,6 +122,18 @@ type DirectorSnap = {
   onClipPointerUp: (e: PointerEvent<HTMLElement>, clip: TimelineClip) => void;
   applyProxy: (binId: string, force: boolean) => void;
   addSources: (items: SourceInput[], autoPlace?: boolean) => void;
+  hasTimelineGaps: boolean;
+  packGaps: () => void;
+  voiceRecording: boolean;
+  voiceBusy: boolean;
+  voiceError: string | null;
+  voiceLine: string;
+  setVoiceLine: (v: string) => void;
+  ttsReady: boolean;
+  libraryAudio: Array<{ path: string; name: string }>;
+  toggleVoiceRecord: () => void;
+  generateVoiceover: () => void;
+  placeLibraryAudio: (path: string) => void;
   overlayPos: Record<string, OverlayPos>;
   setOverlayPos: (track: string, pos: OverlayPos) => void;
   exportBusy: boolean;
@@ -138,6 +153,12 @@ export interface SourceInput {
 }
 
 const SESSION_BOOT = loadDirectorSession();
+
+function ipcMessage(err: unknown, fallback: string): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  const cleaned = raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '').trim();
+  return cleaned || fallback;
+}
 
 export function DirectorProvider({ children }: DirectorProviderProps): ReactNode {
   const { t } = useTranslation();
@@ -185,6 +206,12 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportSavedTo, setExportSavedTo] = useState<string | null>(null);
   const [dropActive, setDropActive] = useState(false);
+  const [voiceRecording, setVoiceRecording] = useState(false);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [voiceLine, setVoiceLine] = useState('');
+  const [ttsReady, setTtsReady] = useState(false);
+  const [libraryAudio, setLibraryAudio] = useState<Array<{ path: string; name: string }>>([]);
   const blobs = useFileBlobs(bins.filter((b) => b.kind !== 'image' && !b.proxying).map((b) => b.path));
 
   useEffect(() => {
@@ -714,6 +741,93 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     if (playheadRef.current <= 0.05 && queuedStart != null) seekTo(queuedStart);
   };
 
+  const ingestAudioPath = async (path: string) => {
+    const remembered = (await window.api?.rememberDroppedMedia?.(path)) ?? path;
+    const existing = binsRef.current.find((b) => b.kind === 'audio' && b.path === remembered);
+    if (existing) {
+      placeOnTrack('a1', existing.id);
+      return;
+    }
+    const { dur, known } = await probeDuration(remembered, 'audio');
+    addBin('audio', remembered, dur, 'a1', known);
+  };
+
+  const refreshVoiceTools = async () => {
+    try {
+      const profile = await window.api?.getVoiceProfile?.();
+      if (profile) setTtsReady(profile.tts_ready);
+    } catch {
+      setTtsReady(false);
+    }
+    try {
+      const lib = await window.api?.listMediaLibrary?.();
+      if (lib) setLibraryAudio(lib.audio.map((a) => ({ path: a.path, name: a.name })));
+    } catch {
+      /* optional */
+    }
+  };
+
+  useEffect(() => {
+    void refreshVoiceTools();
+  }, []);
+
+  const toggleVoiceRecord = async () => {
+    if (!window.api?.startMicRecord || !window.api.stopMicRecord) return;
+    if (voiceRecording) {
+      setVoiceBusy(true);
+      try {
+        const stopped = await window.api.stopMicRecord();
+        setVoiceRecording(false);
+        await ingestAudioPath(stopped.file_path);
+        await refreshVoiceTools();
+        setVoiceError(null);
+      } catch (err) {
+        setVoiceError(ipcMessage(err, t('video.dir_voice_fail')));
+        setVoiceRecording(false);
+      } finally {
+        setVoiceBusy(false);
+      }
+      return;
+    }
+    setVoiceError(null);
+    try {
+      await window.api.startMicRecord('wav');
+      setVoiceRecording(true);
+    } catch (err) {
+      setVoiceError(ipcMessage(err, t('video.dir_voice_fail')));
+    }
+  };
+
+  const generateVoiceover = async () => {
+    if (!voiceLine.trim() || !window.api?.synthesizeVoice) return;
+    setVoiceBusy(true);
+    setVoiceError(null);
+    try {
+      const result = await window.api.synthesizeVoice({ text: voiceLine.trim() });
+      await ingestAudioPath(result.file_path);
+      await refreshVoiceTools();
+    } catch (err) {
+      setVoiceError(ipcMessage(err, t('video.dir_voice_tts_off')));
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  const placeLibraryAudio = (path: string) => {
+    void ingestAudioPath(path).catch((err) => {
+      setVoiceError(ipcMessage(err, t('video.dir_voice_fail')));
+    });
+  };
+
+  const hasTimelineGaps = useMemo(
+    () => [...new Set(clips.map((c) => c.track))].some((track) => !track.startsWith('t') && trackHasGap(clips, track)),
+    [clips],
+  );
+
+  const packGaps = () => {
+    setClips((prev) => packAllGaps(prev));
+  };
+
   const addVideoOverlayTrack = () => {
     setTrackLayout((layout) => ({
       ...layout,
@@ -907,9 +1021,19 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     applyClipDrag(e.clientX, e.clientY);
   };
 
+  const finishClipMove = () => {
+    const drag = dragRef.current;
+    if (!drag || drag.mode !== 'move' || !drag.moved) return;
+    const clip = clipsRef.current.find((c) => c.id === drag.id);
+    if (!clip) return;
+    const startSec = snapStart(clipsRef.current, clip.id, clip.track, clip.startSec, clip.durationSec);
+    if (Math.abs(startSec - clip.startSec) > 0.01) patchClip(clip.id, { startSec });
+  };
+
   const onClipPointerUp = (e: PointerEvent<HTMLElement>, clip: TimelineClip) => {
     const drag = dragRef.current;
     if (drag && !drag.moved) seekTo(clip.startSec);
+    else finishClipMove();
     dragRef.current = null;
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
@@ -929,6 +1053,8 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
       if (!drag.moved) {
         const clip = clipsRef.current.find((c) => c.id === drag.id);
         if (clip) seekTo(clip.startSec);
+      } else {
+        finishClipMove();
       }
       dragRef.current = null;
     };
@@ -1006,6 +1132,18 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     onClipPointerUp,
     applyProxy: (binId, force) => { void applyProxy(binId, force); },
     addSources,
+    hasTimelineGaps,
+    packGaps,
+    voiceRecording,
+    voiceBusy,
+    voiceError,
+    voiceLine,
+    setVoiceLine,
+    ttsReady,
+    libraryAudio,
+    toggleVoiceRecord: () => { void toggleVoiceRecord(); },
+    generateVoiceover: () => { void generateVoiceover(); },
+    placeLibraryAudio,
     overlayPos,
     setOverlayPos: (track, pos) => {
       setOverlayPosState((prev) => ({ ...prev, [track]: pos }));
