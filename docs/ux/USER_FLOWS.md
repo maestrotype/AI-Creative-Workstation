@@ -443,6 +443,91 @@ ANALYSIS RESULTS
 └────────────────────────────────────────────┘
 ```
 
+**Implementation note:** Flow F is **specified but not implemented**. Target UI: Video → **From video** per [VIDEO_VOICEOVER_PLAN.md](../product/VIDEO_VOICEOVER_PLAN.md). Phase 1 ships transcript + scenes only; Shorts/thumbnail actions are later.
+
+---
+
+## Flow H: Video Voiceover from Upload
+
+**Scenario:** Creator uploads a screencast and wants a new Russian voiceover guided by a prompt.
+
+```
+ENTRY: Video → From video
+│
+▼
+UPLOAD
+│  Drop video or pick from library
+│  screencast_angular_shop.mp4 (4:32)
+│
+▼
+ANALYSIS
+┌────────────────────────────────────────────┐
+│  Understanding your video...               │
+│  Transcribing speech        ████████░  80% │
+│  Finding scene boundaries   ██████░░  60%  │
+└────────────────────────────────────────────┘
+│
+▼
+CONTEXT SUMMARY
+│  4:32 · 6 scenes · transcript ready
+│  [ View transcript ]  [ View scenes ]
+│
+▼
+VOICEOVER PROMPT
+┌────────────────────────────────────────────┐
+│  What should the voiceover say?            │
+│  «Обзор для YouTube, дружелюбно, без воды» │
+│  [ Generate script ]                         │
+└────────────────────────────────────────────┘
+│
+▼
+SCRIPT EDITOR (editable segments)
+│  0:00–0:18  «В этом видео мы покажем...»
+│  0:18–1:05  «Сначала откройте каталог...»
+│  [ Preview all ]  [ Apply to timeline ]
+│
+▼
+PER-SEGMENT VOICE (links to Flow I)
+│  TTS per segment → Director A1 track
+│
+▼
+EXPORT
+│  Director → Export MP4 with voiceover
+```
+
+**Plan:** [VIDEO_VOICEOVER_PLAN.md](../product/VIDEO_VOICEOVER_PLAN.md) · Branch: `feat/video-voiceover`
+
+---
+
+## Flow I: Pronunciation Fix After Listen
+
+**Scenario:** TTS sounds wrong on one word; user fixes without re-writing the whole script.
+
+```
+ENTRY: Assets → Voice test  OR  Video → Director segment player
+│
+▼
+LISTEN
+│  ▶ «...в настройках замка безопасности...»  — wrong stress on «замок»
+│
+▼
+FIX (prompt or inline)
+┌────────────────────────────────────────────┐
+│  Fix pronunciation:                        │
+│  «слово замок — ударение на а»               │
+│  [ Apply ]                                   │
+│                                            │
+│  Processed: «...в настройках з+амка...»      │
+│  Saved to lexicon ✓                          │
+└────────────────────────────────────────────┘
+│
+▼
+REGENERATE SEGMENT
+│  ▶ correct pronunciation · same timeline position
+```
+
+**Plan:** [VOICE_PRONUNCIATION_PLAN.md](../product/VOICE_PRONUNCIATION_PLAN.md) · Branch: `feat/voice-pronunciation`
+
 ---
 
 ## Flow G: Onboarding (First-Run)

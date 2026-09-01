@@ -2,10 +2,30 @@
 > **Purpose:** This document is the single source of truth for the current development state, recent changes, and immediate next steps. It is designed to be read by AI agents to quickly gain context without traversing Git logs.
 
 ## Current Focus
-**Branch:** `feat/triposr-3d-sidecar` (and related studio/3D/video work)
-**Living plans:** Video + local TTS (not LTX/Wan yet) — [VIDEO_STUDIO_PLAN.md](product/VIDEO_STUDIO_PLAN.md). Revise that file as capabilities and goals change.
+**Branch:** `feat/voice-pronunciation`
+**Living plans:**
+- Pronunciation / TTS quality — [VOICE_PRONUNCIATION_PLAN.md](product/VOICE_PRONUNCIATION_PLAN.md) (**active**)
+- Video content voiceover (analyze → script → TTS) — [VIDEO_VOICEOVER_PLAN.md](product/VIDEO_VOICEOVER_PLAN.md) (**next branch:** `feat/video-voiceover`)
+- Video + local TTS baseline — [VIDEO_STUDIO_PLAN.md](product/VIDEO_STUDIO_PLAN.md)
 
-**Goal:** Keep product docs aligned with what the Electron + sidecar app actually does.
+**Goal:** Ship Russian pronunciation automation + human fix UI in Assets and Video; then start video-analyze + script track on a separate branch.
+
+## Active work (feat/voice-pronunciation)
+
+### Phase A — automation baseline
+- [ ] `sidecar/text_ru.py` — normalize + RUAccent stress
+- [ ] `POST /api/audio/prepare-text`
+- [ ] Extend `POST /api/audio/tts` with prepared text path
+- [ ] Assets UI: test phrase → show processed text → TTS preview
+
+### Phase B — human-in-the-loop
+- [ ] Lexicon file `~/Documents/Canvas/Voice/lexicon.json` + API
+- [ ] Prompt-based «fix pronunciation» → lexicon entry
+- [ ] Video Director: per-segment fix after listen
+
+## Next branch (feat/video-voiceover)
+
+See [VIDEO_VOICEOVER_PLAN.md](product/VIDEO_VOICEOVER_PLAN.md) — Phase 1: Whisper + scene detect + `FromVideoPanel` UI.
 
 ## Recently Completed
 - [x] Initial React + Vite architecture setup with CSS modules.
@@ -13,26 +33,32 @@
 - [x] `HomePage` baseline (Hero section, `IntentInput` for Quick Create).
 - [x] `RecentAssets` component and `homeStore` Zustand integration.
 - [x] Basic mock API (`assetApi.ts`) for assets.
-- [x] **Data Separation:** Split the mock API and Zustand store state into `Projects` (for "Continue Working") and `Assets` (for "Recent").
+- [x] **Data Separation:** Split the mock API and Zustand store state into `Projects` and `Assets`.
 - [x] **Continue Working Component:** Build the UI to display recent projects.
 - [x] **Inspiration Component:** Build a gallery of curated generation examples.
 - [x] **Integrate into HomePage:** Update `HomePage.tsx` to render all sections in the correct order.
-- [x] **CreatePage Implementation:** Built the core generation flow (`intent` → `generating` → `result`) with a robust Zustand state machine and realistic mock progress. Resulting mock images now correctly appear in the `HomePage`'s recent assets!
-- [x] **Мультиязычность (i18n)**: Установлен `i18next`, переведены все основные страницы и боковое меню на английский и русский языки. На странице `Settings` добавлен переключатель языков.
-- [x] **Базовые заглушки экранов**: Сверстаны структурные макеты для `ProjectsPage`, `AssetsPage`, `StudioPage` и `SettingsPage`.
-
-- [x] **Electron Shell**: Настройка Electron и интеграция Vite (через `electron-vite`). Приложение теперь работает как нативное десктопное.
-- [x] **Python Sidecar**: Создан Python-процесс на FastAPI для оркестрации инференса. Установлены библиотеки `mlx` и `mlx-lm`. Написан моковый эндпоинт генерации.
+- [x] **CreatePage Implementation:** Built the core generation flow with Zustand state machine.
+- [x] **Мультиязычность (i18n):** `i18next`, EN/RU, Settings language switcher.
+- [x] **Базовые заглушки экранов:** `ProjectsPage`, `AssetsPage`, `StudioPage`, `SettingsPage`.
+- [x] **Electron Shell:** Electron + Vite via `electron-vite`.
+- [x] **Python Sidecar:** FastAPI, MLX, mock generation endpoint.
+- [x] **Video Studio:** Director timeline, screencast clean, XTTS timeline mix, Ken Burns assemble.
+- [x] **Docs 2026-09-01:** VOICE_PRONUNCIATION_PLAN + VIDEO_VOICEOVER_PLAN; roadmap and UX flows updated.
 
 ## Immediate Next Steps (Pending)
-- [x] **База Данных**: Интеграция `better-sqlite3` и `drizzle-orm` в Main-процесс Electron.
-- [x] **Studio Page (Менеджер моделей)**: Создание интерфейса для скачивания/подключения локальных моделей (как в LM Studio).
-- [x] Connect `Inspiration` click handler to transition to the `CreatePage` автоматически.
+- [x] **База Данных:** `better-sqlite3` + `drizzle-orm` in Main process.
+- [x] **Studio Page:** Model download/manager UI.
+- [x] Connect `Inspiration` click handler to `CreatePage`.
+- [x] Real Python generation on MPS via sidecar.
+- [x] `asset://` protocol for local images.
 
 ## What's Next?
-- [x] Подключить реальную Python-генерацию на MLX (через `diffusers` / `mps`) к `CreatePage`.
-- [x] Зарегистрировать `asset://` протокол в Electron для отображения сгенерированных локальных картинок в React-компонентах.
+- [ ] RUAccent + `prepare-text` in sidecar TTS venv
+- [ ] Assets pronunciation test UI
+- [ ] Lexicon + prompt fix flow
 
 ## Known Issues / Technical Debt
-- `IntentInput` attach button is wired but not yet fully functional (needs file picker logic).
-- Обработка ошибок загрузки весов в MLX требует более изящного UI/UX.
+- `IntentInput` attach button not fully functional.
+- `VideoTimelineCard` built but may need re-wiring for From video flow.
+- No stress/G2P in TTS path today.
+- No Whisper / video analyze in sidecar.
