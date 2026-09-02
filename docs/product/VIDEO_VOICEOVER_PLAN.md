@@ -1,8 +1,8 @@
 # Video Content Voiceover — Living Plan
 
-> **Status:** Planned — separate development track  
-> **Branch:** `feat/video-voiceover` (create when pronunciation track stabilizes)  
-> **Updated:** 1 September 2026  
+> **Status:** V1 MVP shipped on `feat/video-voiceover`; V2 planning on `docs/voiceover-v2-vision`  
+> **V2 vision:** [VIDEO_VOICEOVER_V2_VISION.md](VIDEO_VOICEOVER_V2_VISION.md)  
+> **Updated:** 2 September 2026  
 > **Depends on:** [VOICE_PRONUNCIATION_PLAN.md](VOICE_PRONUNCIATION_PLAN.md) (stress pipeline)  
 > **Related:** [VIDEO_STUDIO_PLAN.md](VIDEO_STUDIO_PLAN.md), [AI_DIRECTOR.md](../ux/AI_DIRECTOR.md)
 
@@ -275,3 +275,16 @@ When Director ships, `From video` becomes one **intent** inside Director; keep A
 |------|------|
 | 2026-09-01 | Initial plan: analyze → script → pronunciation TTS → timeline; branch `feat/video-voiceover` |
 | 2026-09-02 | Phase 1 shipped: analyze API, VoiceoverSection in Sources, scene detect + optional Whisper |
+| 2026-09-02 | V1 MVP: Phases 2–3 (script editor, Ollama in Studio, inline voice sample, segment TTS → A1) |
+| 2026-09-02 | V2 vision doc: pipeline layout, VLM script, continuous A1, project context — see VIDEO_VOICEOVER_V2_VISION.md |
+
+---
+
+## V2 (next track)
+
+See **[VIDEO_VOICEOVER_V2_VISION.md](VIDEO_VOICEOVER_V2_VISION.md)** for full handoff. Summary:
+
+1. **Pipeline layout** — default center-focused workflow ([VIDEO_STUDIO_LAYOUT_MODES.md](../ux/VIDEO_STUDIO_LAYOUT_MODES.md))
+2. **Video-aware script** — VLM keyframe captions + user project context
+3. **Continuous voiceover** — one A1 clip, not fragmented segments
+4. **Pronunciation polish** — per-segment fix in script editor

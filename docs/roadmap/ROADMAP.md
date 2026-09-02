@@ -170,7 +170,8 @@ This demonstrates:
 - Voice asset creation (link voice to character)
 - Character gains voice identity (used in future video generation)
 - **Russian pronunciation pipeline** — RUAccent, normalization, lexicon, prompt-based fix UI ([VOICE_PRONUNCIATION_PLAN.md](../product/VOICE_PRONUNCIATION_PLAN.md), branch `feat/voice-pronunciation`)
-- **Video content voiceover** — upload → Whisper analyze → LLM script → TTS → timeline ([VIDEO_VOICEOVER_PLAN.md](../product/VIDEO_VOICEOVER_PLAN.md), branch `feat/video-voiceover`)
+- **Video content voiceover V1** — shipped MVP: analyze → LLM script → XTTS → A1 ([VIDEO_VOICEOVER_PLAN.md](../product/VIDEO_VOICEOVER_PLAN.md), branch `feat/video-voiceover`)
+- **Video content voiceover V2** — pipeline UX, VLM-aware script, continuous narration ([VIDEO_VOICEOVER_V2_VISION.md](../product/VIDEO_VOICEOVER_V2_VISION.md), branch `docs/voiceover-v2-vision`)
 
 #### Project System (Enhanced)
 - Project types: Image Pack, Content Package
@@ -215,7 +216,7 @@ This demonstrates:
 - Short video clips: 3–8 seconds
 - Video scene assembly (multi-clip project)
 
-**Now (pre-V2, living):** Slideshow + screencast ffmpeg and prompt TTS are specified in [VIDEO_STUDIO_PLAN.md](../product/VIDEO_STUDIO_PLAN.md). Intelligent voiceover over existing video (analyze + script) is specified in [VIDEO_VOICEOVER_PLAN.md](../product/VIDEO_VOICEOVER_PLAN.md). Pronunciation quality is specified in [VOICE_PRONUNCIATION_PLAN.md](../product/VOICE_PRONUNCIATION_PLAN.md). Update those files when capabilities ship; do not treat this V2 list as current UI.
+**Now (pre-Director, living):** Slideshow + screencast ffmpeg and prompt TTS are specified in [VIDEO_STUDIO_PLAN.md](../product/VIDEO_STUDIO_PLAN.md). Voiceover V1 MVP is on `feat/video-voiceover`; V2 UX/intelligence is in [VIDEO_VOICEOVER_V2_VISION.md](../product/VIDEO_VOICEOVER_V2_VISION.md). Pronunciation quality is in [VOICE_PRONUNCIATION_PLAN.md](../product/VOICE_PRONUNCIATION_PLAN.md). Update those files when capabilities ship; do not treat the Director V2 list below as current UI.
 
 #### AI Director
 - Production plan generation from creative brief

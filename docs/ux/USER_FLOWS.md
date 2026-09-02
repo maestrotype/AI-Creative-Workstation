@@ -451,8 +451,11 @@ ANALYSIS RESULTS
 
 **Scenario:** Creator uploads a screencast and wants a new Russian voiceover guided by a prompt.
 
+**V1 (shipped):** Inline in Sources pane; Grid/Free dock layout.  
+**V2 (planned):** Pipeline mode — center stage, steps appear/disappear. See [VIDEO_STUDIO_LAYOUT_MODES.md](VIDEO_STUDIO_LAYOUT_MODES.md) and [VIDEO_VOICEOVER_V2_VISION.md](../product/VIDEO_VOICEOVER_V2_VISION.md).
+
 ```
-ENTRY: Video → From video
+ENTRY: Video → Озвучка (Sources)  [V2: Pipeline mode, center stage]
 │
 ▼
 UPLOAD
@@ -495,7 +498,8 @@ EXPORT
 │  Director → Export MP4 with voiceover
 ```
 
-**Plan:** [VIDEO_VOICEOVER_PLAN.md](../product/VIDEO_VOICEOVER_PLAN.md) · Branch: `feat/video-voiceover`
+**Plan:** [VIDEO_VOICEOVER_PLAN.md](../product/VIDEO_VOICEOVER_PLAN.md) (V1) · [VIDEO_VOICEOVER_V2_VISION.md](../product/VIDEO_VOICEOVER_V2_VISION.md) (V2)  
+**Branches:** `feat/video-voiceover` (V1 MVP) · `docs/voiceover-v2-vision` (V2 spec)
 
 ---
 
