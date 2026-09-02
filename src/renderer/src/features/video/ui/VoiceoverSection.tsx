@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 
 import { useDirector } from './DirectorBoard';
+import { VoiceoverScriptEditor } from './VoiceoverScriptEditor';
 import { formatTimecode } from '../model/videoAnalysis';
 import styles from './VideoPage.module.css';
 
@@ -86,15 +87,16 @@ export function VoiceoverSection(): ReactNode {
           {ctx.warnings?.includes('WHISPER_NOT_INSTALLED') ? (
             <p className={styles.hintTight}>{d.t('video.vo_whisper_missing')}</p>
           ) : null}
-          <p className={styles.hintTight}>{d.t('video.vo_phase2_hint')}</p>
-          <h4 className={styles.voSubtitle}>{d.t('video.vo_scenes')}</h4>
-          <ul className={styles.scenes}>
-            {ctx.scenes.map((scene) => (
-              <li key={scene.index}>
-                {formatTimecode(scene.start)} – {formatTimecode(scene.end)}
-              </li>
-            ))}
-          </ul>
+          <details className={styles.voDetails}>
+            <summary>{d.t('video.vo_scenes')}</summary>
+            <ul className={styles.scenes}>
+              {ctx.scenes.map((scene) => (
+                <li key={scene.index}>
+                  {formatTimecode(scene.start)} – {formatTimecode(scene.end)}
+                </li>
+              ))}
+            </ul>
+          </details>
           {ctx.transcript.segments.length > 0 ? (
             <details className={styles.voDetails}>
               <summary>{d.t('video.vo_show_transcript')}</summary>
@@ -108,6 +110,7 @@ export function VoiceoverSection(): ReactNode {
               </ul>
             </details>
           ) : null}
+          <VoiceoverScriptEditor />
         </div>
       ) : null}
     </section>

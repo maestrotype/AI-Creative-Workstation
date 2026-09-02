@@ -1,6 +1,7 @@
 import type { BinItem, TimelineClip } from './directorTimeline';
 import { fileName } from './directorTimeline';
 import type { VideoAnalysisContext } from './videoAnalysis';
+import type { VoiceoverScript } from './voiceoverScript';
 
 export type VoiceoverStatus = 'idle' | 'analyzed' | 'scripted' | 'voiced';
 
@@ -8,6 +9,8 @@ export interface VoiceoverSession {
   sourcePath: string | null;
   sourceBinId: string | null;
   analysis: VideoAnalysisContext | null;
+  script: VoiceoverScript | null;
+  scriptPrompt: string;
   status: VoiceoverStatus;
   expanded: boolean;
 }
@@ -24,6 +27,8 @@ export function emptyVoiceoverSession(): VoiceoverSession {
     sourcePath: null,
     sourceBinId: null,
     analysis: null,
+    script: null,
+    scriptPrompt: '',
     status: 'idle',
     expanded: false,
   };

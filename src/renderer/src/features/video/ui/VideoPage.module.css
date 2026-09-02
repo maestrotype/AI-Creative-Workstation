@@ -1317,3 +1317,73 @@
   cursor: pointer;
   color: var(--color-accent);
 }
+
+.voScriptBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.voPromptLabel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-body-sm);
+  color: var(--color-text-secondary);
+}
+
+.voPromptInput,
+.voScriptText {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-card);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: var(--text-body-sm);
+  resize: vertical;
+}
+
+.voScriptTableWrap {
+  overflow-x: auto;
+}
+
+.voScriptTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-body-sm);
+}
+
+.voScriptTable th {
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-tertiary);
+  font-weight: var(--weight-medium);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.voScriptTable td {
+  vertical-align: top;
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.voScriptTime {
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 6.5rem;
+}
+
+.voScriptRole {
+  display: block;
+  font-size: var(--text-caption);
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

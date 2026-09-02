@@ -106,6 +106,14 @@ const api = {
   }) => ipcRenderer.invoke('analyze-video', payload),
   getVideoAnalyzeProgress: () => ipcRenderer.invoke('get-video-analyze-progress'),
   getVideoAnalyzeCache: (videoPath: string) => ipcRenderer.invoke('get-video-analyze-cache', videoPath),
+  generateScript: (payload: {
+    video_context: Record<string, unknown>;
+    prompt?: string;
+    language?: string;
+    target_wpm?: number;
+    prefer_ollama?: boolean;
+    ollama_model?: string;
+  }) => ipcRenderer.invoke('generate-script', payload),
   get3dStatus: () => ipcRenderer.invoke('get-3d-status'),
   get3dProgress: () => ipcRenderer.invoke('get-3d-progress'),
   generateMesh: (payload: {

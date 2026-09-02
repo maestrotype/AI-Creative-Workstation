@@ -46,6 +46,7 @@ import {
   type VoiceoverSource,
 } from '../model/voiceoverSession';
 import type { VideoAnalysisContext } from '../model/videoAnalysis';
+import type { VoiceoverScript } from '../model/voiceoverScript';
 
 const LABEL_W = 118;
 
@@ -161,6 +162,11 @@ type DirectorSnap = {
   setVoiceoverExpanded: (expanded: boolean) => void;
   openVoiceover: () => void;
   analyzeVoiceover: () => void;
+  scriptBusy: boolean;
+  scriptError: string | null;
+  setScriptPrompt: (prompt: string) => void;
+  generateScript: () => void;
+  updateScriptSegment: (index: number, patch: Partial<{ text: string; start_sec: number; end_sec: number; role: string }>) => void;
 };
 
 export interface SourceInput {
@@ -239,6 +245,8 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
   const [voiceoverBusy, setVoiceoverBusy] = useState(false);
   const [voiceoverError, setVoiceoverError] = useState<string | null>(null);
   const [voiceoverProgress, setVoiceoverProgress] = useState({ stage: 'idle', percent: 0, detail: '' });
+  const [scriptBusy, setScriptBusy] = useState(false);
+  const [scriptError, setScriptError] = useState<string | null>(null);
   const voiceoverPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [ttsReady, setTtsReady] = useState(false);
   const [libraryAudio, setLibraryAudio] = useState<Array<{ path: string; name: string }>>([]);
@@ -922,6 +930,7 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
         sourcePath: path,
         sourceBinId: voiceoverSource?.binId ?? prev.sourceBinId,
         analysis: samePath ? prev.analysis : null,
+        script: samePath ? prev.script : null,
         status: samePath ? prev.status : 'idle',
       };
     });
@@ -957,13 +966,15 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
         language: 'auto',
         use_cache: true,
       });
-      setVoiceover({
+      setVoiceover((prev) => ({
+        ...prev,
         sourcePath: src.path,
         sourceBinId: src.binId,
         analysis: result.context as unknown as VideoAnalysisContext,
+        script: null,
         status: 'analyzed',
         expanded: true,
-      });
+      }));
       setVoiceoverProgress({ stage: 'done', percent: 100, detail: t('video.vo_analyze_done') });
     } catch (err) {
       setVoiceoverError(ipcMessage(err, t('video.vo_analyze_fail')));
@@ -974,6 +985,58 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
       }
       setVoiceoverBusy(false);
     }
+  };
+
+  const setScriptPrompt = (prompt: string) => {
+    setVoiceover((prev) => ({ ...prev, scriptPrompt: prompt }));
+  };
+
+  const generateScript = async () => {
+    const ctx = voiceover.analysis;
+    if (!ctx || !window.api?.generateScript) {
+      setScriptError(t('video.vo_script_need_analysis'));
+      return;
+    }
+    setScriptBusy(true);
+    setScriptError(null);
+    try {
+      const result = await window.api.generateScript({
+        video_context: ctx as unknown as Record<string, unknown>,
+        prompt: voiceover.scriptPrompt,
+        language: 'ru',
+        target_wpm: 130,
+      });
+      const script: VoiceoverScript = {
+        segments: result.segments,
+        meta: result.meta,
+      };
+      setVoiceover((prev) => ({
+        ...prev,
+        script,
+        status: 'scripted',
+      }));
+    } catch (err) {
+      setScriptError(ipcMessage(err, t('video.vo_script_fail')));
+    } finally {
+      setScriptBusy(false);
+    }
+  };
+
+  const updateScriptSegment = (
+    index: number,
+    patch: Partial<{ text: string; start_sec: number; end_sec: number; role: string }>,
+  ) => {
+    setVoiceover((prev) => {
+      if (!prev.script) return prev;
+      const segments = prev.script.segments.map((seg, i) => (
+        i === index ? { ...seg, ...patch } : seg
+      ));
+      return {
+        ...prev,
+        script: { ...prev.script, segments },
+        status: 'scripted',
+      };
+    });
   };
 
   const placeLibraryAudio = (path: string) => {
@@ -1329,6 +1392,11 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     setVoiceoverExpanded,
     openVoiceover,
     analyzeVoiceover: () => { void analyzeVoiceover(); },
+    scriptBusy,
+    scriptError,
+    setScriptPrompt,
+    generateScript: () => { void generateScript(); },
+    updateScriptSegment,
   };
 
   return <DirectorContext.Provider value={snap}>{children}</DirectorContext.Provider>;

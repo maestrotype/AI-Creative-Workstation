@@ -192,6 +192,17 @@ interface Window {
       status: 'hit' | 'miss';
       context: Record<string, unknown> | null;
     }>;
+    generateScript: (payload: {
+      video_context: Record<string, unknown>;
+      prompt?: string;
+      language?: string;
+      target_wpm?: number;
+      prefer_ollama?: boolean;
+      ollama_model?: string;
+    }) => Promise<{
+      segments: Array<{ start_sec: number; end_sec: number; text: string; role: string }>;
+      meta: { tone: string; language: string; words_per_min: number; provider: string; model?: string | null };
+    }>;
     get3dStatus: () => Promise<{
       ready: boolean;
       detail?: string | null;

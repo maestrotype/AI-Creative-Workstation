@@ -7,18 +7,23 @@
 - Pronunciation / TTS quality — merged from `feat/voice-pronunciation`
 - Video + local TTS baseline — [VIDEO_STUDIO_PLAN.md](product/VIDEO_STUDIO_PLAN.md)
 
-**Goal:** Phase 1 — video analyze (Whisper + scenes) in Sources; then script LLM + TTS timeline.
+**Goal:** Phase 2 — script from prompt + scene context; then TTS on A1 (Phase 3).
 
 ## Active work (feat/video-voiceover)
 
 ### Phase 1 — Analyze
 - [x] `scene_detect.py` + `transcribe.py` + `video_analyze.py`
 - [x] `POST /api/video/analyze` + progress + cache
-- [x] `VoiceoverSection` in Sources (uses timeline/bin video, no separate upload panel)
+- [x] `VoiceoverSection` in Sources (uses timeline/bin video)
 - [ ] Whisper install path in Studio (optional)
 
-### Phase 2 — Script (next)
-- [ ] `POST /api/script/generate` + editor UI
+### Phase 2 — Script
+- [x] `POST /api/script/generate` (Ollama + scene fallback)
+- [x] Prompt + editable segment table in Sources
+- [ ] Cloud LLM provider in Settings (optional)
+
+### Phase 3 — Voice (next)
+- [ ] Per-segment TTS → A1 timeline clips
 
 ## Recently Completed
 - [x] Initial React + Vite architecture setup with CSS modules.

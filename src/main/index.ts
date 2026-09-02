@@ -1026,6 +1026,15 @@ function setupIpc() {
     return res.json();
   });
 
+  ipcMain.handle('generate-script', async (_, payload: {
+    video_context: Record<string, unknown>;
+    prompt?: string;
+    language?: string;
+    target_wpm?: number;
+    prefer_ollama?: boolean;
+    ollama_model?: string;
+  }) => sidecarJson('/api/script/generate', payload, 5 * 60 * 1000));
+
   ipcMain.handle('pick-audio', async () => {
     const result = await dialog.showOpenDialog({
       title: 'Choose an audio file',
