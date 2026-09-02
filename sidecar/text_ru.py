@@ -5,6 +5,7 @@ import json
 import os
 import re
 import unicodedata
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 VOICE_DIR = os.path.expanduser("~/Documents/Canvas/Voice")
@@ -12,9 +13,27 @@ LEXICON_PATH = os.path.join(VOICE_DIR, "lexicon.json")
 
 _CYRILLIC_RE = re.compile(r"[а-яА-ЯёЁ]")
 _INTEGER_RE = re.compile(r"\b(\d{1,9})\b")
+_RU_VOWELS = "аеёиоуыэюя"
 # RUAccent + marker; apostrophe stress; combining acute — XTTS treats these as breaks.
 _COMBINING_ACUTE_RE = re.compile(r"([\u0430-\u044F\u0451])\u0301", re.IGNORECASE)
 _APOSTROPHE_STRESS_RE = re.compile(r"([\u0430-\u044F\u0451])['\u2019](?=[\s\W]|$)", re.IGNORECASE)
+
+_REPLACE_RE = re.compile(
+    r"^[\"«]?([\w\u0400-\u04FF-]+)[\"»]?\s*(?:→|->|:)\s*[\"«]?(.+?)[\"»]?\s*$",
+    re.IGNORECASE,
+)
+_WORD_RE = re.compile(
+    r"(?:слово|word)\s+[\"«]?([\w\u0400-\u04FF-]+)[\"»]?",
+    re.IGNORECASE,
+)
+_STRESS_VOWEL_RE = re.compile(
+    rf"ударени[ея]\s+на\s+[\"«]?([{_RU_VOWELS}])[\"»]?",
+    re.IGNORECASE,
+)
+_STRESS_VOWEL_EN_RE = re.compile(
+    r"stress\s+on\s+[\"«]?([a-z])[\"»]?",
+    re.IGNORECASE,
+)
 
 _accentizer: Any = None
 _lexicon_mtime: float = 0.0
@@ -34,6 +53,21 @@ _UNIT_PATTERNS: List[Tuple[re.Pattern[str], str]] = [
 ]
 
 
+@dataclass
+class LexiconEntry:
+    spoken: str
+    stress: Optional[str] = None
+    note: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        out: Dict[str, Any] = {"spoken": self.spoken}
+        if self.stress:
+            out["stress"] = self.stress
+        if self.note:
+            out["note"] = self.note
+        return out
+
+
 def detect_language(text: str, hint: Optional[str] = None) -> str:
     if hint and hint.lower().startswith("ru"):
         return "ru"
@@ -42,15 +76,213 @@ def detect_language(text: str, hint: Optional[str] = None) -> str:
     return "ru" if _CYRILLIC_RE.search(text or "") else "en"
 
 
-def load_lexicon() -> Dict[str, str]:
+def _read_lexicon_raw() -> Dict[str, Any]:
     try:
         with open(LEXICON_PATH, encoding="utf-8") as handle:
             data = json.load(handle)
         if isinstance(data, dict):
-            return {str(k).lower(): str(v) for k, v in data.items()}
+            return data
     except (OSError, json.JSONDecodeError, TypeError):
         pass
     return {}
+
+
+def _write_lexicon_raw(data: Dict[str, Any]) -> None:
+    os.makedirs(VOICE_DIR, exist_ok=True)
+    with open(LEXICON_PATH, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=False, indent=2)
+
+
+def _parse_entry_value(raw: Any) -> Optional[LexiconEntry]:
+    if isinstance(raw, str):
+        spoken = to_spoken_text(raw.strip())
+        if not spoken:
+            return None
+        return LexiconEntry(spoken=spoken)
+    if isinstance(raw, dict):
+        spoken = to_spoken_text(str(raw.get("spoken") or "").strip())
+        if not spoken:
+            return None
+        stress = raw.get("stress")
+        stress_str = str(stress).strip() if stress else None
+        note = raw.get("note")
+        note_str = str(note).strip() if note else None
+        return LexiconEntry(spoken=spoken, stress=stress_str, note=note_str)
+    return None
+
+
+def load_lexicon_entries() -> Dict[str, LexiconEntry]:
+    raw = _read_lexicon_raw()
+    out: Dict[str, LexiconEntry] = {}
+    for key, value in raw.items():
+        entry = _parse_entry_value(value)
+        if entry:
+            out[str(key).lower().strip()] = entry
+    return out
+
+
+def load_lexicon_stress_dict() -> Dict[str, str]:
+    """RUAccent custom_dict: word → stressed form with + markers."""
+    stress: Dict[str, str] = {}
+    for word, entry in load_lexicon_entries().items():
+        if entry.stress:
+            stress[word] = entry.stress
+    return stress
+
+
+def list_lexicon_entries() -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    for word, entry in sorted(load_lexicon_entries().items()):
+        items.append({"word": word, **entry.to_dict()})
+    return items
+
+
+def save_lexicon_entry(
+    word: str,
+    spoken: str,
+    stress: Optional[str] = None,
+    note: Optional[str] = None,
+) -> LexiconEntry:
+    key = (word or "").lower().strip()
+    if not key:
+        raise ValueError("word is required")
+    spoken_clean = to_spoken_text((spoken or "").strip())
+    if not spoken_clean:
+        raise ValueError("spoken is required")
+
+    stress_clean = stress.strip() if stress else None
+    note_clean = note.strip() if note else None
+    entry = LexiconEntry(spoken=spoken_clean, stress=stress_clean, note=note_clean)
+
+    data = _read_lexicon_raw()
+    data[key] = entry.to_dict()
+    _write_lexicon_raw(data)
+
+    global _accentizer, _lexicon_mtime
+    _accentizer = None
+    _lexicon_mtime = 0.0
+
+    return entry
+
+
+def delete_lexicon_entry(word: str) -> bool:
+    key = (word or "").lower().strip()
+    if not key:
+        return False
+    data = _read_lexicon_raw()
+    if key not in data:
+        return False
+    del data[key]
+    _write_lexicon_raw(data)
+
+    global _accentizer, _lexicon_mtime
+    _accentizer = None
+    _lexicon_mtime = 0.0
+    return True
+
+
+def load_lexicon() -> Dict[str, str]:
+    """Legacy flat map word → spoken (for callers expecting simple dict)."""
+    return {word: entry.spoken for word, entry in load_lexicon_entries().items()}
+
+
+def _word_boundary_pattern(word: str) -> re.Pattern[str]:
+    escaped = re.escape(word)
+    return re.compile(
+        rf"(?<![\w\u0400-\u04FF]){escaped}(?![\w\u0400-\u04FF])",
+        re.IGNORECASE,
+    )
+
+
+def apply_lexicon_spoken(text: str) -> str:
+    if not text:
+        return text
+    out = text
+    entries = load_lexicon_entries()
+    for word in sorted(entries.keys(), key=len, reverse=True):
+        entry = entries[word]
+        out = _word_boundary_pattern(word).sub(entry.spoken, out)
+    return out
+
+
+def _insert_stress_before_vowel(word: str, vowel: str) -> str:
+    target = vowel.lower()
+    for index, char in enumerate(word):
+        if char.lower() == target:
+            return f"{word[:index]}+{word[index:]}"
+    return word
+
+
+def parse_pronunciation_fix(
+    prompt: str,
+    default_word: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    text = (prompt or "").strip()
+    if not text:
+        return None
+
+    replace_match = _REPLACE_RE.match(text)
+    if replace_match:
+        word = replace_match.group(1).lower()
+        spoken = to_spoken_text(replace_match.group(2).strip())
+        return {
+            "word": word,
+            "spoken": spoken,
+            "stress": None,
+            "note": text,
+            "parsed_as": "replacement",
+        }
+
+    word_match = _WORD_RE.search(text)
+    word = (word_match.group(1) if word_match else default_word or "").lower().strip()
+    vowel_match = _STRESS_VOWEL_RE.search(text) or _STRESS_VOWEL_EN_RE.search(text)
+    if word and vowel_match:
+        vowel = vowel_match.group(1).lower()
+        stress = _insert_stress_before_vowel(word, vowel)
+        spoken = to_spoken_text(stress)
+        return {
+            "word": word,
+            "spoken": spoken,
+            "stress": stress,
+            "note": text,
+            "parsed_as": "stress_on_vowel",
+            "needs_spoken_hint": spoken.lower() == word.lower(),
+        }
+
+    if default_word and text:
+        return {
+            "word": default_word.lower().strip(),
+            "spoken": to_spoken_text(text),
+            "stress": None,
+            "note": text,
+            "parsed_as": "spoken_only",
+        }
+
+    return None
+
+
+def apply_pronunciation_fix(
+    prompt: str,
+    default_word: Optional[str] = None,
+) -> Dict[str, Any]:
+    parsed = parse_pronunciation_fix(prompt, default_word)
+    if not parsed:
+        raise ValueError(
+            "Could not parse fix. Use: замок → текст  or  слово «замок» ударение на «а»",
+        )
+
+    entry = save_lexicon_entry(
+        parsed["word"],
+        parsed["spoken"],
+        stress=parsed.get("stress"),
+        note=parsed.get("note"),
+    )
+    return {
+        "word": parsed["word"],
+        "entry": entry.to_dict(),
+        "parsed_as": parsed.get("parsed_as"),
+        "needs_spoken_hint": bool(parsed.get("needs_spoken_hint")),
+    }
 
 
 def _parse_number(raw: str) -> float:
@@ -142,14 +374,14 @@ def _get_accentizer() -> Tuple[Any, bool, Optional[str]]:
 
     try:
         from ruaccent import RUAccent
-    except ImportError as exc:
+    except ImportError:
         _stress_available = False
         _stress_error = "RUACCENT_NOT_INSTALLED"
         return None, False, _stress_error
 
     try:
         accentizer = RUAccent()
-        custom = load_lexicon()
+        custom = load_lexicon_stress_dict()
         accentizer.load(
             omograph_model_size="turbo2",
             use_dictionary=True,
@@ -212,9 +444,19 @@ def prepare_text(
             "language": lang,
             "warnings": warnings,
             "stress_available": False,
+            "lexicon_applied": [],
         }
 
     normalized = normalize_ru(original)
+    lexicon_before = normalized
+    normalized = apply_lexicon_spoken(normalized)
+    lexicon_applied = []
+    if normalized != lexicon_before:
+        entries = load_lexicon_entries()
+        for word in entries:
+            if _word_boundary_pattern(word).search(lexicon_before):
+                lexicon_applied.append(word)
+
     stressed = normalized
     stress_available = False
 
@@ -234,6 +476,7 @@ def prepare_text(
         "language": lang,
         "warnings": warnings,
         "stress_available": stress_available,
+        "lexicon_applied": lexicon_applied,
     }
 
 

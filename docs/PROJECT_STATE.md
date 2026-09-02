@@ -18,9 +18,9 @@
 - [x] Assets UI: test phrase → show processed text → TTS preview
 
 ### Phase B — human-in-the-loop
-- [ ] Lexicon file `~/Documents/Canvas/Voice/lexicon.json` + API
-- [ ] Prompt-based «fix pronunciation» → lexicon entry
-- [ ] Video Director: per-segment fix after listen
+- [x] Lexicon file `~/Documents/Canvas/Voice/lexicon.json` + API
+- [x] Prompt-based «fix pronunciation» → lexicon entry
+- [x] Video Director: per-segment fix after listen
 
 ## Next branch (feat/video-voiceover)
 

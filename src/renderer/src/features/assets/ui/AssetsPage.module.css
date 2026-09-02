@@ -255,3 +255,45 @@
   font-size: var(--text-body-sm);
   color: var(--color-text-secondary);
 }
+
+.fixBox {
+  margin: var(--space-2) 0 var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.lexiconBox {
+  margin: var(--space-2) 0 var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.lexiconList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.lexiconItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: var(--text-body-sm);
+}
+
+.lexiconWord {
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
+
+.lexiconSpoken {
+  color: var(--color-text-secondary);
+  flex: 1;
+  min-width: 0;
+}

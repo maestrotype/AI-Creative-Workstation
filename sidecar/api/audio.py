@@ -10,7 +10,17 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-from text_ru import LEXICON_PATH, load_lexicon, prepare_text, stress_status, to_spoken_text
+from text_ru import (
+    LEXICON_PATH,
+    apply_pronunciation_fix,
+    delete_lexicon_entry,
+    list_lexicon_entries,
+    load_lexicon,
+    prepare_text,
+    save_lexicon_entry,
+    stress_status,
+    to_spoken_text,
+)
 
 router = APIRouter()
 
@@ -112,6 +122,19 @@ class TimelineRequest(BaseModel):
     video_path: Optional[str] = None
     audio_path: Optional[str] = None
     dry_run: bool = False
+
+
+class LexiconUpsertRequest(BaseModel):
+    word: str
+    spoken: str
+    stress: Optional[str] = None
+    note: Optional[str] = None
+
+
+class LexiconFixRequest(BaseModel):
+    prompt: str
+    word: Optional[str] = None
+    context_text: Optional[str] = None
 
 
 def _encode_args(fmt: str) -> List[str]:
@@ -336,6 +359,59 @@ def get_stress_status():
         "lexicon_path": LEXICON_PATH,
         "lexicon_count": len(lexicon),
     }
+
+
+@router.get("/audio/lexicon")
+def get_lexicon():
+    return {
+        "path": LEXICON_PATH,
+        "entries": list_lexicon_entries(),
+    }
+
+
+@router.put("/audio/lexicon")
+def upsert_lexicon(request: LexiconUpsertRequest):
+    word = (request.word or "").strip()
+    spoken = (request.spoken or "").strip()
+    if not word or not spoken:
+        raise HTTPException(status_code=400, detail="word and spoken are required")
+    try:
+        entry = save_lexicon_entry(word, spoken, stress=request.stress, note=request.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "status": "saved",
+        "word": word.lower(),
+        "entry": entry.to_dict(),
+    }
+
+
+@router.delete("/audio/lexicon")
+def remove_lexicon(word: str):
+    key = (word or "").strip().lower()
+    if not key:
+        raise HTTPException(status_code=400, detail="word is required")
+    removed = delete_lexicon_entry(key)
+    if not removed:
+        raise HTTPException(status_code=404, detail="lexicon entry not found")
+    return {"status": "deleted", "word": key}
+
+
+@router.post("/audio/lexicon/fix")
+def fix_pronunciation(request: LexiconFixRequest):
+    prompt = (request.prompt or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt is required")
+    try:
+        result = apply_pronunciation_fix(prompt, default_word=request.word)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    payload: Dict[str, Any] = {"status": "saved", **result}
+    context = (request.context_text or "").strip()
+    if context:
+        payload["prepared"] = prepare_text(context, language="auto", apply_stress=True)
+    return payload
 
 
 @router.post("/audio/tts")

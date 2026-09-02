@@ -129,6 +129,9 @@ type DirectorSnap = {
   voiceError: string | null;
   voiceLine: string;
   setVoiceLine: (v: string) => void;
+  voiceFixPrompt: string;
+  setVoiceFixPrompt: (v: string) => void;
+  applyVoiceFix: () => void;
   ttsReady: boolean;
   libraryAudio: Array<{ path: string; name: string }>;
   toggleVoiceRecord: () => void;
@@ -210,6 +213,7 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceLine, setVoiceLine] = useState('');
+  const [voiceFixPrompt, setVoiceFixPrompt] = useState('');
   const [ttsReady, setTtsReady] = useState(false);
   const [libraryAudio, setLibraryAudio] = useState<Array<{ path: string; name: string }>>([]);
   const blobs = useFileBlobs(bins.filter((b) => b.kind !== 'image' && !b.proxying).map((b) => b.path));
@@ -803,11 +807,49 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     setVoiceBusy(true);
     setVoiceError(null);
     try {
-      const result = await window.api.synthesizeVoice({ text: voiceLine.trim() });
+      let preparedText: string | undefined;
+      if (window.api.prepareVoiceText) {
+        const prep = await window.api.prepareVoiceText({ text: voiceLine.trim() });
+        preparedText = prep.spoken;
+      }
+      const result = await window.api.synthesizeVoice({
+        text: voiceLine.trim(),
+        prepared_text: preparedText,
+      });
       await ingestAudioPath(result.file_path);
       await refreshVoiceTools();
     } catch (err) {
       setVoiceError(ipcMessage(err, t('video.dir_voice_tts_off')));
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  const applyVoiceFix = async () => {
+    if (!voiceFixPrompt.trim() || !window.api?.fixVoicePronunciation) return;
+    setVoiceBusy(true);
+    setVoiceError(null);
+    try {
+      await window.api.fixVoicePronunciation({
+        prompt: voiceFixPrompt.trim(),
+        context_text: voiceLine.trim() || undefined,
+      });
+      setVoiceFixPrompt('');
+      if (voiceLine.trim() && window.api.synthesizeVoice) {
+        let preparedText: string | undefined;
+        if (window.api.prepareVoiceText) {
+          const prep = await window.api.prepareVoiceText({ text: voiceLine.trim() });
+          preparedText = prep.spoken;
+        }
+        const result = await window.api.synthesizeVoice({
+          text: voiceLine.trim(),
+          prepared_text: preparedText,
+        });
+        await ingestAudioPath(result.file_path);
+        await refreshVoiceTools();
+      }
+    } catch (err) {
+      setVoiceError(ipcMessage(err, t('video.dir_voice_fix_fail')));
     } finally {
       setVoiceBusy(false);
     }
@@ -1139,6 +1181,9 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     voiceError,
     voiceLine,
     setVoiceLine,
+    voiceFixPrompt,
+    setVoiceFixPrompt,
+    applyVoiceFix: () => { void applyVoiceFix(); },
     ttsReady,
     libraryAudio,
     toggleVoiceRecord: () => { void toggleVoiceRecord(); },

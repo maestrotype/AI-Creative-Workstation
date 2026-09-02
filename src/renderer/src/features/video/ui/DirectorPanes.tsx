@@ -401,6 +401,21 @@ export function DirectorSourcesPane(): ReactNode {
             >
               {d.t('video.dir_voice_gen')}
             </button>
+            <input
+              className={styles.voiceInput}
+              value={d.voiceFixPrompt}
+              onChange={(e) => d.setVoiceFixPrompt(e.target.value)}
+              placeholder={d.t('video.dir_voice_fix_ph')}
+              disabled={d.voiceBusy || d.voiceRecording}
+            />
+            <button
+              type="button"
+              className={styles.toolBtn}
+              onClick={d.applyVoiceFix}
+              disabled={d.voiceBusy || d.voiceRecording || !d.voiceFixPrompt.trim()}
+            >
+              {d.t('video.dir_voice_fix')}
+            </button>
           </>
         ) : null}
         {d.voiceRecording ? <span className={styles.hintTight}>{d.t('video.dir_voice_recording')}</span> : null}

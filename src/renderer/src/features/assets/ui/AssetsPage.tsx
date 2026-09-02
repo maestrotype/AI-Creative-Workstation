@@ -68,13 +68,14 @@ export function AssetsPage(): ReactNode {
   const [voiceText, setVoiceText] = useState('');
   const [skipPrepare, setSkipPrepare] = useState(false);
   const [prepareBusy, setPrepareBusy] = useState(false);
-  const [prepareResult, setPrepareResult] = useState<{
-    normalized: string;
-    stressed: string;
+  const [fixPrompt, setFixPrompt] = useState('');
+  const [fixHint, setFixHint] = useState<string | null>(null);
+  const [lexiconEntries, setLexiconEntries] = useState<Array<{
+    word: string;
     spoken: string;
-    warnings: string[];
-    stress_available: boolean;
-  } | null>(null);
+    stress?: string;
+    note?: string;
+  }>>([]);
   const [voiceSourcePath, setVoiceSourcePath] = useState<string | null>(null);
   const [voiceSourceName, setVoiceSourceName] = useState<string | null>(null);
   const [samplePick, setSamplePick] = useState('');
@@ -113,9 +114,20 @@ export function AssetsPage(): ReactNode {
     if (profile.source_path) setSamplePick(profile.source_path);
   };
 
+  const refreshLexicon = async () => {
+    if (!window.api?.getVoiceLexicon) return;
+    try {
+      const data = await window.api.getVoiceLexicon();
+      setLexiconEntries(data.entries ?? []);
+    } catch {
+      /* ignore */
+    }
+  };
+
   useEffect(() => {
     void loadLibrary();
     void refreshVoiceEngine();
+    void refreshLexicon();
     return () => clearJobTimers();
   }, [loadLibrary]);
 
@@ -267,6 +279,51 @@ export function AssetsPage(): ReactNode {
       clearJobTimers();
       setVoiceBusy(false);
       setTimeout(() => setJob(null), 1200);
+    }
+  };
+
+  const handleFixPronunciation = async () => {
+    if (!fixPrompt.trim() || !window.api?.fixVoicePronunciation) return;
+    setVoiceError(null);
+    setFixHint(null);
+    setVoiceBusy(true);
+    try {
+      const result = await window.api.fixVoicePronunciation({
+        prompt: fixPrompt.trim(),
+        context_text: voiceText.trim() || undefined,
+      });
+      await refreshLexicon();
+      setFixPrompt('');
+      if (result.needs_spoken_hint) {
+        setFixHint(t('assets.voice_fix_needs_spoken'));
+      }
+      if (result.prepared) {
+        setPrepareResult({
+          normalized: result.prepared.normalized,
+          stressed: result.prepared.stressed,
+          spoken: result.prepared.spoken,
+          warnings: [],
+          stress_available: true,
+        });
+      } else if (voiceText.trim()) {
+        await handlePrepare();
+      }
+    } catch (err) {
+      setVoiceError(ipcMessage(err));
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  const handleDeleteLexicon = async (word: string) => {
+    if (!window.api?.deleteVoiceLexicon) return;
+    setVoiceError(null);
+    try {
+      await window.api.deleteVoiceLexicon(word);
+      await refreshLexicon();
+      if (voiceText.trim()) await handlePrepare();
+    } catch (err) {
+      setVoiceError(ipcMessage(err));
     }
   };
 
@@ -577,6 +634,51 @@ export function AssetsPage(): ReactNode {
             {prepareResult.warnings.length > 0 ? (
               <p className={styles.prepareWarn}>{prepareResult.warnings.join(' · ')}</p>
             ) : null}
+          </div>
+        ) : null}
+        <div className={styles.fixBox}>
+          <label className={ui.label} htmlFor="voice-fix">{t('assets.voice_fix_label')}</label>
+          <textarea
+            id="voice-fix"
+            className={ui.textarea}
+            rows={2}
+            value={fixPrompt}
+            onChange={(e) => setFixPrompt(e.target.value)}
+            placeholder={t('assets.voice_fix_placeholder')}
+            disabled={voiceBusy}
+          />
+          <div className={ui.actions}>
+            <button
+              type="button"
+              className={ui.secondary}
+              onClick={() => { void handleFixPronunciation(); }}
+              disabled={!fixPrompt.trim() || voiceBusy || recording !== 'idle'}
+            >
+              {t('assets.voice_fix_apply')}
+            </button>
+          </div>
+          <p className={styles.prepareWarn}>{t('assets.voice_fix_help')}</p>
+          {fixHint ? <p className={styles.prepareWarn}>{fixHint}</p> : null}
+        </div>
+        {lexiconEntries.length > 0 ? (
+          <div className={styles.lexiconBox}>
+            <span className={styles.sampleLabel}>{t('assets.voice_lexicon_title')}</span>
+            <ul className={styles.lexiconList}>
+              {lexiconEntries.map((entry) => (
+                <li key={entry.word} className={styles.lexiconItem}>
+                  <span className={styles.lexiconWord}>{entry.word}</span>
+                  <span className={styles.lexiconSpoken}>→ {entry.spoken}</span>
+                  <button
+                    type="button"
+                    className={styles.clipDelete}
+                    onClick={() => { void handleDeleteLexicon(entry.word); }}
+                    disabled={voiceBusy}
+                  >
+                    {t('assets.library_delete')}
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
         {canGenerate && sampleLabel ? (

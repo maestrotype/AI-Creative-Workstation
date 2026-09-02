@@ -128,7 +128,31 @@ interface Window {
       language: string;
       warnings: string[];
       stress_available: boolean;
+      lexicon_applied?: string[];
     }>;
+    getVoiceLexicon: () => Promise<{
+      path: string;
+      entries: Array<{ word: string; spoken: string; stress?: string; note?: string }>;
+    }>;
+    fixVoicePronunciation: (payload: {
+      prompt: string;
+      word?: string;
+      context_text?: string;
+    }) => Promise<{
+      status: string;
+      word: string;
+      entry: { spoken: string; stress?: string; note?: string };
+      parsed_as?: string;
+      needs_spoken_hint?: boolean;
+      prepared?: {
+        original: string;
+        normalized: string;
+        stressed: string;
+        spoken: string;
+        lexicon_applied?: string[];
+      };
+    }>;
+    deleteVoiceLexicon: (word: string) => Promise<{ status: string; word: string }>;
     applyVideoTimeline: (payload: {
       prompt: string;
       video_path?: string;

@@ -85,6 +85,10 @@ const api = {
   }) => ipcRenderer.invoke('synthesize-voice', payload),
   prepareVoiceText: (payload: { text: string; language?: string; apply_stress?: boolean }) =>
     ipcRenderer.invoke('prepare-voice-text', payload),
+  getVoiceLexicon: () => ipcRenderer.invoke('get-voice-lexicon'),
+  fixVoicePronunciation: (payload: { prompt: string; word?: string; context_text?: string }) =>
+    ipcRenderer.invoke('fix-voice-pronunciation', payload),
+  deleteVoiceLexicon: (word: string) => ipcRenderer.invoke('delete-voice-lexicon', word),
   applyVideoTimeline: (payload: {
     prompt: string;
     video_path?: string;

@@ -1303,6 +1303,33 @@ function setupIpc() {
     apply_stress?: boolean;
   }) => sidecarJson('/api/audio/prepare-text', payload, 120_000));
 
+  ipcMain.handle('get-voice-lexicon', async () => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) throw new Error(ready.error || 'Sidecar unavailable');
+    const res = await net.fetch(`${SIDECAR_URL}/api/audio/lexicon`, { signal: AbortSignal.timeout(10000) });
+    return res.json();
+  });
+
+  ipcMain.handle('fix-voice-pronunciation', async (_, payload: {
+    prompt: string;
+    word?: string;
+    context_text?: string;
+  }) => sidecarJson('/api/audio/lexicon/fix', payload, 120_000));
+
+  ipcMain.handle('delete-voice-lexicon', async (_, word: string) => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) throw new Error(ready.error || 'Sidecar unavailable');
+    const res = await net.fetch(
+      `${SIDECAR_URL}/api/audio/lexicon?word=${encodeURIComponent(word)}`,
+      { method: 'DELETE', signal: AbortSignal.timeout(10000) },
+    );
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `HTTP ${res.status}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('apply-video-timeline', async (_, payload: {
     prompt: string;
     video_path?: string;
