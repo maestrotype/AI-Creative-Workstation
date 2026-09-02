@@ -196,8 +196,8 @@ MVP recommendation: **pluggable provider** in Settings; ship cloud first for qua
 
 | Component | Location | ID |
 |-----------|----------|-----|
-| `FromVideoPanel.tsx` | Video page new tab | V-VO-1 |
-| `VideoAnalysisCard.tsx` | Progress + transcript/scene list | V-VO-2 |
+| `VoiceoverSection.tsx` | Sources pane (inline workflow) | V-VO-1 |
+| `VideoAnalysisCard.tsx` | Progress + transcript/scene list (partially in VoiceoverSection) | V-VO-2 |
 | `VoiceoverScriptEditor.tsx` | Editable segments table | V-VO-3 |
 | Wire or replace `VideoTimelineCard` | Apply script → timeline | V-VO-4 |
 | i18n `ru.json` / `en.json` | All new strings | V-VO-5 |
@@ -261,7 +261,7 @@ When Director ships, `From video` becomes one **intent** inside Director; keep A
 | Path | Change |
 |------|--------|
 | `src/renderer/src/features/video/ui/VideoPage.tsx` | Add From video tab |
-| `src/renderer/src/features/video/ui/FromVideoPanel.tsx` | New |
+| `src/renderer/src/features/video/ui/VoiceoverSection.tsx` | New (Sources inline) |
 | `src/renderer/src/features/video/model/planYoutubeVideo.ts` | Deprecate for LLM script |
 | `sidecar/api/video.py` | analyze route or sub-router |
 | `sidecar/main.py` | Register routers |
@@ -274,4 +274,4 @@ When Director ships, `From video` becomes one **intent** inside Director; keep A
 | Date | Note |
 |------|------|
 | 2026-09-01 | Initial plan: analyze → script → pronunciation TTS → timeline; branch `feat/video-voiceover` |
-| 2026-09-02 | Phase 1 shipped: analyze API, FromVideoPanel, scene detect + optional Whisper |
+| 2026-09-02 | Phase 1 shipped: analyze API, VoiceoverSection in Sources, scene detect + optional Whisper |

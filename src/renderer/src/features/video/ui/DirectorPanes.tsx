@@ -12,6 +12,7 @@ import {
 } from '../model/directorTimeline';
 import { DirectorPreview } from './DirectorPreview';
 import { useDirector } from './DirectorBoard';
+import { VoiceoverSection } from './VoiceoverSection';
 import styles from './VideoPage.module.css';
 
 const LABEL_W = 118;
@@ -358,6 +359,22 @@ export function DirectorSourcesPane(): ReactNode {
         <button type="button" className={styles.toolBtn} onClick={d.pickImage}>{d.t('video.dir_add_image')}</button>
         <button type="button" className={styles.toolBtn} onClick={d.pickAudio}>{d.t('video.dir_add_audio')}</button>
       </div>
+
+      {d.voiceoverSource ? (
+        <div className={styles.voEntryRow}>
+          {!d.voiceover.expanded ? (
+            <button
+              type="button"
+              className={styles.toolPrimary}
+              onClick={d.openVoiceover}
+            >
+              {d.t('video.vo_open')}
+            </button>
+          ) : null}
+          <VoiceoverSection />
+        </div>
+      ) : null}
+
       <div className={styles.voiceStrip}>
         <span className={styles.voiceLabel}>{d.t('video.dir_voice')}</span>
         <button
@@ -490,6 +507,15 @@ export function DirectorSourcesPane(): ReactNode {
             </div>
             <p className={styles.hintTight}>{d.t('video.dir_place_hint', { time: formatClock(d.playhead) })}</p>
             <div className={styles.toolRow}>
+              {d.activeBin.kind === 'video' ? (
+                <button
+                  type="button"
+                  className={styles.placeBtnPrimary}
+                  onClick={d.openVoiceover}
+                >
+                  {d.t('video.vo_open')}
+                </button>
+              ) : null}
               {videoTracksForBin(d.activeBin, d.visibleLayout).map((track) => (
                 <button
                   key={track}

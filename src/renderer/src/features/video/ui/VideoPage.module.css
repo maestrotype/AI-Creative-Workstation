@@ -1231,3 +1231,89 @@
   font-variant-numeric: tabular-nums;
   min-width: 2.5rem;
 }
+
+.voEntryRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.voSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.voCompact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.voHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.voTitle {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
+
+.voSubtitle {
+  margin: 0;
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.voCollapse {
+  border: none;
+  background: none;
+  color: var(--color-text-tertiary);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.25rem;
+}
+
+.voSource {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-body-sm);
+}
+
+.voSourceLabel {
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  font-size: var(--text-caption);
+  letter-spacing: 0.04em;
+}
+
+.voSourceFrom {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+
+.voDetails {
+  font-size: var(--text-body-sm);
+}
+
+.voDetails summary {
+  cursor: pointer;
+  color: var(--color-accent);
+}

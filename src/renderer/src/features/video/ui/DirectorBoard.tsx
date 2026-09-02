@@ -39,6 +39,13 @@ import {
 } from '../model/directorTimeline';
 import { DEFAULT_TRACK_LAYOUT } from '../model/directorTimeline';
 import { loadDirectorSession, saveDirectorSession } from '../model/directorSessionStore';
+import {
+  emptyVoiceoverSession,
+  resolveVoiceoverSource,
+  type VoiceoverSession,
+  type VoiceoverSource,
+} from '../model/voiceoverSession';
+import type { VideoAnalysisContext } from '../model/videoAnalysis';
 
 const LABEL_W = 118;
 
@@ -146,6 +153,14 @@ type DirectorSnap = {
   exportVideo: () => void;
   saveExportAs: () => void;
   discardExport: () => void;
+  voiceover: VoiceoverSession;
+  voiceoverSource: VoiceoverSource | null;
+  voiceoverBusy: boolean;
+  voiceoverError: string | null;
+  voiceoverProgress: { stage: string; percent: number; detail: string };
+  setVoiceoverExpanded: (expanded: boolean) => void;
+  openVoiceover: () => void;
+  analyzeVoiceover: () => void;
 };
 
 export interface SourceInput {
@@ -214,6 +229,17 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceLine, setVoiceLine] = useState('');
   const [voiceFixPrompt, setVoiceFixPrompt] = useState('');
+  const [voiceover, setVoiceover] = useState<VoiceoverSession>(
+    () => ({
+      ...emptyVoiceoverSession(),
+      ...(SESSION_BOOT?.voiceover ?? {}),
+      analysis: null,
+    }),
+  );
+  const [voiceoverBusy, setVoiceoverBusy] = useState(false);
+  const [voiceoverError, setVoiceoverError] = useState<string | null>(null);
+  const [voiceoverProgress, setVoiceoverProgress] = useState({ stage: 'idle', percent: 0, detail: '' });
+  const voiceoverPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [ttsReady, setTtsReady] = useState(false);
   const [libraryAudio, setLibraryAudio] = useState<Array<{ path: string; name: string }>>([]);
   const blobs = useFileBlobs(bins.filter((b) => b.kind !== 'image' && !b.proxying).map((b) => b.path));
@@ -250,6 +276,32 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
 
   const activeBin = bins.find((b) => b.id === selectedBin) ?? null;
   const activeClip = clips.find((c) => c.id === selectedClip) ?? null;
+
+  const voiceoverSource = useMemo(
+    () => resolveVoiceoverSource(bins, clips, selectedBin, selectedClip),
+    [bins, clips, selectedBin, selectedClip],
+  );
+
+  useEffect(() => {
+    const path = voiceover.sourcePath;
+    if (!path || voiceover.analysis || !window.api?.getVideoAnalyzeCache) return;
+    void window.api.getVideoAnalyzeCache(path).then((cached) => {
+      if (cached.status === 'hit' && cached.context) {
+        setVoiceover((prev) => ({
+          ...prev,
+          analysis: cached.context as unknown as VideoAnalysisContext,
+          status: 'analyzed',
+        }));
+      }
+    }).catch(() => {
+      /* ignore */
+    });
+  }, [voiceover.sourcePath, voiceover.analysis]);
+
+  useEffect(() => () => {
+    if (voiceoverPollRef.current) clearInterval(voiceoverPollRef.current);
+  }, []);
+
   const effectiveLayout = useMemo(
     () => effectiveTrackLayout(clips, trackLayout),
     [clips, trackLayout],
@@ -305,10 +357,11 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
         pxPerSec,
         trackLayout,
         overlayPos,
+        voiceover: { ...voiceover, analysis: null },
       });
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [bins, clips, playhead, selectedBin, selectedClip, captionDraft, pxPerSec, trackLayout, overlayPos]);
+  }, [bins, clips, playhead, selectedBin, selectedClip, captionDraft, pxPerSec, trackLayout, overlayPos, voiceover]);
 
   useEffect(() => {
     setClips((prev) => {
@@ -855,6 +908,74 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     }
   };
 
+  const setVoiceoverExpanded = (expanded: boolean) => {
+    setVoiceover((prev) => ({ ...prev, expanded }));
+  };
+
+  const openVoiceover = () => {
+    setVoiceover((prev) => {
+      const path = voiceoverSource?.path ?? prev.sourcePath;
+      const samePath = path === prev.sourcePath;
+      return {
+        ...prev,
+        expanded: true,
+        sourcePath: path,
+        sourceBinId: voiceoverSource?.binId ?? prev.sourceBinId,
+        analysis: samePath ? prev.analysis : null,
+        status: samePath ? prev.status : 'idle',
+      };
+    });
+  };
+
+  const analyzeVoiceover = async () => {
+    const src = voiceoverSource;
+    if (!src?.path || !window.api?.analyzeVideo) {
+      setVoiceoverError(t('video.vo_no_video'));
+      return;
+    }
+    setVoiceoverBusy(true);
+    setVoiceoverError(null);
+    setVoiceoverProgress({ stage: 'starting', percent: 3, detail: t('video.vo_analyze_start') });
+    if (voiceoverPollRef.current) clearInterval(voiceoverPollRef.current);
+    voiceoverPollRef.current = setInterval(() => {
+      void window.api?.getVideoAnalyzeProgress?.().then((p) => {
+        if (!p) return;
+        setVoiceoverProgress({
+          stage: p.stage,
+          percent: p.percent,
+          detail: p.detail || p.stage,
+        });
+      }).catch(() => {
+        /* ignore */
+      });
+    }, 500);
+    try {
+      const result = await window.api.analyzeVideo({
+        video_path: src.path,
+        transcribe: true,
+        scene_detect: true,
+        language: 'auto',
+        use_cache: true,
+      });
+      setVoiceover({
+        sourcePath: src.path,
+        sourceBinId: src.binId,
+        analysis: result.context as unknown as VideoAnalysisContext,
+        status: 'analyzed',
+        expanded: true,
+      });
+      setVoiceoverProgress({ stage: 'done', percent: 100, detail: t('video.vo_analyze_done') });
+    } catch (err) {
+      setVoiceoverError(ipcMessage(err, t('video.vo_analyze_fail')));
+    } finally {
+      if (voiceoverPollRef.current) {
+        clearInterval(voiceoverPollRef.current);
+        voiceoverPollRef.current = null;
+      }
+      setVoiceoverBusy(false);
+    }
+  };
+
   const placeLibraryAudio = (path: string) => {
     void ingestAudioPath(path).catch((err) => {
       setVoiceError(ipcMessage(err, t('video.dir_voice_fail')));
@@ -1200,6 +1321,14 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     exportVideo: () => { void exportVideo(); },
     saveExportAs: () => { void saveExportAs(); },
     discardExport: () => { void discardExport(); },
+    voiceover,
+    voiceoverSource,
+    voiceoverBusy,
+    voiceoverError,
+    voiceoverProgress,
+    setVoiceoverExpanded,
+    openVoiceover,
+    analyzeVoiceover: () => { void analyzeVoiceover(); },
   };
 
   return <DirectorContext.Provider value={snap}>{children}</DirectorContext.Provider>;

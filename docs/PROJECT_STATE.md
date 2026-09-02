@@ -7,14 +7,14 @@
 - Pronunciation / TTS quality — merged from `feat/voice-pronunciation`
 - Video + local TTS baseline — [VIDEO_STUDIO_PLAN.md](product/VIDEO_STUDIO_PLAN.md)
 
-**Goal:** Phase 1 — video analyze (Whisper + scenes) + From video UI; then script LLM + TTS timeline.
+**Goal:** Phase 1 — video analyze (Whisper + scenes) in Sources; then script LLM + TTS timeline.
 
 ## Active work (feat/video-voiceover)
 
 ### Phase 1 — Analyze
 - [x] `scene_detect.py` + `transcribe.py` + `video_analyze.py`
 - [x] `POST /api/video/analyze` + progress + cache
-- [x] `FromVideoPanel` + dock panel «Озвучка видео»
+- [x] `VoiceoverSection` in Sources (uses timeline/bin video, no separate upload panel)
 - [ ] Whisper install path in Studio (optional)
 
 ### Phase 2 — Script (next)
