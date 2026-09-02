@@ -221,8 +221,12 @@ Notes:
 - ~~VLM visual notes (G2)~~ — ✅ shipped same day; Analyze stage shows
   «Что на экране (по сценам)» + hints when the vision model is missing or the
   cached analysis predates captions (press «Переанализировать»).
-- Per-segment pronunciation fix on the Script stage (G5).
-- WPM / pause tuning so speech fits scene windows (G5).
+- ~~Per-segment pronunciation fix on the Script stage (G5)~~ — ✅ shipped same day;
+  each segment row has a «Произношение» toggle → inline panel with spoken preview
+  (`prepare-text`) and a lexicon fix input. Saving a fix re-enables «Озвучить на A1».
+- WPM / pause tuning so speech fits scene windows (G5) — partially: the script table
+  now shows «речь ≈N с / окно M с» per segment with a warning color on overflow;
+  automatic tempo/pause adjustment from measured TTS durations is still open.
 
 ---
 

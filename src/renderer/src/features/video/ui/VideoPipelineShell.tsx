@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { DragEvent, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -153,6 +153,12 @@ export function VideoPipelineShell(): ReactNode {
 
 function hasOsFiles(event: DragEvent): boolean {
   return Array.from(event.dataTransfer?.types ?? []).includes('Files');
+}
+
+function ipcMessage(err: unknown, fallback: string): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  const cleaned = raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '').trim();
+  return cleaned || fallback;
 }
 
 function SourceRow(): ReactNode {
@@ -372,11 +378,88 @@ function StageBrief(): ReactNode {
   );
 }
 
+function SegmentFixPanel({ index, text }: { index: number; text: string }): ReactNode {
+  const d = useDirector();
+  const [preview, setPreview] = useState<string | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [prompt, setPrompt] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+
+  // Spoken preview via prepare-text (debounced: the textarea above may be edited live).
+  useEffect(() => {
+    const api = window.api;
+    if (!api?.prepareVoiceText) return undefined;
+    const timer = window.setTimeout(() => {
+      setPreviewBusy(true);
+      api.prepareVoiceText({ text })
+        .then((prep) => setPreview(prep.spoken))
+        .catch(() => setPreview(null))
+        .finally(() => setPreviewBusy(false));
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [text]);
+
+  const apply = async () => {
+    const value = prompt.trim();
+    if (!value || !window.api?.fixVoicePronunciation) return;
+    setBusy(true);
+    setError(null);
+    setSaved(null);
+    try {
+      const res = await window.api.fixVoicePronunciation({ prompt: value, context_text: text });
+      setSaved(d.t('video.pipe_fix_saved', { rule: `${res.word} → ${res.entry.spoken}` }));
+      if (res.prepared?.spoken) setPreview(res.prepared.spoken);
+      setPrompt('');
+      // The lexicon changed, so A1 must be re-voiced: reset status to re-enable apply.
+      d.updateScriptSegment(index, {});
+    } catch (err) {
+      setError(ipcMessage(err, d.t('video.dir_voice_fix_fail')));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className={s.fixPanel}>
+      <p className={vp.hintTight}>{d.t('video.pipe_fix_hint')}</p>
+      <div className={s.fixPreview}>
+        <span className={s.fixPreviewLabel}>{d.t('video.pipe_fix_preview')}</span>
+        <span className={s.fixPreviewText}>
+          {previewBusy ? d.t('video.pipe_fix_preview_busy') : preview ?? '—'}
+        </span>
+      </div>
+      <div className={vp.toolRow}>
+        <input
+          className={vp.voiceInput}
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') void apply(); }}
+          placeholder={d.t('video.dir_voice_fix_ph')}
+          disabled={busy}
+        />
+        <button
+          type="button"
+          className={vp.toolBtn}
+          onClick={() => void apply()}
+          disabled={busy || !prompt.trim()}
+        >
+          {busy ? d.t('video.pipe_fix_applying') : d.t('video.dir_voice_fix')}
+        </button>
+      </div>
+      {saved ? <p className={s.fixSaved}>{saved}</p> : null}
+      {error ? <p className={vp.error}>{error}</p> : null}
+    </div>
+  );
+}
+
 function StageScript(): ReactNode {
   const d = useDirector();
   const script = d.voiceover.script;
   const analysis = d.voiceover.analysis;
   const busy = d.scriptBusy || d.voiceoverApplyBusy;
+  const [fixIndex, setFixIndex] = useState<number | null>(null);
 
   if (!script) {
     return <p className={vp.hintTight}>{d.t('video.vo_script_empty_hint')}</p>;
@@ -424,29 +507,62 @@ function StageScript(): ReactNode {
             <tbody>
               {script.segments.map((seg, index) => {
                 const live = d.playhead >= seg.start_sec && d.playhead < seg.end_sec;
+                const words = seg.text.split(/\s+/).filter(Boolean).length;
+                const windowSec = Math.max(0, seg.end_sec - seg.start_sec);
+                const estSec = (words / Math.max(60, script.meta.words_per_min || 130)) * 60;
+                const over = words > 0 && estSec > windowSec + 1;
                 return (
-                  <tr key={`${seg.start_sec}-${index}`} data-live={live} className={s.scriptRow}>
-                    <td className={vp.voScriptTime}>
-                      <button
-                        type="button"
-                        className={s.timeBtn}
-                        title={d.t('video.pipe_script_seek_hint')}
-                        onClick={() => d.seekTo(seg.start_sec)}
-                      >
-                        {formatTimecode(seg.start_sec)} – {formatTimecode(seg.end_sec)}
-                      </button>
-                      <span className={vp.voScriptRole}>{seg.role}</span>
-                    </td>
-                    <td>
-                      <textarea
-                        className={vp.voScriptText}
-                        rows={2}
-                        value={seg.text}
-                        onChange={(e) => d.updateScriptSegment(index, { text: e.target.value })}
-                        disabled={busy}
-                      />
-                    </td>
-                  </tr>
+                  <Fragment key={`${seg.start_sec}-${index}`}>
+                    <tr data-live={live} className={s.scriptRow}>
+                      <td className={vp.voScriptTime}>
+                        <button
+                          type="button"
+                          className={s.timeBtn}
+                          title={d.t('video.pipe_script_seek_hint')}
+                          onClick={() => d.seekTo(seg.start_sec)}
+                        >
+                          {formatTimecode(seg.start_sec)} – {formatTimecode(seg.end_sec)}
+                        </button>
+                        <span className={vp.voScriptRole}>{seg.role}</span>
+                        {words > 0 ? (
+                          <span
+                            className={s.estimate}
+                            data-over={over}
+                            title={over ? d.t('video.pipe_estimate_over') : undefined}
+                          >
+                            {d.t('video.pipe_estimate', {
+                              est: Math.round(estSec),
+                              window: Math.round(windowSec),
+                            })}
+                          </span>
+                        ) : null}
+                        <button
+                          type="button"
+                          className={s.fixToggle}
+                          data-on={fixIndex === index}
+                          onClick={() => setFixIndex(fixIndex === index ? null : index)}
+                        >
+                          {d.t('video.pipe_fix_toggle')}
+                        </button>
+                      </td>
+                      <td>
+                        <textarea
+                          className={vp.voScriptText}
+                          rows={2}
+                          value={seg.text}
+                          onChange={(e) => d.updateScriptSegment(index, { text: e.target.value })}
+                          disabled={busy}
+                        />
+                      </td>
+                    </tr>
+                    {fixIndex === index ? (
+                      <tr className={s.fixRow}>
+                        <td colSpan={2}>
+                          <SegmentFixPanel key={index} index={index} text={seg.text} />
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 );
               })}
             </tbody>

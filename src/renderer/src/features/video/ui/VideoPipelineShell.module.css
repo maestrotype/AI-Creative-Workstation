@@ -206,6 +206,71 @@
   background: var(--color-accent-subtle);
 }
 
+/* ── per-segment speech estimate & pronunciation fix ─────── */
+
+.estimate {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-micro);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.estimate[data-over='true'] {
+  color: var(--color-warning);
+}
+
+.fixToggle {
+  display: inline-block;
+  margin-top: var(--space-1);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font: inherit;
+  font-size: var(--text-micro);
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.fixToggle:hover,
+.fixToggle[data-on='true'] {
+  color: var(--color-accent);
+}
+
+.fixRow td {
+  background: var(--color-bg-elevated);
+}
+
+.fixPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-1);
+}
+
+.fixPreview {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--text-body-sm);
+}
+
+.fixPreviewLabel {
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.fixPreviewText {
+  color: var(--color-text-secondary);
+}
+
+.fixSaved {
+  margin: 0;
+  color: var(--color-success);
+  font-size: var(--text-body-sm);
+}
+
 /* ── export stage ────────────────────────────────────────── */
 
 .exportPreview {
