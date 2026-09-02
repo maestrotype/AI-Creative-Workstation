@@ -4,10 +4,18 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import uuid
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import unquote
+
+# sidecar root on path for video_analyze, scene_detect, etc.
+_SIDEcar_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _SIDEcar_ROOT not in sys.path:
+    sys.path.insert(0, _SIDEcar_ROOT)
+
+from video_analyze import analyze_video, get_analyze_progress, load_cached_analysis
 
 router = APIRouter()
 
@@ -620,3 +628,51 @@ def render_timeline(request: RenderTimelineRequest):
         _run_ffmpeg(cmd, "ffmpeg timeline render failed")
 
     return {"status": "completed", "file_path": output_path, "duration_sec": total}
+
+
+class AnalyzeVideoRequest(BaseModel):
+    video_path: str
+    transcribe: bool = True
+    scene_detect: bool = True
+    language: str = "auto"
+    use_cache: bool = True
+
+
+@router.post("/video/analyze")
+def analyze_video_route(request: AnalyzeVideoRequest):
+    path = os.path.expanduser(_disk_image_path(request.video_path))
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=400, detail=f"Video not found: {path}")
+    try:
+        result = analyze_video(
+            path,
+            transcribe=request.transcribe,
+            scene_detect=request.scene_detect,
+            language=request.language,
+            use_cache=request.use_cache,
+        )
+    except RuntimeError as exc:
+        if "already running" in str(exc):
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)[:500]) from exc
+    return {"status": "completed", "context": result}
+
+
+@router.get("/video/analyze/progress")
+def analyze_video_progress():
+    return get_analyze_progress()
+
+
+@router.get("/video/analyze/cache")
+def analyze_video_cache(video_path: str):
+    path = os.path.expanduser(_disk_image_path(video_path))
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=400, detail=f"Video not found: {path}")
+    cached = load_cached_analysis(path)
+    if not cached:
+        return {"status": "miss", "context": None}
+    return {"status": "hit", "context": cached}

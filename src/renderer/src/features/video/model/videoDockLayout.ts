@@ -45,12 +45,14 @@ export function defaultDockState(): DockState {
   };
 }
 
-const STORAGE_KEY = 'video-dock-layout-v5';
+const STORAGE_KEY = 'video-dock-layout-v7';
 
 export function loadDockState(): DockState {
   const base = defaultDockState();
   try {
     let raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) raw = localStorage.getItem('video-dock-layout-v6');
+    if (!raw) raw = localStorage.getItem('video-dock-layout-v5');
     if (!raw) raw = localStorage.getItem('video-dock-layout-v4');
     if (!raw) return base;
     const parsed = JSON.parse(raw) as Partial<DockState>;

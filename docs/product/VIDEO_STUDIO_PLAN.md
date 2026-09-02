@@ -1,13 +1,17 @@
 # Video & Voice Studio — Living Plan
 
 > **Status:** Working plan, not a freeze.  
-> **Updated:** 29 August 2026  
+> **Updated:** 1 September 2026  
 > **Owners:** Product + sidecar (Video page, Studio catalogs, Assets TTS)  
 > **How to use:** Correct this file when we learn what local hardware can actually ship, or when goals shift. Do not treat older roadmap slides as more true than this page if they conflict with implemented behavior.
 
 Studio in the app is the **engine registry** (image / video / 3D / voice). The **job** of making a YouTube-shaped file lives on **Video**. Voice sample and prompt TTS live in **Assets**. This document is the plan for those three surfaces together — the “video studio” users mean when they want montage plus local voiceover.
 
 Related vision (later, not current UI): [AI_DIRECTOR.md](../ux/AI_DIRECTOR.md), [ROADMAP.md](../roadmap/ROADMAP.md) V2.
+
+**Active tracks (must land in UI):**
+- [VOICE_PRONUNCIATION_PLAN.md](VOICE_PRONUNCIATION_PLAN.md) — Russian stress, lexicon, prompt-based fix (`feat/voice-pronunciation`)
+- [VIDEO_VOICEOVER_PLAN.md](VIDEO_VOICEOVER_PLAN.md) — upload → analyze → script → TTS → timeline (`feat/video-voiceover`)
 
 ---
 
@@ -76,9 +80,11 @@ Adjust as we ship. Suggested order, not a contract:
 | V-TTS-1 | After From scratch assemble, same timeline/TTS step without leaving Video | **Shipped 2026-08-29** — `VideoTimelineCard` on From scratch; draft prompt from scene starts |
 | V-TTS-2 | Document / optionally vendor Coqui in sidecar setup | Partial — UI hint + Assets copy; still `pip3 install TTS` |
 | V-EDIT-1 | Ken Burns or crossfade on stills (ffmpeg) | **Shipped 2026-08-29** — slow zoompan per still in `assemble` |
-| V-STORY-1 | Optional LLM storyboard later | Templates are a ceiling for “cool video” |
+| V-STORY-1 | Optional LLM storyboard later | Templates are a ceiling for “cool video” — see [VIDEO_VOICEOVER_PLAN.md](VIDEO_VOICEOVER_PLAN.md) |
 | V-MOTION-1 | First real motion model (Wan 1.3B or LTX) **or** keep catalog disabled | No half-wired Studio download |
 | V-CLEAN-1 | Smarter screencast crop only if we have evidence; no fake inpaint | Hardware cost vs benefit |
+| V-PRON-* | Russian pronunciation pipeline + Assets/Director UI | [VOICE_PRONUNCIATION_PLAN.md](VOICE_PRONUNCIATION_PLAN.md) — **in progress** on `feat/voice-pronunciation` |
+| V-VO-* | From video: analyze → script → TTS → timeline | [VIDEO_VOICEOVER_PLAN.md](VIDEO_VOICEOVER_PLAN.md) — **planned** on `feat/video-voiceover` |
 
 Do **not** implement a full NLE (DaVinci). We generate and assemble; we do not become an editor.
 
@@ -114,3 +120,4 @@ If local 5 s clip stays 15–45 min on M4 Max, **iteration stays on stills + rec
 |------|------|
 | 2026-08-29 | First pass: implemented ffmpeg + XTTS timeline vs Studio motion placeholders. Living doc. |
 | 2026-08-29 | V-TTS-1 + V-EDIT-1: From-scratch timeline card; Ken Burns zoom on stills. |
+| 2026-09-01 | Linked VOICE_PRONUNCIATION_PLAN + VIDEO_VOICEOVER_PLAN; UI delivery required for both tracks. |

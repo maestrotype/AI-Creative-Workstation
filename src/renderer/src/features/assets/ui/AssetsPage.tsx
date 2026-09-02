@@ -66,6 +66,23 @@ export function AssetsPage(): ReactNode {
   const [ttsReady, setTtsReady] = useState(false);
   const [ttsEngine, setTtsEngine] = useState<string>('none');
   const [voiceText, setVoiceText] = useState('');
+  const [skipPrepare, setSkipPrepare] = useState(false);
+  const [prepareBusy, setPrepareBusy] = useState(false);
+  const [prepareResult, setPrepareResult] = useState<{
+    normalized: string;
+    stressed: string;
+    spoken: string;
+    warnings: string[];
+    stress_available: boolean;
+  } | null>(null);
+  const [fixPrompt, setFixPrompt] = useState('');
+  const [fixHint, setFixHint] = useState<string | null>(null);
+  const [lexiconEntries, setLexiconEntries] = useState<Array<{
+    word: string;
+    spoken: string;
+    stress?: string;
+    note?: string;
+  }>>([]);
   const [voiceSourcePath, setVoiceSourcePath] = useState<string | null>(null);
   const [voiceSourceName, setVoiceSourceName] = useState<string | null>(null);
   const [samplePick, setSamplePick] = useState('');
@@ -104,11 +121,26 @@ export function AssetsPage(): ReactNode {
     if (profile.source_path) setSamplePick(profile.source_path);
   };
 
+  const refreshLexicon = async () => {
+    if (!window.api?.getVoiceLexicon) return;
+    try {
+      const data = await window.api.getVoiceLexicon();
+      setLexiconEntries(data.entries ?? []);
+    } catch {
+      /* ignore */
+    }
+  };
+
   useEffect(() => {
     void loadLibrary();
     void refreshVoiceEngine();
+    void refreshLexicon();
     return () => clearJobTimers();
   }, [loadLibrary]);
+
+  useEffect(() => {
+    setPrepareResult(null);
+  }, [voiceText]);
 
   const startElapsedTimer = (kind: VoiceJob['kind'], stage: string, detail: string, percent = 5) => {
     const started = Date.now();
@@ -257,6 +289,72 @@ export function AssetsPage(): ReactNode {
     }
   };
 
+  const handleFixPronunciation = async () => {
+    if (!fixPrompt.trim() || !window.api?.fixVoicePronunciation) return;
+    setVoiceError(null);
+    setFixHint(null);
+    setVoiceBusy(true);
+    try {
+      const result = await window.api.fixVoicePronunciation({
+        prompt: fixPrompt.trim(),
+        context_text: voiceText.trim() || undefined,
+      });
+      await refreshLexicon();
+      setFixPrompt('');
+      if (result.needs_spoken_hint) {
+        setFixHint(t('assets.voice_fix_needs_spoken'));
+      }
+      if (result.prepared) {
+        setPrepareResult({
+          normalized: result.prepared.normalized,
+          stressed: result.prepared.stressed,
+          spoken: result.prepared.spoken,
+          warnings: [],
+          stress_available: true,
+        });
+      } else if (voiceText.trim()) {
+        await handlePrepare();
+      }
+    } catch (err) {
+      setVoiceError(ipcMessage(err));
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  const handleDeleteLexicon = async (word: string) => {
+    if (!window.api?.deleteVoiceLexicon) return;
+    setVoiceError(null);
+    try {
+      await window.api.deleteVoiceLexicon(word);
+      await refreshLexicon();
+      if (voiceText.trim()) await handlePrepare();
+    } catch (err) {
+      setVoiceError(ipcMessage(err));
+    }
+  };
+
+  const handlePrepare = async () => {
+    if (!voiceText.trim() || !window.api?.prepareVoiceText) return;
+    setPrepareBusy(true);
+    setVoiceError(null);
+    try {
+      const result = await window.api.prepareVoiceText({ text: voiceText.trim() });
+      setPrepareResult({
+        normalized: result.normalized,
+        stressed: result.stressed,
+        spoken: result.spoken,
+        warnings: result.warnings ?? [],
+        stress_available: result.stress_available,
+      });
+    } catch (err) {
+      setVoiceError(ipcMessage(err));
+      setPrepareResult(null);
+    } finally {
+      setPrepareBusy(false);
+    }
+  };
+
   const handleTts = async () => {
     if (!voiceText.trim() || !ttsReady || !voicePath) return;
     setVoiceBusy(true);
@@ -265,7 +363,11 @@ export function AssetsPage(): ReactNode {
     startElapsedTimer('tts', 'starting', t('assets.stage_tts_start'), 5);
     startTtsPoll();
     try {
-      const result = await window.api.synthesizeVoice({ text: voiceText.trim() });
+      const result = await window.api.synthesizeVoice({
+        text: voiceText.trim(),
+        skip_prepare: skipPrepare,
+        prepared_text: !skipPrepare && prepareResult ? prepareResult.spoken : undefined,
+      });
       setJob((prev) => (prev ? { ...prev, percent: 100, stage: 'done', detail: t('assets.stage_tts_done') } : prev));
       await rememberPath(result.file_path);
     } catch (err) {
@@ -376,6 +478,7 @@ export function AssetsPage(): ReactNode {
   }, [playingPath]);
 
   const sampleLabel = voiceSourceName ?? (voicePath ? t('assets.voice_sample_default') : null);
+  const canPrepare = voiceText.trim().length > 0 && !voiceBusy && !prepareBusy && recording === 'idle';
   const canGenerate = ttsReady && voicePath && voiceText.trim().length > 0 && !voiceBusy && recording === 'idle';
 
   return (
@@ -494,6 +597,97 @@ export function AssetsPage(): ReactNode {
           placeholder={t('assets.voice_prompt_placeholder')}
           disabled={voiceBusy}
         />
+        <label className={styles.prepareSkip}>
+          <input
+            type="checkbox"
+            checked={skipPrepare}
+            onChange={(e) => setSkipPrepare(e.target.checked)}
+            disabled={voiceBusy}
+          />
+          {t('assets.voice_skip_prepare')}
+        </label>
+        <div className={ui.actions}>
+          <button
+            type="button"
+            className={ui.secondary}
+            onClick={() => { void handlePrepare(); }}
+            disabled={!canPrepare}
+          >
+            {prepareBusy ? t('assets.voice_prepare_busy') : t('assets.voice_prepare')}
+          </button>
+        </div>
+        {prepareResult && !skipPrepare ? (
+          <div className={styles.prepareBox}>
+            {prepareResult.normalized !== voiceText.trim() ? (
+              <div className={styles.prepareRow}>
+                <span className={styles.prepareLabel}>{t('assets.voice_prepare_normalized')}</span>
+                <p className={styles.prepareText}>{prepareResult.normalized}</p>
+              </div>
+            ) : null}
+            <div className={styles.prepareRow}>
+              <span className={styles.prepareLabel}>{t('assets.voice_prepare_spoken')}</span>
+              <p className={styles.prepareText}>{prepareResult.spoken}</p>
+            </div>
+            {prepareResult.stress_available && prepareResult.stressed !== prepareResult.spoken ? (
+              <div className={styles.prepareRow}>
+                <span className={styles.prepareLabel}>{t('assets.voice_prepare_stressed')}</span>
+                <p className={styles.prepareText}>{prepareResult.stressed}</p>
+                <p className={styles.prepareWarn}>{t('assets.voice_prepare_stress_hint')}</p>
+              </div>
+            ) : null}
+            {!prepareResult.stress_available ? (
+              <p className={styles.prepareWarn}>{t('assets.voice_prepare_no_stress')}</p>
+            ) : null}
+            {prepareResult.warnings.length > 0 ? (
+              <p className={styles.prepareWarn}>{prepareResult.warnings.join(' · ')}</p>
+            ) : null}
+          </div>
+        ) : null}
+        <div className={styles.fixBox}>
+          <label className={ui.label} htmlFor="voice-fix">{t('assets.voice_fix_label')}</label>
+          <textarea
+            id="voice-fix"
+            className={ui.textarea}
+            rows={2}
+            value={fixPrompt}
+            onChange={(e) => setFixPrompt(e.target.value)}
+            placeholder={t('assets.voice_fix_placeholder')}
+            disabled={voiceBusy}
+          />
+          <div className={ui.actions}>
+            <button
+              type="button"
+              className={ui.secondary}
+              onClick={() => { void handleFixPronunciation(); }}
+              disabled={!fixPrompt.trim() || voiceBusy || recording !== 'idle'}
+            >
+              {t('assets.voice_fix_apply')}
+            </button>
+          </div>
+          <p className={styles.prepareWarn}>{t('assets.voice_fix_help')}</p>
+          {fixHint ? <p className={styles.prepareWarn}>{fixHint}</p> : null}
+        </div>
+        {lexiconEntries.length > 0 ? (
+          <div className={styles.lexiconBox}>
+            <span className={styles.sampleLabel}>{t('assets.voice_lexicon_title')}</span>
+            <ul className={styles.lexiconList}>
+              {lexiconEntries.map((entry) => (
+                <li key={entry.word} className={styles.lexiconItem}>
+                  <span className={styles.lexiconWord}>{entry.word}</span>
+                  <span className={styles.lexiconSpoken}>→ {entry.spoken}</span>
+                  <button
+                    type="button"
+                    className={styles.clipDelete}
+                    onClick={() => { void handleDeleteLexicon(entry.word); }}
+                    disabled={voiceBusy}
+                  >
+                    {t('assets.library_delete')}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {canGenerate && sampleLabel ? (
           <p className={styles.generateHint}>{t('assets.voice_generate_as', { name: sampleLabel })}</p>
         ) : null}

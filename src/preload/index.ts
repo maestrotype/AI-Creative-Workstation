@@ -70,6 +70,10 @@ const api = {
   installVoiceEngine: () => ipcRenderer.invoke('install-voice-engine'),
   deleteVoiceEngine: () => ipcRenderer.invoke('delete-voice-engine'),
   getVoiceEngineStatus: () => ipcRenderer.invoke('get-voice-engine-status'),
+  installOllamaEngine: () => ipcRenderer.invoke('install-ollama-engine'),
+  deleteOllamaModel: () => ipcRenderer.invoke('delete-ollama-model'),
+  startOllamaServe: () => ipcRenderer.invoke('start-ollama-serve'),
+  getOllamaEngineStatus: () => ipcRenderer.invoke('get-ollama-engine-status'),
   startMicRecord: (format: string) => ipcRenderer.invoke('start-mic-record', format),
   stopMicRecord: () => ipcRenderer.invoke('stop-mic-record'),
   saveAudioBuffer: (payload: { data: ArrayBuffer; format: string; name?: string }) =>
@@ -77,8 +81,18 @@ const api = {
   getVoiceProfile: () => ipcRenderer.invoke('get-voice-profile'),
   getVoiceTtsProgress: () => ipcRenderer.invoke('get-voice-tts-progress'),
   saveVoiceSample: (inputPath: string) => ipcRenderer.invoke('save-voice-sample', inputPath),
-  synthesizeVoice: (payload: { text: string; language?: string }) =>
-    ipcRenderer.invoke('synthesize-voice', payload),
+  synthesizeVoice: (payload: {
+    text: string;
+    language?: string;
+    skip_prepare?: boolean;
+    prepared_text?: string;
+  }) => ipcRenderer.invoke('synthesize-voice', payload),
+  prepareVoiceText: (payload: { text: string; language?: string; apply_stress?: boolean }) =>
+    ipcRenderer.invoke('prepare-voice-text', payload),
+  getVoiceLexicon: () => ipcRenderer.invoke('get-voice-lexicon'),
+  fixVoicePronunciation: (payload: { prompt: string; word?: string; context_text?: string }) =>
+    ipcRenderer.invoke('fix-voice-pronunciation', payload),
+  deleteVoiceLexicon: (word: string) => ipcRenderer.invoke('delete-voice-lexicon', word),
   applyVideoTimeline: (payload: {
     prompt: string;
     video_path?: string;
@@ -87,6 +101,23 @@ const api = {
   }) => ipcRenderer.invoke('apply-video-timeline', payload),
   cleanScreencast: (payload: { input_path: string; prompt: string; dry_run?: boolean }) =>
     ipcRenderer.invoke('clean-screencast', payload),
+  analyzeVideo: (payload: {
+    video_path: string;
+    transcribe?: boolean;
+    scene_detect?: boolean;
+    language?: string;
+    use_cache?: boolean;
+  }) => ipcRenderer.invoke('analyze-video', payload),
+  getVideoAnalyzeProgress: () => ipcRenderer.invoke('get-video-analyze-progress'),
+  getVideoAnalyzeCache: (videoPath: string) => ipcRenderer.invoke('get-video-analyze-cache', videoPath),
+  generateScript: (payload: {
+    video_context: Record<string, unknown>;
+    prompt?: string;
+    language?: string;
+    target_wpm?: number;
+    prefer_ollama?: boolean;
+    ollama_model?: string;
+  }) => ipcRenderer.invoke('generate-script', payload),
   get3dStatus: () => ipcRenderer.invoke('get-3d-status'),
   get3dProgress: () => ipcRenderer.invoke('get-3d-progress'),
   generateMesh: (payload: {
@@ -152,6 +183,31 @@ const api = {
     }) => callback(data);
     ipcRenderer.on('voice-engine-updated', handler);
     return () => { ipcRenderer.removeListener('voice-engine-updated', handler); };
+  },
+  onOllamaEngineUpdated: (callback: (data: {
+    binary_found: boolean;
+    server_running: boolean;
+    model_ready: boolean;
+    installing: boolean;
+    stage: string;
+    percent: number;
+    detail: string;
+    model: string;
+    started_by_app: boolean;
+  }) => void) => {
+    const handler = (_: unknown, data: {
+      binary_found: boolean;
+      server_running: boolean;
+      model_ready: boolean;
+      installing: boolean;
+      stage: string;
+      percent: number;
+      detail: string;
+      model: string;
+      started_by_app: boolean;
+    }) => callback(data);
+    ipcRenderer.on('ollama-engine-updated', handler);
+    return () => { ipcRenderer.removeListener('ollama-engine-updated', handler); };
   },
 };
 

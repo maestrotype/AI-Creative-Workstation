@@ -1,15 +1,20 @@
 import type { ReactNode } from 'react';
 
-import { FromIdeaPanel } from './FromIdeaPanel';
-import { FromRecordingPanel } from './FromRecordingPanel';
 import { DirectorProvider, useDirector } from './DirectorBoard';
 import {
   DirectorResultPane,
   DirectorSourcesPane,
   DirectorTimelinePane,
 } from './DirectorPanes';
+import { FromIdeaPanel } from './FromIdeaPanel';
+import { FromRecordingPanel } from './FromRecordingPanel';
 import { VideoDock, VideoMenuBar, useDockLayout } from './VideoDock';
+import type { DockState } from '../model/videoDockLayout';
 import styles from './VideoPage.module.css';
+
+function maxZ(state: DockState): number {
+  return Math.max(...Object.values(state.panels).map((p) => p.z), 1);
+}
 
 function StoryboardPane(): ReactNode {
   const d = useDirector();
@@ -40,27 +45,51 @@ function RecordingPane(): ReactNode {
   );
 }
 
-export function VideoPage(): ReactNode {
+function VideoStudioShell(): ReactNode {
   const [dock, setDock] = useDockLayout();
+  const d = useDirector();
+
+  const openVoiceover = () => {
+    d.openVoiceover();
+    setDock({
+      ...dock,
+      panels: {
+        ...dock.panels,
+        sources: {
+          ...dock.panels.sources,
+          visible: true,
+          z: maxZ(dock) + 1,
+        },
+      },
+    });
+  };
 
   return (
-    <div className={styles.container} data-mode="studio">
-      <VideoMenuBar state={dock} onState={setDock} />
+    <>
+      <VideoMenuBar state={dock} onState={setDock} onOpenVoiceover={openVoiceover} />
       <div className={styles.studioBody}>
-        <DirectorProvider>
-          <VideoDock
-            state={dock}
-            onState={setDock}
-            panels={{
-              timeline: <DirectorTimelinePane />,
-              preview: <DirectorResultPane />,
-              sources: <DirectorSourcesPane />,
-              storyboard: <StoryboardPane />,
-              recording: <RecordingPane />,
-            }}
-          />
-        </DirectorProvider>
+        <VideoDock
+          state={dock}
+          onState={setDock}
+          panels={{
+            timeline: <DirectorTimelinePane />,
+            preview: <DirectorResultPane />,
+            sources: <DirectorSourcesPane />,
+            storyboard: <StoryboardPane />,
+            recording: <RecordingPane />,
+          }}
+        />
       </div>
+    </>
+  );
+}
+
+export function VideoPage(): ReactNode {
+  return (
+    <div className={styles.container} data-mode="studio">
+      <DirectorProvider>
+        <VideoStudioShell />
+      </DirectorProvider>
     </div>
   );
 }

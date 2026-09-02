@@ -39,6 +39,14 @@ import {
 } from '../model/directorTimeline';
 import { DEFAULT_TRACK_LAYOUT } from '../model/directorTimeline';
 import { loadDirectorSession, saveDirectorSession } from '../model/directorSessionStore';
+import {
+  emptyVoiceoverSession,
+  resolveVoiceoverSource,
+  type VoiceoverSession,
+  type VoiceoverSource,
+} from '../model/voiceoverSession';
+import type { VideoAnalysisContext } from '../model/videoAnalysis';
+import type { VoiceoverScript } from '../model/voiceoverScript';
 
 const LABEL_W = 118;
 
@@ -129,9 +137,18 @@ type DirectorSnap = {
   voiceError: string | null;
   voiceLine: string;
   setVoiceLine: (v: string) => void;
+  voiceFixPrompt: string;
+  setVoiceFixPrompt: (v: string) => void;
+  applyVoiceFix: () => void;
   ttsReady: boolean;
+  voiceEngineReady: boolean;
+  voiceHasSample: boolean;
   libraryAudio: Array<{ path: string; name: string }>;
   toggleVoiceRecord: () => void;
+  voiceSampleRecording: boolean;
+  toggleVoiceSampleRecord: () => void;
+  pickVoiceSample: () => void;
+  setVoiceSampleFromLibrary: (path: string) => void;
   generateVoiceover: () => void;
   placeLibraryAudio: (path: string) => void;
   overlayPos: Record<string, OverlayPos>;
@@ -143,6 +160,24 @@ type DirectorSnap = {
   exportVideo: () => void;
   saveExportAs: () => void;
   discardExport: () => void;
+  voiceover: VoiceoverSession;
+  voiceoverSource: VoiceoverSource | null;
+  voiceoverBusy: boolean;
+  voiceoverError: string | null;
+  voiceoverProgress: { stage: string; percent: number; detail: string };
+  setVoiceoverExpanded: (expanded: boolean) => void;
+  openVoiceover: () => void;
+  analyzeVoiceover: () => void;
+  reanalyzeVoiceover: () => void;
+  scriptBusy: boolean;
+  scriptError: string | null;
+  setScriptPrompt: (prompt: string) => void;
+  generateScript: () => void;
+  updateScriptSegment: (index: number, patch: Partial<{ text: string; start_sec: number; end_sec: number; role: string }>) => void;
+  voiceoverApplyBusy: boolean;
+  voiceoverApplyError: string | null;
+  voiceoverApplyProgress: { current: number; total: number; detail: string };
+  applyScriptVoiceover: () => void;
 };
 
 export interface SourceInput {
@@ -207,10 +242,31 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
   const [exportSavedTo, setExportSavedTo] = useState<string | null>(null);
   const [dropActive, setDropActive] = useState(false);
   const [voiceRecording, setVoiceRecording] = useState(false);
+  const [voiceSampleRecording, setVoiceSampleRecording] = useState(false);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceLine, setVoiceLine] = useState('');
+  const [voiceFixPrompt, setVoiceFixPrompt] = useState('');
+  const [voiceover, setVoiceover] = useState<VoiceoverSession>(
+    () => ({
+      ...emptyVoiceoverSession(),
+      ...(SESSION_BOOT?.voiceover ?? {}),
+      analysis: null,
+    }),
+  );
+  const [voiceoverBusy, setVoiceoverBusy] = useState(false);
+  const [voiceoverError, setVoiceoverError] = useState<string | null>(null);
+  const [voiceoverProgress, setVoiceoverProgress] = useState({ stage: 'idle', percent: 0, detail: '' });
+  const [scriptBusy, setScriptBusy] = useState(false);
+  const [scriptError, setScriptError] = useState<string | null>(null);
+  const [voiceoverApplyBusy, setVoiceoverApplyBusy] = useState(false);
+  const [voiceoverApplyError, setVoiceoverApplyError] = useState<string | null>(null);
+  const [voiceoverApplyProgress, setVoiceoverApplyProgress] = useState({ current: 0, total: 0, detail: '' });
+  const voiceoverApplyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const voiceoverPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [ttsReady, setTtsReady] = useState(false);
+  const [voiceEngineReady, setVoiceEngineReady] = useState(false);
+  const [voiceHasSample, setVoiceHasSample] = useState(false);
   const [libraryAudio, setLibraryAudio] = useState<Array<{ path: string; name: string }>>([]);
   const blobs = useFileBlobs(bins.filter((b) => b.kind !== 'image' && !b.proxying).map((b) => b.path));
 
@@ -246,6 +302,34 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
 
   const activeBin = bins.find((b) => b.id === selectedBin) ?? null;
   const activeClip = clips.find((c) => c.id === selectedClip) ?? null;
+
+  const voiceoverSource = useMemo(
+    () => resolveVoiceoverSource(bins, clips, selectedBin, selectedClip),
+    [bins, clips, selectedBin, selectedClip],
+  );
+
+  useEffect(() => {
+    const path = voiceoverSource?.path ?? voiceover.sourcePath;
+    if (!path || voiceover.analysis || !window.api?.getVideoAnalyzeCache) return;
+    void window.api.getVideoAnalyzeCache(path).then((cached) => {
+      if (cached.status !== 'hit' || !cached.context) return;
+      setVoiceover((prev) => ({
+        ...prev,
+        sourcePath: path,
+        sourceBinId: voiceoverSource?.binId ?? prev.sourceBinId,
+        analysis: cached.context as unknown as VideoAnalysisContext,
+        status: prev.script ? prev.status : 'analyzed',
+      }));
+    }).catch(() => {
+      /* ignore */
+    });
+  }, [voiceoverSource?.path, voiceoverSource?.binId, voiceover.sourcePath, voiceover.analysis, voiceover.script, voiceover.status]);
+
+  useEffect(() => () => {
+    if (voiceoverPollRef.current) clearInterval(voiceoverPollRef.current);
+    if (voiceoverApplyPollRef.current) clearInterval(voiceoverApplyPollRef.current);
+  }, []);
+
   const effectiveLayout = useMemo(
     () => effectiveTrackLayout(clips, trackLayout),
     [clips, trackLayout],
@@ -301,10 +385,11 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
         pxPerSec,
         trackLayout,
         overlayPos,
+        voiceover: { ...voiceover, analysis: null },
       });
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [bins, clips, playhead, selectedBin, selectedClip, captionDraft, pxPerSec, trackLayout, overlayPos]);
+  }, [bins, clips, playhead, selectedBin, selectedClip, captionDraft, pxPerSec, trackLayout, overlayPos, voiceover]);
 
   useEffect(() => {
     setClips((prev) => {
@@ -752,13 +837,63 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     addBin('audio', remembered, dur, 'a1', known);
   };
 
+  const ingestAudioPathAt = async (path: string, startSec: number, label?: string) => {
+    const remembered = (await window.api?.rememberDroppedMedia?.(path)) ?? path;
+    const { dur, known } = await probeDuration(remembered, 'audio');
+    const item: BinItem = {
+      id: newId('bin'),
+      kind: 'audio',
+      path: remembered,
+      name: label ?? fileName(remembered),
+      durationSec: dur,
+      inSec: 0,
+      outSec: dur,
+      durationKnown: known,
+    };
+    setBins((prev) => [...prev, item]);
+    setTrackLayout((layout) => ensureTrackVisible(layout, 'a1'));
+    let queuedId: string | null = null;
+    setClips((prev) => {
+      const clip: TimelineClip = {
+        id: newId('clip'),
+        binId: item.id,
+        track: 'a1',
+        startSec: Math.max(0, startSec),
+        durationSec: dur,
+        sourceInSec: 0,
+        label: item.name,
+        autoLength: true,
+      };
+      queuedId = clip.id;
+      return [...prev, clip];
+    });
+    if (queuedId) setSelectedClip(queuedId);
+    setSelectedBin(item.id);
+  };
+
   const refreshVoiceTools = async () => {
+    let engineReady = false;
+    let hasSample = false;
     try {
       const profile = await window.api?.getVoiceProfile?.();
-      if (profile) setTtsReady(profile.tts_ready);
+      if (profile) {
+        hasSample = Boolean(profile.has_sample);
+        engineReady = Boolean(profile.tts_ready);
+      }
     } catch {
-      setTtsReady(false);
+      /* optional */
     }
+    try {
+      const engine = await window.api?.getVoiceEngineStatus?.();
+      if (engine?.packages_ready && engine.weights_ready) {
+        engineReady = true;
+      }
+    } catch {
+      /* optional */
+    }
+    setVoiceEngineReady(engineReady);
+    setVoiceHasSample(hasSample);
+    setTtsReady(engineReady && hasSample);
     try {
       const lib = await window.api?.listMediaLibrary?.();
       if (lib) setLibraryAudio(lib.audio.map((a) => ({ path: a.path, name: a.name })));
@@ -769,7 +904,16 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
 
   useEffect(() => {
     void refreshVoiceTools();
+    const cleanupVoice = window.api?.onVoiceEngineUpdated?.(() => {
+      void refreshVoiceTools();
+    }) ?? (() => {});
+    return cleanupVoice;
   }, []);
+
+  useEffect(() => {
+    if (!voiceover.expanded) return;
+    void refreshVoiceTools();
+  }, [voiceover.expanded]);
 
   const toggleVoiceRecord = async () => {
     if (!window.api?.startMicRecord || !window.api.stopMicRecord) return;
@@ -798,18 +942,332 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     }
   };
 
+  const toggleVoiceSampleRecord = async () => {
+    if (!window.api?.startMicRecord || !window.api.stopMicRecord || !window.api.saveVoiceSample) return;
+    if (voiceSampleRecording) {
+      setVoiceBusy(true);
+      try {
+        const stopped = await window.api.stopMicRecord();
+        setVoiceSampleRecording(false);
+        await window.api.saveVoiceSample(stopped.file_path);
+        await refreshVoiceTools();
+        setVoiceError(null);
+      } catch (err) {
+        setVoiceError(ipcMessage(err, t('video.vo_voice_sample_fail')));
+        setVoiceSampleRecording(false);
+      } finally {
+        setVoiceBusy(false);
+      }
+      return;
+    }
+    if (voiceRecording) {
+      setVoiceError(t('video.vo_voice_sample_busy'));
+      return;
+    }
+    setVoiceError(null);
+    try {
+      await window.api.startMicRecord('wav');
+      setVoiceSampleRecording(true);
+    } catch (err) {
+      setVoiceError(ipcMessage(err, t('video.dir_voice_fail')));
+    }
+  };
+
+  const pickVoiceSample = async () => {
+    if (!window.api?.pickAudio || !window.api.saveVoiceSample) return;
+    const picked = await window.api.pickAudio();
+    if (!picked) return;
+    setVoiceBusy(true);
+    setVoiceError(null);
+    try {
+      await window.api.saveVoiceSample(picked);
+      await refreshVoiceTools();
+    } catch (err) {
+      setVoiceError(ipcMessage(err, t('video.vo_voice_sample_fail')));
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  const setVoiceSampleFromLibrary = async (path: string) => {
+    if (!path || !window.api?.saveVoiceSample) return;
+    setVoiceBusy(true);
+    setVoiceError(null);
+    try {
+      await window.api.saveVoiceSample(path);
+      await refreshVoiceTools();
+    } catch (err) {
+      setVoiceError(ipcMessage(err, t('video.vo_voice_sample_fail')));
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
   const generateVoiceover = async () => {
     if (!voiceLine.trim() || !window.api?.synthesizeVoice) return;
     setVoiceBusy(true);
     setVoiceError(null);
     try {
-      const result = await window.api.synthesizeVoice({ text: voiceLine.trim() });
+      let preparedText: string | undefined;
+      if (window.api.prepareVoiceText) {
+        const prep = await window.api.prepareVoiceText({ text: voiceLine.trim() });
+        preparedText = prep.spoken;
+      }
+      const result = await window.api.synthesizeVoice({
+        text: voiceLine.trim(),
+        prepared_text: preparedText,
+      });
       await ingestAudioPath(result.file_path);
       await refreshVoiceTools();
     } catch (err) {
       setVoiceError(ipcMessage(err, t('video.dir_voice_tts_off')));
     } finally {
       setVoiceBusy(false);
+    }
+  };
+
+  const applyVoiceFix = async () => {
+    if (!voiceFixPrompt.trim() || !window.api?.fixVoicePronunciation) return;
+    setVoiceBusy(true);
+    setVoiceError(null);
+    try {
+      await window.api.fixVoicePronunciation({
+        prompt: voiceFixPrompt.trim(),
+        context_text: voiceLine.trim() || undefined,
+      });
+      setVoiceFixPrompt('');
+      if (voiceLine.trim() && window.api.synthesizeVoice) {
+        let preparedText: string | undefined;
+        if (window.api.prepareVoiceText) {
+          const prep = await window.api.prepareVoiceText({ text: voiceLine.trim() });
+          preparedText = prep.spoken;
+        }
+        const result = await window.api.synthesizeVoice({
+          text: voiceLine.trim(),
+          prepared_text: preparedText,
+        });
+        await ingestAudioPath(result.file_path);
+        await refreshVoiceTools();
+      }
+    } catch (err) {
+      setVoiceError(ipcMessage(err, t('video.dir_voice_fix_fail')));
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
+  const setVoiceoverExpanded = (expanded: boolean) => {
+    setVoiceover((prev) => ({ ...prev, expanded }));
+  };
+
+  const openVoiceover = () => {
+    setVoiceover((prev) => {
+      const path = voiceoverSource?.path ?? prev.sourcePath;
+      const samePath = path === prev.sourcePath;
+      return {
+        ...prev,
+        expanded: true,
+        sourcePath: path,
+        sourceBinId: voiceoverSource?.binId ?? prev.sourceBinId,
+        analysis: samePath ? prev.analysis : null,
+        script: samePath ? prev.script : null,
+        status: samePath ? prev.status : 'idle',
+      };
+    });
+  };
+
+  const analyzeVoiceover = async (force = false) => {
+    const src = voiceoverSource;
+    if (!src?.path || !window.api?.analyzeVideo) {
+      setVoiceoverError(t('video.vo_no_video'));
+      return;
+    }
+    setVoiceoverBusy(true);
+    setVoiceoverError(null);
+    setVoiceoverProgress({
+      stage: 'starting',
+      percent: 3,
+      detail: force ? t('video.vo_analyze_start') : t('video.vo_analyze_start'),
+    });
+    if (voiceoverPollRef.current) clearInterval(voiceoverPollRef.current);
+    voiceoverPollRef.current = setInterval(() => {
+      void window.api?.getVideoAnalyzeProgress?.().then((p) => {
+        if (!p) return;
+        setVoiceoverProgress({
+          stage: p.stage,
+          percent: p.percent,
+          detail: p.detail || p.stage,
+        });
+      }).catch(() => {
+        /* ignore */
+      });
+    }, 500);
+    try {
+      const result = await window.api.analyzeVideo({
+        video_path: src.path,
+        transcribe: true,
+        scene_detect: true,
+        language: 'auto',
+        use_cache: !force,
+      });
+      const ctx = result.context as unknown as VideoAnalysisContext & { from_cache?: boolean };
+      setVoiceover((prev) => ({
+        ...prev,
+        sourcePath: src.path,
+        sourceBinId: src.binId,
+        analysis: ctx,
+        script: force ? null : prev.script,
+        status: force ? 'analyzed' : (prev.script ? prev.status : 'analyzed'),
+      }));
+      setVoiceoverProgress({
+        stage: 'done',
+        percent: 100,
+        detail: ctx.from_cache ? t('video.vo_analyze_done_cache') : t('video.vo_analyze_done'),
+      });
+    } catch (err) {
+      setVoiceoverError(ipcMessage(err, t('video.vo_analyze_fail')));
+    } finally {
+      if (voiceoverPollRef.current) {
+        clearInterval(voiceoverPollRef.current);
+        voiceoverPollRef.current = null;
+      }
+      setVoiceoverBusy(false);
+    }
+  };
+
+  const reanalyzeVoiceover = () => {
+    void analyzeVoiceover(true);
+  };
+
+  const setScriptPrompt = (prompt: string) => {
+    setVoiceover((prev) => ({ ...prev, scriptPrompt: prompt }));
+  };
+
+  const generateScript = async () => {
+    const ctx = voiceover.analysis;
+    if (!ctx || !window.api?.generateScript) {
+      setScriptError(t('video.vo_script_need_analysis'));
+      return;
+    }
+    setScriptBusy(true);
+    setScriptError(null);
+    try {
+      const result = await window.api.generateScript({
+        video_context: ctx as unknown as Record<string, unknown>,
+        prompt: voiceover.scriptPrompt,
+        language: 'ru',
+        target_wpm: 130,
+      });
+      const script: VoiceoverScript = {
+        segments: result.segments,
+        meta: result.meta,
+      };
+      setVoiceover((prev) => ({
+        ...prev,
+        script,
+        status: 'scripted',
+      }));
+    } catch (err) {
+      setScriptError(ipcMessage(err, t('video.vo_script_fail')));
+    } finally {
+      setScriptBusy(false);
+    }
+  };
+
+  const updateScriptSegment = (
+    index: number,
+    patch: Partial<{ text: string; start_sec: number; end_sec: number; role: string }>,
+  ) => {
+    setVoiceover((prev) => {
+      if (!prev.script) return prev;
+      const segments = prev.script.segments.map((seg, i) => (
+        i === index ? { ...seg, ...patch } : seg
+      ));
+      return {
+        ...prev,
+        script: { ...prev.script, segments },
+        status: 'scripted',
+      };
+    });
+  };
+
+  const applyScriptVoiceover = async () => {
+    const script = voiceover.script;
+    if (!script?.segments.length) {
+      setVoiceoverApplyError(t('video.vo_voice_need_script'));
+      return;
+    }
+    if (!ttsReady || !window.api?.synthesizeVoice) {
+      if (!voiceEngineReady) {
+        setVoiceoverApplyError(t('video.vo_voice_need_engine'));
+      } else if (!voiceHasSample) {
+        setVoiceoverApplyError(t('video.vo_voice_need_sample'));
+      } else {
+        setVoiceoverApplyError(t('video.vo_voice_need_tts'));
+      }
+      return;
+    }
+    const segments = script.segments.filter((seg) => seg.text.trim());
+    if (!segments.length) {
+      setVoiceoverApplyError(t('video.vo_voice_need_text'));
+      return;
+    }
+
+    setVoiceoverApplyBusy(true);
+    setVoiceoverApplyError(null);
+    setClips((prev) => prev.filter((c) => c.track !== 'a1'));
+
+    if (voiceoverApplyPollRef.current) clearInterval(voiceoverApplyPollRef.current);
+    voiceoverApplyPollRef.current = setInterval(() => {
+      void window.api?.getVoiceTtsProgress?.().then((p) => {
+        if (!p) return;
+        setVoiceoverApplyProgress((prev) => ({
+          ...prev,
+          detail: p.detail || p.stage || prev.detail,
+        }));
+      }).catch(() => {
+        /* ignore */
+      });
+    }, 600);
+
+    try {
+      for (let i = 0; i < segments.length; i += 1) {
+        const seg = segments[i];
+        setVoiceoverApplyProgress({
+          current: i + 1,
+          total: segments.length,
+          detail: t('video.vo_voice_segment', { n: i + 1, time: formatClock(seg.start_sec) }),
+        });
+        let preparedText: string | undefined;
+        if (window.api.prepareVoiceText) {
+          const prep = await window.api.prepareVoiceText({ text: seg.text.trim() });
+          preparedText = prep.spoken;
+        }
+        const result = await window.api.synthesizeVoice({
+          text: seg.text.trim(),
+          prepared_text: preparedText,
+        });
+        await ingestAudioPathAt(
+          result.file_path,
+          seg.start_sec,
+          t('video.vo_voice_clip_label', { n: i + 1 }),
+        );
+      }
+      setVoiceover((prev) => ({ ...prev, status: 'voiced' }));
+      setVoiceoverApplyProgress({
+        current: segments.length,
+        total: segments.length,
+        detail: t('video.vo_voice_apply_done'),
+      });
+    } catch (err) {
+      setVoiceoverApplyError(ipcMessage(err, t('video.vo_voice_apply_fail')));
+    } finally {
+      if (voiceoverApplyPollRef.current) {
+        clearInterval(voiceoverApplyPollRef.current);
+        voiceoverApplyPollRef.current = null;
+      }
+      setVoiceoverApplyBusy(false);
+      await refreshVoiceTools();
     }
   };
 
@@ -1135,13 +1593,22 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     hasTimelineGaps,
     packGaps,
     voiceRecording,
+    voiceSampleRecording,
     voiceBusy,
     voiceError,
     voiceLine,
     setVoiceLine,
+    voiceFixPrompt,
+    setVoiceFixPrompt,
+    applyVoiceFix: () => { void applyVoiceFix(); },
     ttsReady,
+    voiceEngineReady,
+    voiceHasSample,
     libraryAudio,
     toggleVoiceRecord: () => { void toggleVoiceRecord(); },
+    toggleVoiceSampleRecord: () => { void toggleVoiceSampleRecord(); },
+    pickVoiceSample: () => { void pickVoiceSample(); },
+    setVoiceSampleFromLibrary: (path) => { void setVoiceSampleFromLibrary(path); },
     generateVoiceover: () => { void generateVoiceover(); },
     placeLibraryAudio,
     overlayPos,
@@ -1155,6 +1622,24 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     exportVideo: () => { void exportVideo(); },
     saveExportAs: () => { void saveExportAs(); },
     discardExport: () => { void discardExport(); },
+    voiceover,
+    voiceoverSource,
+    voiceoverBusy,
+    voiceoverError,
+    voiceoverProgress,
+    setVoiceoverExpanded,
+    openVoiceover,
+    analyzeVoiceover: () => { void analyzeVoiceover(false); },
+    reanalyzeVoiceover,
+    scriptBusy,
+    scriptError,
+    setScriptPrompt,
+    generateScript: () => { void generateScript(); },
+    updateScriptSegment,
+    voiceoverApplyBusy,
+    voiceoverApplyError,
+    voiceoverApplyProgress,
+    applyScriptVoiceover: () => { void applyScriptVoiceover(); },
   };
 
   return <DirectorContext.Provider value={snap}>{children}</DirectorContext.Provider>;

@@ -93,6 +93,31 @@ interface Window {
       detail: string;
       cache_path: string;
     }) => void) => () => void;
+    installOllamaEngine: () => Promise<{ ok: boolean }>;
+    deleteOllamaModel: () => Promise<{ deleted: boolean }>;
+    startOllamaServe: () => Promise<{ ok: boolean }>;
+    getOllamaEngineStatus: () => Promise<{
+      binary_found: boolean;
+      server_running: boolean;
+      model_ready: boolean;
+      installing: boolean;
+      stage: string;
+      percent: number;
+      detail: string;
+      model: string;
+      started_by_app: boolean;
+    }>;
+    onOllamaEngineUpdated: (callback: (data: {
+      binary_found: boolean;
+      server_running: boolean;
+      model_ready: boolean;
+      installing: boolean;
+      stage: string;
+      percent: number;
+      detail: string;
+      model: string;
+      started_by_app: boolean;
+    }) => void) => () => void;
     startMicRecord: (format: string) => Promise<{ file_path: string }>;
     stopMicRecord: () => Promise<{ file_path: string }>;
     saveAudioBuffer: (payload: { data: ArrayBuffer; format: string; name?: string }) => Promise<{ file_path: string }>;
@@ -113,7 +138,46 @@ interface Window {
       error: string | null;
     }>;
     saveVoiceSample: (inputPath: string) => Promise<{ file_path: string }>;
-    synthesizeVoice: (payload: { text: string; language?: string }) => Promise<{ file_path: string }>;
+    synthesizeVoice: (payload: {
+      text: string;
+      language?: string;
+      skip_prepare?: boolean;
+      prepared_text?: string;
+    }) => Promise<{ file_path: string; spoken_text?: string }>;
+    prepareVoiceText: (payload: { text: string; language?: string; apply_stress?: boolean }) => Promise<{
+      status: string;
+      original: string;
+      normalized: string;
+      stressed: string;
+      spoken: string;
+      language: string;
+      warnings: string[];
+      stress_available: boolean;
+      lexicon_applied?: string[];
+    }>;
+    getVoiceLexicon: () => Promise<{
+      path: string;
+      entries: Array<{ word: string; spoken: string; stress?: string; note?: string }>;
+    }>;
+    fixVoicePronunciation: (payload: {
+      prompt: string;
+      word?: string;
+      context_text?: string;
+    }) => Promise<{
+      status: string;
+      word: string;
+      entry: { spoken: string; stress?: string; note?: string };
+      parsed_as?: string;
+      needs_spoken_hint?: boolean;
+      prepared?: {
+        original: string;
+        normalized: string;
+        stressed: string;
+        spoken: string;
+        lexicon_applied?: string[];
+      };
+    }>;
+    deleteVoiceLexicon: (word: string) => Promise<{ status: string; word: string }>;
     applyVideoTimeline: (payload: {
       prompt: string;
       video_path?: string;
@@ -132,6 +196,37 @@ interface Window {
       status: string;
       file_path: string | null;
       plan?: { notes: string[]; trim_end_sec: number };
+    }>;
+    analyzeVideo: (payload: {
+      video_path: string;
+      transcribe?: boolean;
+      scene_detect?: boolean;
+      language?: string;
+      use_cache?: boolean;
+    }) => Promise<{ status: string; context: Record<string, unknown> }>;
+    getVideoAnalyzeProgress: () => Promise<{
+      active: boolean;
+      stage: string;
+      percent: number;
+      detail: string;
+      elapsed_sec: number;
+      error: string | null;
+      whisper_available?: boolean;
+    }>;
+    getVideoAnalyzeCache: (videoPath: string) => Promise<{
+      status: 'hit' | 'miss';
+      context: Record<string, unknown> | null;
+    }>;
+    generateScript: (payload: {
+      video_context: Record<string, unknown>;
+      prompt?: string;
+      language?: string;
+      target_wpm?: number;
+      prefer_ollama?: boolean;
+      ollama_model?: string;
+    }) => Promise<{
+      segments: Array<{ start_sec: number; end_sec: number; text: string; role: string }>;
+      meta: { tone: string; language: string; words_per_min: number; provider: string; model?: string | null };
     }>;
     get3dStatus: () => Promise<{
       ready: boolean;

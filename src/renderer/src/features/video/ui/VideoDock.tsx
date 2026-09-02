@@ -37,13 +37,21 @@ interface VideoDockProps {
   panels: Record<DockPanelId, ReactNode>;
 }
 
-const GROUPS: { labelKey: string; ids: DockPanelId[] }[] = [
-  { labelKey: 'video.menu_group_sources', ids: ['sources'] },
+const GROUPS: { labelKey: string; ids: DockPanelId[]; actionKey?: string }[] = [
+  { labelKey: 'video.menu_group_sources', ids: ['sources'], actionKey: 'video.menu_voiceover' },
   { labelKey: 'video.menu_group_edit', ids: ['timeline', 'preview'] },
   { labelKey: 'video.menu_group_generate', ids: ['storyboard', 'recording'] },
 ];
 
-export function VideoMenuBar({ state, onState }: { state: DockState; onState: (s: DockState) => void }): ReactNode {
+export function VideoMenuBar({
+  state,
+  onState,
+  onOpenVoiceover,
+}: {
+  state: DockState;
+  onState: (s: DockState) => void;
+  onOpenVoiceover?: () => void;
+}): ReactNode {
   const { t } = useTranslation();
 
   const toggle = (id: DockPanelId) => {
@@ -118,6 +126,15 @@ export function VideoMenuBar({ state, onState }: { state: DockState; onState: (s
                   {t(DOCK_TITLE_KEYS[id])}
                 </button>
               ))}
+              {group.actionKey && onOpenVoiceover ? (
+                <button
+                  type="button"
+                  className={styles.chipAction}
+                  onClick={onOpenVoiceover}
+                >
+                  {t(group.actionKey)}
+                </button>
+              ) : null}
             </div>
           </section>
         ))}

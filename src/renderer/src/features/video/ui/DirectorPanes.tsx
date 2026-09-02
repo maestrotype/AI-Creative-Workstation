@@ -12,6 +12,7 @@ import {
 } from '../model/directorTimeline';
 import { DirectorPreview } from './DirectorPreview';
 import { useDirector } from './DirectorBoard';
+import { VoiceoverSection } from './VoiceoverSection';
 import styles from './VideoPage.module.css';
 
 const LABEL_W = 118;
@@ -358,6 +359,23 @@ export function DirectorSourcesPane(): ReactNode {
         <button type="button" className={styles.toolBtn} onClick={d.pickImage}>{d.t('video.dir_add_image')}</button>
         <button type="button" className={styles.toolBtn} onClick={d.pickAudio}>{d.t('video.dir_add_audio')}</button>
       </div>
+
+      {d.voiceoverSource ? (
+        <div className={styles.voEntryRow}>
+          {!d.voiceover.expanded ? (
+            <button
+              type="button"
+              className={styles.toolPrimary}
+              onClick={d.openVoiceover}
+            >
+              {d.t('video.vo_open')}
+            </button>
+          ) : null}
+          <VoiceoverSection />
+        </div>
+      ) : null}
+
+      {!d.voiceover.expanded ? (
       <div className={styles.voiceStrip}>
         <span className={styles.voiceLabel}>{d.t('video.dir_voice')}</span>
         <button
@@ -401,12 +419,30 @@ export function DirectorSourcesPane(): ReactNode {
             >
               {d.t('video.dir_voice_gen')}
             </button>
+            <input
+              className={styles.voiceInput}
+              value={d.voiceFixPrompt}
+              onChange={(e) => d.setVoiceFixPrompt(e.target.value)}
+              placeholder={d.t('video.dir_voice_fix_ph')}
+              disabled={d.voiceBusy || d.voiceRecording}
+            />
+            <button
+              type="button"
+              className={styles.toolBtn}
+              onClick={d.applyVoiceFix}
+              disabled={d.voiceBusy || d.voiceRecording || !d.voiceFixPrompt.trim()}
+            >
+              {d.t('video.dir_voice_fix')}
+            </button>
           </>
         ) : null}
         {d.voiceRecording ? <span className={styles.hintTight}>{d.t('video.dir_voice_recording')}</span> : null}
         {d.voiceError ? <p className={styles.voiceError}>{d.voiceError}</p> : null}
       </div>
+      ) : null}
+      {!d.voiceover.expanded ? (
       <p className={styles.hintTight}>{d.t('video.dir_voice_help')}</p>
+      ) : null}
       {d.bins.length === 0 ? <p className={styles.hintTight}>{d.t('video.dir_bin_empty')}</p> : (
         <ul className={styles.binList}>
           {d.bins.map((item) => {
@@ -475,6 +511,15 @@ export function DirectorSourcesPane(): ReactNode {
             </div>
             <p className={styles.hintTight}>{d.t('video.dir_place_hint', { time: formatClock(d.playhead) })}</p>
             <div className={styles.toolRow}>
+              {d.activeBin.kind === 'video' ? (
+                <button
+                  type="button"
+                  className={styles.placeBtnPrimary}
+                  onClick={d.openVoiceover}
+                >
+                  {d.t('video.vo_open')}
+                </button>
+              ) : null}
               {videoTracksForBin(d.activeBin, d.visibleLayout).map((track) => (
                 <button
                   key={track}

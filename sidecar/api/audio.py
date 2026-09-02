@@ -10,6 +10,18 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
+from text_ru import (
+    LEXICON_PATH,
+    apply_pronunciation_fix,
+    delete_lexicon_entry,
+    list_lexicon_entries,
+    load_lexicon,
+    prepare_text,
+    save_lexicon_entry,
+    stress_status,
+    to_spoken_text,
+)
+
 router = APIRouter()
 
 AUDIO_DIR = os.path.expanduser("~/Documents/Canvas/Generated/Audio")
@@ -92,9 +104,17 @@ class SaveVoiceRequest(BaseModel):
     input_path: str
 
 
+class PrepareTextRequest(BaseModel):
+    text: str
+    language: str = "auto"
+    apply_stress: bool = True
+
+
 class TtsRequest(BaseModel):
     text: str
     language: str = "ru"
+    skip_prepare: bool = False
+    prepared_text: Optional[str] = None
 
 
 class TimelineRequest(BaseModel):
@@ -102,6 +122,19 @@ class TimelineRequest(BaseModel):
     video_path: Optional[str] = None
     audio_path: Optional[str] = None
     dry_run: bool = False
+
+
+class LexiconUpsertRequest(BaseModel):
+    word: str
+    spoken: str
+    stress: Optional[str] = None
+    note: Optional[str] = None
+
+
+class LexiconFixRequest(BaseModel):
+    prompt: str
+    word: Optional[str] = None
+    context_text: Optional[str] = None
 
 
 def _encode_args(fmt: str) -> List[str]:
@@ -285,10 +318,106 @@ def save_voice(request: SaveVoiceRequest):
     }
 
 
-@router.post("/audio/tts")
-def synthesize_voice(request: TtsRequest):
+def _tts_language(text: str, hint: str) -> str:
+    if re.search(r"[а-яА-ЯёЁ]", text):
+        return "ru"
+    return hint or "en"
+
+
+def _resolve_tts_text(request: TtsRequest) -> tuple[str, dict]:
+    raw = (request.text or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="text is required")
+
+    if request.prepared_text and request.prepared_text.strip():
+        spoken = to_spoken_text(request.prepared_text.strip())
+        return spoken, {"skipped": True, "source": "prepared_text", "spoken": spoken}
+
+    if request.skip_prepare:
+        return raw, {"skipped": True, "source": "raw"}
+
+    prepared = prepare_text(raw, language=request.language or "auto", apply_stress=True)
+    return prepared["spoken"], {"skipped": False, "preparation": prepared}
+
+
+@router.post("/audio/prepare-text")
+def prepare_voice_text(request: PrepareTextRequest):
     text = (request.text or "").strip()
     if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    result = prepare_text(text, language=request.language, apply_stress=request.apply_stress)
+    return {"status": "ok", **result}
+
+
+@router.get("/audio/stress-status")
+def get_stress_status():
+    status = stress_status()
+    lexicon = load_lexicon()
+    return {
+        "stress_available": bool(status.get("available")),
+        "error": status.get("error"),
+        "lexicon_path": LEXICON_PATH,
+        "lexicon_count": len(lexicon),
+    }
+
+
+@router.get("/audio/lexicon")
+def get_lexicon():
+    return {
+        "path": LEXICON_PATH,
+        "entries": list_lexicon_entries(),
+    }
+
+
+@router.put("/audio/lexicon")
+def upsert_lexicon(request: LexiconUpsertRequest):
+    word = (request.word or "").strip()
+    spoken = (request.spoken or "").strip()
+    if not word or not spoken:
+        raise HTTPException(status_code=400, detail="word and spoken are required")
+    try:
+        entry = save_lexicon_entry(word, spoken, stress=request.stress, note=request.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "status": "saved",
+        "word": word.lower(),
+        "entry": entry.to_dict(),
+    }
+
+
+@router.delete("/audio/lexicon")
+def remove_lexicon(word: str):
+    key = (word or "").strip().lower()
+    if not key:
+        raise HTTPException(status_code=400, detail="word is required")
+    removed = delete_lexicon_entry(key)
+    if not removed:
+        raise HTTPException(status_code=404, detail="lexicon entry not found")
+    return {"status": "deleted", "word": key}
+
+
+@router.post("/audio/lexicon/fix")
+def fix_pronunciation(request: LexiconFixRequest):
+    prompt = (request.prompt or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt is required")
+    try:
+        result = apply_pronunciation_fix(prompt, default_word=request.word)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    payload: Dict[str, Any] = {"status": "saved", **result}
+    context = (request.context_text or "").strip()
+    if context:
+        payload["prepared"] = prepare_text(context, language="auto", apply_stress=True)
+    return payload
+
+
+@router.post("/audio/tts")
+def synthesize_voice(request: TtsRequest):
+    raw = (request.text or "").strip()
+    if not raw:
         raise HTTPException(status_code=400, detail="text is required")
     if not os.path.isfile(SPEAKER_WAV):
         raise HTTPException(
@@ -298,11 +427,18 @@ def synthesize_voice(request: TtsRequest):
     if not _coqui_available():
         raise HTTPException(status_code=503, detail="CLONE_ENGINE_MISSING")
 
+    tts_text, prep_meta = _resolve_tts_text(request)
     os.makedirs(AUDIO_DIR, exist_ok=True)
-    dest = _audio_out(f"tts-{abs(hash(text)) % 10_000_000}", "wav")
-    lang = "ru" if re.search(r"[а-яА-ЯёЁ]", text) else (request.language or "en")
-    _run_xtts_clone(text, dest, lang)
-    return {"status": "completed", "file_path": dest, "engine": "xtts"}
+    dest = _audio_out(f"tts-{abs(hash(tts_text)) % 10_000_000}", "wav")
+    lang = _tts_language(tts_text, request.language or "en")
+    _run_xtts_clone(tts_text, dest, lang)
+    return {
+        "status": "completed",
+        "file_path": dest,
+        "engine": "xtts",
+        "spoken_text": tts_text,
+        "preparation": prep_meta,
+    }
 
 
 def _parse_timestamp(raw: str) -> float:

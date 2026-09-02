@@ -193,7 +193,7 @@ Studio
 ### Studio Is Not Required
 A user who never opens Studio should still have a fully functional experience. The application manages hardware, models, and providers automatically. Studio is for users who want control, not users who need it.
 
-**Video & voice (implemented vs plan):** Studio lists motion models (LTX, Wan) only when a sidecar path exists. Until then, Video is stills + ffmpeg, and prompt voiceover is XTTS on the recording timeline. Living plan: [VIDEO_STUDIO_PLAN.md](../product/VIDEO_STUDIO_PLAN.md).
+**Video & voice (implemented vs plan):** Studio lists motion models (LTX, Wan) only when a sidecar path exists. Video today: stills + ffmpeg + screencast clean + XTTS on timeline. **In progress:** pronunciation quality ([VOICE_PRONUNCIATION_PLAN.md](../product/VOICE_PRONUNCIATION_PLAN.md)). **Planned:** upload → analyze → script → voiceover ([VIDEO_VOICEOVER_PLAN.md](../product/VIDEO_VOICEOVER_PLAN.md)). Living baseline: [VIDEO_STUDIO_PLAN.md](../product/VIDEO_STUDIO_PLAN.md).
 
 ---
 

@@ -56,6 +56,18 @@ export function StudioPage(): ReactNode {
     cache_path: '',
   });
   const [voiceBusy, setVoiceBusy] = useState(false);
+  const [ollamaEngine, setOllamaEngine] = useState({
+    binary_found: false,
+    server_running: false,
+    model_ready: false,
+    installing: false,
+    stage: 'idle',
+    percent: 0,
+    detail: '',
+    model: 'qwen2.5:7b',
+    started_by_app: false,
+  });
+  const [ollamaBusy, setOllamaBusy] = useState(false);
 
   const toCacheKey = (modelId: string) => modelId.replaceAll('/', '__');
   const familyModels = models.filter((m) => m.type === family);
@@ -118,10 +130,20 @@ export function StudioPage(): ReactNode {
     }
   }, []);
 
+  const refreshOllama = useCallback(async () => {
+    try {
+      const status = await window.api?.getOllamaEngineStatus?.();
+      if (status) setOllamaEngine(status);
+    } catch {
+      /* optional */
+    }
+  }, []);
+
   useEffect(() => {
     void loadModels();
     void refreshResources();
     void refreshVoice();
+    void refreshOllama();
 
     const cleanupModels = window.api?.onModelsUpdated(() => { void loadModels(); }) ?? (() => {});
     const cleanupProgress = window.api?.onDownloadProgress(({ modelId, percent, downloadedBytes, totalBytes }) => {
@@ -135,20 +157,26 @@ export function StudioPage(): ReactNode {
       setVoiceEngine(status);
       setTtsReady(status.packages_ready && status.weights_ready);
     }) ?? (() => {});
+    const cleanupOllama = window.api?.onOllamaEngineUpdated?.((status) => {
+      setOllamaEngine(status);
+    }) ?? (() => {});
 
     const timer = window.setInterval(() => { void refreshResources(); }, 8000);
     const loadedTimer = window.setInterval(() => {
       void window.api?.getLoadedModels?.().then(setLoadedCacheKeys).catch(() => {});
     }, 5000);
+    const ollamaTimer = window.setInterval(() => { void refreshOllama(); }, 6000);
 
     return () => {
       cleanupModels();
       cleanupProgress();
       cleanupVoice();
+      cleanupOllama();
       window.clearInterval(timer);
       window.clearInterval(loadedTimer);
+      window.clearInterval(ollamaTimer);
     };
-  }, [refreshResources, refreshVoice]);
+  }, [refreshResources, refreshVoice, refreshOllama]);
 
   const handleDownload = async (model: (typeof CATALOG_ENGINES)[number]) => {
     if (!model.downloadable || !window.api) return;
@@ -189,6 +217,49 @@ export function StudioPage(): ReactNode {
       setUnloadError(err instanceof Error ? err.message : String(err));
     } finally {
       setVoiceBusy(false);
+    }
+  };
+
+  const handleOllamaDownload = async () => {
+    if (!window.api?.installOllamaEngine) return;
+    setOllamaBusy(true);
+    setUnloadError(null);
+    try {
+      await window.api.installOllamaEngine();
+      await refreshOllama();
+    } catch (err: unknown) {
+      setUnloadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setOllamaBusy(false);
+    }
+  };
+
+  const handleOllamaStart = async () => {
+    if (!window.api?.startOllamaServe) return;
+    setOllamaBusy(true);
+    setUnloadError(null);
+    try {
+      await window.api.startOllamaServe();
+      await refreshOllama();
+    } catch (err: unknown) {
+      setUnloadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setOllamaBusy(false);
+    }
+  };
+
+  const handleOllamaDelete = async () => {
+    if (!window.api?.deleteOllamaModel) return;
+    if (!window.confirm(t('studio.llm_delete_confirm'))) return;
+    setOllamaBusy(true);
+    setUnloadError(null);
+    try {
+      await window.api.deleteOllamaModel();
+      await refreshOllama();
+    } catch (err: unknown) {
+      setUnloadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setOllamaBusy(false);
     }
   };
 
@@ -398,6 +469,69 @@ export function StudioPage(): ReactNode {
           <p className={styles.hint}>{t('studio.voice_xtts_hint')}</p>
           <p className={styles.hint}>{t('studio.voice_xtts_license')}</p>
           <Link className={styles.textButton} to="/assets">{t('studio.voice_record_in_assets')}</Link>
+        </>
+      ) : family === 'llm' ? (
+        <>
+          <div className={styles.modelCard}>
+            <div className={styles.modelInfo}>
+              <span className={styles.modelName}>Qwen 2.5 7B</span>
+              <span className={styles.modelType}>
+                {t('studio.llm_qwen_size')}
+                {' · '}
+                {ollamaEngine.binary_found ? t('studio.llm_binary_on') : t('studio.llm_binary_off')}
+                {' · '}
+                {ollamaEngine.server_running ? t('studio.llm_server_on') : t('studio.llm_server_off')}
+                {' · '}
+                {ollamaEngine.model_ready ? t('studio.llm_model_on') : t('studio.llm_model_off')}
+              </span>
+            </div>
+            <div className={styles.voiceActions}>
+              {!ollamaEngine.model_ready ? (
+                <button
+                  type="button"
+                  className={styles.downloadButton}
+                  disabled={ollamaBusy || ollamaEngine.installing}
+                  onClick={() => { void handleOllamaDownload(); }}
+                >
+                  {ollamaEngine.installing ? t('studio.llm_downloading') : t('studio.download')}
+                </button>
+              ) : (
+                <span className={styles.status}>✓ {t('studio.installed')}</span>
+              )}
+              {ollamaEngine.binary_found && !ollamaEngine.server_running && !ollamaEngine.installing ? (
+                <button
+                  type="button"
+                  className={styles.textButton}
+                  disabled={ollamaBusy}
+                  onClick={() => { void handleOllamaStart(); }}
+                >
+                  {t('studio.llm_start_server')}
+                </button>
+              ) : null}
+              {ollamaEngine.model_ready && !ollamaEngine.installing ? (
+                <button
+                  type="button"
+                  className={styles.textButton}
+                  disabled={ollamaBusy}
+                  onClick={() => { void handleOllamaDelete(); }}
+                >
+                  {t('studio.llm_delete')}
+                </button>
+              ) : null}
+            </div>
+          </div>
+          {ollamaEngine.installing || ollamaBusy ? (
+            <DownloadProgress progress={{
+              percent: ollamaEngine.percent,
+              downloadedBytes: 0,
+              totalBytes: 0,
+            }} />
+          ) : null}
+          {ollamaEngine.detail && (ollamaEngine.installing || ollamaBusy) ? (
+            <p className={styles.hint}>{ollamaEngine.detail}</p>
+          ) : null}
+          <p className={styles.hint}>{t('studio.llm_qwen_hint')}</p>
+          <Link className={styles.textButton} to="/video">{t('studio.llm_use_in_video')}</Link>
         </>
       ) : (
         <>

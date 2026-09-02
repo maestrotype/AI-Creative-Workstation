@@ -9,6 +9,7 @@ import { homedir, freemem, totalmem } from 'os';
 import { initDb, getDb } from './db';
 import { models, settings } from './db/schema';
 import { eq } from 'drizzle-orm';
+import { registerOllamaIpc, stopOllamaIfStartedByApp, prepareOllamaForScript } from './ollamaEngine';
 
 app.setName('AI Creative Workstation');
 process.title = 'AI Creative Workstation';
@@ -1001,6 +1002,43 @@ function setupIpc() {
     return body;
   });
 
+  ipcMain.handle('analyze-video', async (_, payload: {
+    video_path: string;
+    transcribe?: boolean;
+    scene_detect?: boolean;
+    language?: string;
+    use_cache?: boolean;
+  }) => sidecarJson('/api/video/analyze', payload, 60 * 60 * 1000));
+
+  ipcMain.handle('get-video-analyze-progress', async () => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) {
+      return { active: false, stage: 'idle', percent: 0, detail: '', elapsed_sec: 0, error: null };
+    }
+    const res = await net.fetch(`${SIDECAR_URL}/api/video/analyze/progress`, { signal: AbortSignal.timeout(3000) });
+    return res.json();
+  });
+
+  ipcMain.handle('get-video-analyze-cache', async (_, videoPath: string) => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) throw new Error(ready.error || 'Sidecar unavailable');
+    const url = `${SIDECAR_URL}/api/video/analyze/cache?video_path=${encodeURIComponent(videoPath)}`;
+    const res = await net.fetch(url, { signal: AbortSignal.timeout(15000) });
+    return res.json();
+  });
+
+  ipcMain.handle('generate-script', async (_, payload: {
+    video_context: Record<string, unknown>;
+    prompt?: string;
+    language?: string;
+    target_wpm?: number;
+    prefer_ollama?: boolean;
+    ollama_model?: string;
+  }) => {
+    await prepareOllamaForScript(broadcast);
+    return sidecarJson('/api/script/generate', payload, 5 * 60 * 1000);
+  });
+
   ipcMain.handle('pick-audio', async () => {
     const result = await dialog.showOpenDialog({
       title: 'Choose an audio file',
@@ -1216,6 +1254,8 @@ function setupIpc() {
     return { deleted: true };
   });
 
+  registerOllamaIpc(ipcMain, broadcast);
+
 
   ipcMain.handle('start-mic-record', async (_, format: string = 'wav') => {
     if (micRecorder && !micRecorder.killed) {
@@ -1290,9 +1330,45 @@ function setupIpc() {
 
   ipcMain.handle('save-voice-sample', async (_, inputPath: string) => sidecarJson('/api/audio/voice', { input_path: inputPath }));
 
-  ipcMain.handle('synthesize-voice', async (_, payload: { text: string; language?: string }) =>
-    sidecarJson('/api/audio/tts', payload, 10 * 60 * 1000),
-  );
+  ipcMain.handle('synthesize-voice', async (_, payload: {
+    text: string;
+    language?: string;
+    skip_prepare?: boolean;
+    prepared_text?: string;
+  }) => sidecarJson('/api/audio/tts', payload, 10 * 60 * 1000));
+
+  ipcMain.handle('prepare-voice-text', async (_, payload: {
+    text: string;
+    language?: string;
+    apply_stress?: boolean;
+  }) => sidecarJson('/api/audio/prepare-text', payload, 120_000));
+
+  ipcMain.handle('get-voice-lexicon', async () => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) throw new Error(ready.error || 'Sidecar unavailable');
+    const res = await net.fetch(`${SIDECAR_URL}/api/audio/lexicon`, { signal: AbortSignal.timeout(10000) });
+    return res.json();
+  });
+
+  ipcMain.handle('fix-voice-pronunciation', async (_, payload: {
+    prompt: string;
+    word?: string;
+    context_text?: string;
+  }) => sidecarJson('/api/audio/lexicon/fix', payload, 120_000));
+
+  ipcMain.handle('delete-voice-lexicon', async (_, word: string) => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) throw new Error(ready.error || 'Sidecar unavailable');
+    const res = await net.fetch(
+      `${SIDECAR_URL}/api/audio/lexicon?word=${encodeURIComponent(word)}`,
+      { method: 'DELETE', signal: AbortSignal.timeout(10000) },
+    );
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `HTTP ${res.status}`);
+    }
+    return res.json();
+  });
 
   ipcMain.handle('apply-video-timeline', async (_, payload: {
     prompt: string;
@@ -1776,6 +1852,7 @@ app.on('quit', () => {
     sidecarProcess.kill();
     sidecarProcess = null;
   }
+  stopOllamaIfStartedByApp();
 });
 
 
