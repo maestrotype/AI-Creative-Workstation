@@ -70,6 +70,10 @@ const api = {
   installVoiceEngine: () => ipcRenderer.invoke('install-voice-engine'),
   deleteVoiceEngine: () => ipcRenderer.invoke('delete-voice-engine'),
   getVoiceEngineStatus: () => ipcRenderer.invoke('get-voice-engine-status'),
+  installOllamaEngine: () => ipcRenderer.invoke('install-ollama-engine'),
+  deleteOllamaModel: () => ipcRenderer.invoke('delete-ollama-model'),
+  startOllamaServe: () => ipcRenderer.invoke('start-ollama-serve'),
+  getOllamaEngineStatus: () => ipcRenderer.invoke('get-ollama-engine-status'),
   startMicRecord: (format: string) => ipcRenderer.invoke('start-mic-record', format),
   stopMicRecord: () => ipcRenderer.invoke('stop-mic-record'),
   saveAudioBuffer: (payload: { data: ArrayBuffer; format: string; name?: string }) =>
@@ -179,6 +183,31 @@ const api = {
     }) => callback(data);
     ipcRenderer.on('voice-engine-updated', handler);
     return () => { ipcRenderer.removeListener('voice-engine-updated', handler); };
+  },
+  onOllamaEngineUpdated: (callback: (data: {
+    binary_found: boolean;
+    server_running: boolean;
+    model_ready: boolean;
+    installing: boolean;
+    stage: string;
+    percent: number;
+    detail: string;
+    model: string;
+    started_by_app: boolean;
+  }) => void) => {
+    const handler = (_: unknown, data: {
+      binary_found: boolean;
+      server_running: boolean;
+      model_ready: boolean;
+      installing: boolean;
+      stage: string;
+      percent: number;
+      detail: string;
+      model: string;
+      started_by_app: boolean;
+    }) => callback(data);
+    ipcRenderer.on('ollama-engine-updated', handler);
+    return () => { ipcRenderer.removeListener('ollama-engine-updated', handler); };
   },
 };
 

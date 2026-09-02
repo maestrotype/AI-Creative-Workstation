@@ -375,6 +375,7 @@ export function DirectorSourcesPane(): ReactNode {
         </div>
       ) : null}
 
+      {!d.voiceover.expanded ? (
       <div className={styles.voiceStrip}>
         <span className={styles.voiceLabel}>{d.t('video.dir_voice')}</span>
         <button
@@ -438,7 +439,10 @@ export function DirectorSourcesPane(): ReactNode {
         {d.voiceRecording ? <span className={styles.hintTight}>{d.t('video.dir_voice_recording')}</span> : null}
         {d.voiceError ? <p className={styles.voiceError}>{d.voiceError}</p> : null}
       </div>
+      ) : null}
+      {!d.voiceover.expanded ? (
       <p className={styles.hintTight}>{d.t('video.dir_voice_help')}</p>
+      ) : null}
       {d.bins.length === 0 ? <p className={styles.hintTight}>{d.t('video.dir_bin_empty')}</p> : (
         <ul className={styles.binList}>
           {d.bins.map((item) => {

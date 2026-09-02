@@ -20,6 +20,7 @@
 ### Phase 2 — Script
 - [x] `POST /api/script/generate` (Ollama + scene fallback)
 - [x] Prompt + editable segment table in Sources
+- [x] Studio → **Сценарий**: install/start/delete `qwen2.5:7b` via Ollama (like Voice tab)
 - [ ] Cloud LLM provider in Settings (optional)
 
 ### Phase 3 — Voice (next)

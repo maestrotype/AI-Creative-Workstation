@@ -94,7 +94,7 @@ def analyze_video(
     if use_cache:
         cached = load_cached_analysis(resolved)
         if cached:
-            return cached
+            return {**cached, "from_cache": True}
 
     with _analyze_lock:
         if _analyze_job.get("active"):
@@ -152,6 +152,7 @@ def analyze_video(
             "visual_notes": [],
             "warnings": warnings,
             "whisper_available": whisper_available(),
+            "from_cache": False,
         }
 
         save_cached_analysis(payload)

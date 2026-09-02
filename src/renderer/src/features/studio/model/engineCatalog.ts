@@ -1,4 +1,4 @@
-export type EngineFamily = 'image' | 'video' | '3d' | 'voice';
+export type EngineFamily = 'image' | 'video' | '3d' | 'voice' | 'llm';
 
 export interface CatalogEngine {
   id: string;
@@ -11,7 +11,7 @@ export interface CatalogEngine {
   noteKey: string;
 }
 
-export const ENGINE_FAMILIES: EngineFamily[] = ['image', 'video', '3d', 'voice'];
+export const ENGINE_FAMILIES: EngineFamily[] = ['image', 'video', '3d', 'voice', 'llm'];
 
 export const CATALOG_ENGINES: CatalogEngine[] = [
   {

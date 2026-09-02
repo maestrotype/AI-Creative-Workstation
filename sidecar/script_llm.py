@@ -67,6 +67,78 @@ def _normalize_segments(raw: list[Any], duration_sec: float) -> list[dict[str, A
     return out
 
 
+def _scene_list(video_context: dict[str, Any]) -> list[dict[str, Any]]:
+    duration = float(video_context.get("duration_sec") or 60)
+    scenes = list(video_context.get("scenes") or [])
+    if not scenes:
+        scenes = [{"index": 0, "start": 0.0, "end": duration}]
+    return scenes
+
+
+def _align_segments_to_scenes(
+    video_context: dict[str, Any],
+    llm_segments: list[dict[str, Any]],
+    prompt: str,
+    language: str,
+) -> list[dict[str, Any]]:
+    """Force one script segment per detected scene, reusing LLM text where it overlaps."""
+    scenes = _scene_list(video_context)
+    duration = float(video_context.get("duration_sec") or 60)
+    topic = (prompt or "").strip() or ("озвучка видео" if language.startswith("ru") else "video voiceover")
+    aligned: list[dict[str, Any]] = []
+
+    for i, scene in enumerate(scenes):
+        start = float(scene.get("start", 0))
+        end = float(scene.get("end", duration))
+        best: dict[str, Any] | None = None
+        best_overlap = 0.0
+        for seg in llm_segments:
+            seg_start = float(seg.get("start_sec", 0))
+            seg_end = float(seg.get("end_sec", seg_start))
+            overlap = min(end, seg_end) - max(start, seg_start)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best = seg
+
+        if best and best_overlap > 0 and str(best.get("text", "")).strip():
+            text = str(best["text"]).strip()
+            role = str(best.get("role", "body"))
+        elif len(llm_segments) == 1 and i == 0 and str(llm_segments[0].get("text", "")).strip():
+            # LLM returned a single intro block — use only for the first scene.
+            text = str(llm_segments[0]["text"]).strip()
+            role = str(llm_segments[0].get("role", "hook"))
+        elif language.startswith("ru"):
+            if i == 0:
+                text = f"Привет! Сегодня — {topic}."
+                role = "hook"
+            elif i == len(scenes) - 1:
+                text = "На этом всё. Спасибо, что посмотрели!"
+                role = "outro"
+            else:
+                text = f"Сцена {i + 1}: главное из этой части ролика."
+                role = "body"
+        else:
+            if i == 0:
+                text = f"In this video: {topic}."
+                role = "hook"
+            elif i == len(scenes) - 1:
+                text = "That's all — thanks for watching."
+                role = "outro"
+            else:
+                text = f"Scene {i + 1}: key moment in this part."
+                role = "body"
+
+        aligned.append(
+            {
+                "start_sec": round(start, 2),
+                "end_sec": round(min(end, duration), 2),
+                "text": text,
+                "role": role if role in ("hook", "body", "outro", "cta") else "body",
+            }
+        )
+    return aligned
+
+
 def _fallback_script(
     video_context: dict[str, Any],
     prompt: str,
@@ -74,9 +146,7 @@ def _fallback_script(
     target_wpm: int,
 ) -> dict[str, Any]:
     duration = float(video_context.get("duration_sec") or 60)
-    scenes = list(video_context.get("scenes") or [])
-    if not scenes:
-        scenes = [{"index": 0, "start": 0, "end": duration}]
+    scenes = _scene_list(video_context)
     transcript_segs = list((video_context.get("transcript") or {}).get("segments") or [])
     topic = (prompt or "").strip() or ("озвучка видео" if language.startswith("ru") else "video voiceover")
     segments: list[dict[str, Any]] = []
@@ -89,11 +159,11 @@ def _fallback_script(
             text = overlap
         elif language.startswith("ru"):
             if i == 0:
-                text = f"Сейчас посмотрим: {topic}."
+                text = f"Привет! Сегодня — {topic}."
             elif i == len(scenes) - 1:
-                text = "На этом всё — спасибо за просмотр."
+                text = "На этом всё. Спасибо, что посмотрели!"
             else:
-                text = f"Дальше по теме «{topic[:80]}» — часть {i + 1}."
+                text = f"Сцена {i + 1}: главное из этой части ролика."
         else:
             if i == 0:
                 text = f"In this video: {topic}."
@@ -130,7 +200,8 @@ def _build_llm_prompt(
     target_wpm: int,
 ) -> str:
     duration = float(video_context.get("duration_sec") or 0)
-    scenes = video_context.get("scenes") or []
+    scenes = _scene_list(video_context)
+    scene_count = len(scenes)
     transcript = (video_context.get("transcript") or {}).get("full_text") or ""
     scene_lines = [
         f"- scene {s.get('index', i)}: {s.get('start', 0):.1f}s – {s.get('end', 0):.1f}s"
@@ -160,9 +231,9 @@ Return ONLY valid JSON:
 }}
 
 Rules:
-- One segment per scene (or merge only adjacent short scenes).
+- You MUST return exactly {scene_count} segments — one per scene listed above.
+- segment[i].start_sec and end_sec MUST match scene[i] boundaries exactly.
 - Each segment text must fit its time window at ~{target_wpm} wpm.
-- segment start_sec/end_sec must align with scene boundaries.
 - roles: hook | body | outro | cta
 - No markdown, no commentary outside JSON.
 """
@@ -215,8 +286,12 @@ def generate_voiceover_script(
     if prefer_ollama:
         llm_result = _try_ollama(llm_prompt, model=ollama_model)
         if llm_result and isinstance(llm_result.get("segments"), list):
-            segments = _normalize_segments(llm_result["segments"], duration)
-            if segments:
+            raw_segments = _normalize_segments(llm_result["segments"], duration)
+            if raw_segments:
+                scenes = _scene_list(video_context)
+                segments = raw_segments
+                if len(segments) != len(scenes):
+                    segments = _align_segments_to_scenes(video_context, segments, prompt, language)
                 meta = llm_result.get("meta") if isinstance(llm_result.get("meta"), dict) else {}
                 return {
                     "segments": segments,
@@ -226,6 +301,7 @@ def generate_voiceover_script(
                         "words_per_min": int(meta.get("words_per_min", target_wpm)),
                         "provider": "ollama",
                         "model": ollama_model,
+                        "scene_count": len(scenes),
                     },
                 }
 

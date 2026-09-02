@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 
 import { useDirector } from './DirectorBoard';
+import { VoiceoverSteps } from './VoiceoverSteps';
 import { VoiceoverScriptEditor } from './VoiceoverScriptEditor';
 import { formatTimecode } from '../model/videoAnalysis';
 import styles from './VideoPage.module.css';
@@ -36,6 +37,7 @@ export function VoiceoverSection(): ReactNode {
         </button>
       </div>
       <p className={styles.hintTight}>{d.t('video.vo_lead_inline')}</p>
+      <VoiceoverSteps />
 
       {source ? (
         <div className={styles.voSource}>
@@ -48,14 +50,28 @@ export function VoiceoverSection(): ReactNode {
       )}
 
       <div className={styles.toolRow}>
-        <button
-          type="button"
-          className={styles.toolPrimary}
-          onClick={d.analyzeVoiceover}
-          disabled={!canAnalyze}
-        >
-          {busy ? d.t('video.vo_analyzing') : d.t('video.vo_analyze')}
-        </button>
+        {ctx ? (
+          <span className={styles.voAnalyzeReady}>{d.t('video.vo_analyze_ready')}</span>
+        ) : (
+          <button
+            type="button"
+            className={styles.toolPrimary}
+            onClick={d.analyzeVoiceover}
+            disabled={!canAnalyze}
+          >
+            {busy ? d.t('video.vo_analyzing') : d.t('video.vo_analyze')}
+          </button>
+        )}
+        {ctx ? (
+          <button
+            type="button"
+            className={styles.toolBtn}
+            onClick={d.reanalyzeVoiceover}
+            disabled={!canAnalyze}
+          >
+            {busy ? d.t('video.vo_analyzing') : d.t('video.vo_reanalyze')}
+          </button>
+        ) : null}
         <button type="button" className={styles.toolBtn} onClick={d.pickVideo} disabled={busy}>
           {d.t('video.vo_pick_other')}
         </button>

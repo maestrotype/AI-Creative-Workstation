@@ -9,6 +9,7 @@ import { homedir, freemem, totalmem } from 'os';
 import { initDb, getDb } from './db';
 import { models, settings } from './db/schema';
 import { eq } from 'drizzle-orm';
+import { registerOllamaIpc, stopOllamaIfStartedByApp, prepareOllamaForScript } from './ollamaEngine';
 
 app.setName('AI Creative Workstation');
 process.title = 'AI Creative Workstation';
@@ -1033,7 +1034,10 @@ function setupIpc() {
     target_wpm?: number;
     prefer_ollama?: boolean;
     ollama_model?: string;
-  }) => sidecarJson('/api/script/generate', payload, 5 * 60 * 1000));
+  }) => {
+    await prepareOllamaForScript(broadcast);
+    return sidecarJson('/api/script/generate', payload, 5 * 60 * 1000);
+  });
 
   ipcMain.handle('pick-audio', async () => {
     const result = await dialog.showOpenDialog({
@@ -1249,6 +1253,8 @@ function setupIpc() {
     broadcast('voice-engine-updated', voiceEngineStatusPayload());
     return { deleted: true };
   });
+
+  registerOllamaIpc(ipcMain, broadcast);
 
 
   ipcMain.handle('start-mic-record', async (_, format: string = 'wav') => {
@@ -1846,6 +1852,7 @@ app.on('quit', () => {
     sidecarProcess.kill();
     sidecarProcess = null;
   }
+  stopOllamaIfStartedByApp();
 });
 
 

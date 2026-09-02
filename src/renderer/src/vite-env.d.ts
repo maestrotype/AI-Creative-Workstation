@@ -93,6 +93,31 @@ interface Window {
       detail: string;
       cache_path: string;
     }) => void) => () => void;
+    installOllamaEngine: () => Promise<{ ok: boolean }>;
+    deleteOllamaModel: () => Promise<{ deleted: boolean }>;
+    startOllamaServe: () => Promise<{ ok: boolean }>;
+    getOllamaEngineStatus: () => Promise<{
+      binary_found: boolean;
+      server_running: boolean;
+      model_ready: boolean;
+      installing: boolean;
+      stage: string;
+      percent: number;
+      detail: string;
+      model: string;
+      started_by_app: boolean;
+    }>;
+    onOllamaEngineUpdated: (callback: (data: {
+      binary_found: boolean;
+      server_running: boolean;
+      model_ready: boolean;
+      installing: boolean;
+      stage: string;
+      percent: number;
+      detail: string;
+      model: string;
+      started_by_app: boolean;
+    }) => void) => () => void;
     startMicRecord: (format: string) => Promise<{ file_path: string }>;
     stopMicRecord: () => Promise<{ file_path: string }>;
     saveAudioBuffer: (payload: { data: ArrayBuffer; format: string; name?: string }) => Promise<{ file_path: string }>;
