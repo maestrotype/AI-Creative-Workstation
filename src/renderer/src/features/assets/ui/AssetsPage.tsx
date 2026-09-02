@@ -68,6 +68,13 @@ export function AssetsPage(): ReactNode {
   const [voiceText, setVoiceText] = useState('');
   const [skipPrepare, setSkipPrepare] = useState(false);
   const [prepareBusy, setPrepareBusy] = useState(false);
+  const [prepareResult, setPrepareResult] = useState<{
+    normalized: string;
+    stressed: string;
+    spoken: string;
+    warnings: string[];
+    stress_available: boolean;
+  } | null>(null);
   const [fixPrompt, setFixPrompt] = useState('');
   const [fixHint, setFixHint] = useState<string | null>(null);
   const [lexiconEntries, setLexiconEntries] = useState<Array<{
