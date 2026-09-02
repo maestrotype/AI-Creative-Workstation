@@ -88,7 +88,7 @@ const api = {
     prepared_text?: string;
   }) => ipcRenderer.invoke('synthesize-voice', payload),
   mixVoiceoverTrack: (payload: {
-    parts: Array<{ file_path: string; start_sec: number }>;
+    parts: Array<{ file_path: string; start_sec: number; max_duration_sec?: number }>;
     total_sec?: number;
     output_name?: string;
   }) => ipcRenderer.invoke('mix-voiceover-track', payload),

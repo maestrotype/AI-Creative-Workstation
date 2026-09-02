@@ -174,7 +174,14 @@ type DirectorSnap = {
   setScriptPrompt: (prompt: string) => void;
   setProjectContext: (value: string) => void;
   generateScript: () => void;
-  updateScriptSegment: (index: number, patch: Partial<{ text: string; start_sec: number; end_sec: number; role: string }>) => void;
+  updateScriptSegment: (index: number, patch: Partial<{
+    text: string;
+    start_sec: number;
+    end_sec: number;
+    role: string;
+    speech_sec: number;
+    speech_tempo: number;
+  }>) => void;
   voiceoverApplyBusy: boolean;
   voiceoverApplyError: string | null;
   voiceoverApplyProgress: { current: number; total: number; detail: string };
@@ -1182,13 +1189,26 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
 
   const updateScriptSegment = (
     index: number,
-    patch: Partial<{ text: string; start_sec: number; end_sec: number; role: string }>,
+    patch: Partial<{
+      text: string;
+      start_sec: number;
+      end_sec: number;
+      role: string;
+      speech_sec: number;
+      speech_tempo: number;
+    }>,
   ) => {
     setVoiceover((prev) => {
       if (!prev.script) return prev;
-      const segments = prev.script.segments.map((seg, i) => (
-        i === index ? { ...seg, ...patch } : seg
-      ));
+      const segments = prev.script.segments.map((seg, i) => {
+        if (i !== index) return seg;
+        const next = { ...seg, ...patch };
+        if ('text' in patch && patch.text !== undefined && patch.text !== seg.text) {
+          delete next.speech_sec;
+          delete next.speech_tempo;
+        }
+        return next;
+      });
       return {
         ...prev,
         script: { ...prev.script, segments },
@@ -1213,8 +1233,10 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
       }
       return;
     }
-    const segments = script.segments.filter((seg) => seg.text.trim());
-    if (!segments.length) {
+    const voicedSegments = script.segments
+      .map((seg, scriptIndex) => ({ seg, scriptIndex }))
+      .filter(({ seg }) => seg.text.trim());
+    if (!voicedSegments.length) {
       setVoiceoverApplyError(t('video.vo_voice_need_text'));
       return;
     }
@@ -1237,12 +1259,13 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     }, 600);
 
     try {
-      const parts: Array<{ file_path: string; start_sec: number }> = [];
-      for (let i = 0; i < segments.length; i += 1) {
-        const seg = segments[i];
+      const parts: Array<{ file_path: string; start_sec: number; max_duration_sec?: number }> = [];
+      const partScriptIndexes: number[] = [];
+      for (let i = 0; i < voicedSegments.length; i += 1) {
+        const { seg, scriptIndex } = voicedSegments[i];
         setVoiceoverApplyProgress({
           current: i + 1,
-          total: segments.length,
+          total: voicedSegments.length,
           detail: t('video.vo_voice_segment', { n: i + 1, time: formatClock(seg.start_sec) }),
         });
         let preparedText: string | undefined;
@@ -1254,25 +1277,48 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
           text: seg.text.trim(),
           prepared_text: preparedText,
         });
-        parts.push({ file_path: result.file_path, start_sec: seg.start_sec });
+        partScriptIndexes.push(scriptIndex);
+        parts.push({
+          file_path: result.file_path,
+          start_sec: seg.start_sec,
+          max_duration_sec: Math.max(0.5, seg.end_sec - seg.start_sec),
+        });
       }
       if (window.api.mixVoiceoverTrack) {
         // One continuous A1 clip: segments padded with silence to their
         // timecodes, track stretched to the full video duration.
         setVoiceoverApplyProgress({
-          current: segments.length,
-          total: segments.length,
+          current: voicedSegments.length,
+          total: voicedSegments.length,
           detail: t('video.vo_voice_mixing'),
         });
         const totalSec = Math.max(
           voiceover.analysis?.duration_sec ?? 0,
-          ...segments.map((seg) => seg.end_sec),
+          ...voicedSegments.map(({ seg }) => seg.end_sec),
         );
         const mixed = await window.api.mixVoiceoverTrack({
           parts,
           total_sec: totalSec > 0 ? totalSec : undefined,
           output_name: 'voiceover',
         });
+        if (mixed.fit?.length) {
+          const fitByPart = new Map(mixed.fit.map((row) => [row.index, row]));
+          setVoiceover((prev) => {
+            if (!prev.script) return prev;
+            const nextSegments = prev.script.segments.map((seg, i) => {
+              const partIdx = partScriptIndexes.indexOf(i);
+              if (partIdx < 0) return seg;
+              const row = fitByPart.get(partIdx);
+              if (!row) return seg;
+              return {
+                ...seg,
+                speech_sec: row.output_sec,
+                speech_tempo: row.tempo,
+              };
+            });
+            return { ...prev, script: { ...prev.script, segments: nextSegments } };
+          });
+        }
         await ingestAudioPathAt(mixed.file_path, 0, t('video.vo_voice_track_label'));
       } else {
         for (let i = 0; i < parts.length; i += 1) {
@@ -1285,8 +1331,8 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
       }
       setVoiceover((prev) => ({ ...prev, status: 'voiced' }));
       setVoiceoverApplyProgress({
-        current: segments.length,
-        total: segments.length,
+        current: voicedSegments.length,
+        total: voicedSegments.length,
         detail: t('video.vo_voice_apply_done'),
       });
     } catch (err) {

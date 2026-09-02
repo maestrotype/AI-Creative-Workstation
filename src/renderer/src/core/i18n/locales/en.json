@@ -360,6 +360,8 @@
     "pipe_fix_applying": "Saving…",
     "pipe_fix_saved": "Saved: {{rule}}. Go back to the Voice step and re-voice.",
     "pipe_estimate": "speech ≈{{est}}s / window {{window}}s",
+    "pipe_measured": "speech {{sec}}s / window {{window}}s",
+    "pipe_tempo": "sped up {{pct}}%",
     "pipe_estimate_over": "The text is longer than the scene window — speech may not fit. Shorten the text.",
     "dir_export": "Export MP4",
     "dir_exporting": "Rendering…",

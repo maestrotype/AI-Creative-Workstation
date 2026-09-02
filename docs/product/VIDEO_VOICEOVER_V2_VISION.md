@@ -175,9 +175,11 @@ Reuse [VOICE_PRONUNCIATION_PLAN.md](VOICE_PRONUNCIATION_PLAN.md):
   script table — spoken preview via `prepare-text` + inline fix («слово → как произнести»
   or «ударение на „а“») saved to the global lexicon via `POST /audio/lexicon/fix`.
   A successful fix resets voiceover status to `scripted` so A1 can be re-voiced.
-- **V2 add (✅ partially shipped):** per-segment speech-length estimate
-  (`words / WPM` vs scene window, warning color on overflow) in the script table.
-  Automatic pause/tempo tuning based on measured TTS durations — not yet done.
+- **V2 add (✅ shipped 2 Sep 2026):** speech-length estimate per segment
+  (`words / WPM` vs scene window, warning on overflow) plus automatic tempo fit at mix time:
+  `mix_voiceover_track` accepts `max_duration_sec` per part, applies ffmpeg `atempo` up to
+  +20% so speech fits the scene window; measured duration and tempo shown in the script table
+  after «Озвучить на A1».
 
 ---
 
@@ -284,7 +286,7 @@ flowchart TB
 
 | Date | Note |
 |------|------|
-| 2026-09-02 | **Per-segment pronunciation fix shipped** (G5 / P2): each row on the Script stage has a «Произношение» toggle → inline panel with a debounced spoken preview (`prepare-text`) and a fix input («слово → как произнести» / «ударение на „а“») saved to the global lexicon (`POST /audio/lexicon/fix`, context-aware). Saving resets voiceover status to `scripted` so A1 can be re-voiced with the new rule. Bonus: per-segment speech estimate «речь ≈N с / окно M с» with warning color on overflow (WPM budget check). Automatic tempo/pause tuning from measured TTS durations remains open. |
+| 2026-09-02 | **G5 pronunciation + tempo fit shipped** (P2): per-segment «Произношение» panel with spoken preview and lexicon fix; speech vs window estimate in script table; `mix_voiceover_track` fits each segment with ffmpeg `atempo` (up to +20%) via `max_duration_sec`; measured duration + tempo badge after A1 apply. **Timeout fix:** cached XTTS probe in sidecar, `prepare-text`/lexicon fix in thread pool, 30s timeout + deduped cache for `get-voice-profile` in main. |
 | 2026-09-02 | **Video-aware script + project context shipped** (G2 V2a–V2c, G4 / P1): `visual_caption.py` extracts one mid-scene keyframe per scene and captions it via any installed Ollama vision model (auto-detected from /api/tags); notes land in `visual_notes`, shown on the Analyze stage («Что на экране»), and feed the script prompt together with the new «Контекст проекта» field on the Brief stage (persisted in the director session). Fallback drafts now use captions instead of «Сцена N» placeholders. Main process starts Ollama before analyze so captions work. If no vision model: warning + hint in UI, everything else works as before. |
 | 2026-09-02 | **Continuous A1 voiceover shipped** (G3 / P0, option C): new `POST /api/audio/voiceover-track` merges per-segment TTS into one wav (adelay → amix normalize=0 → apad to video duration); A1 now gets a single «Озвучка» clip at 0:00. Verified with real ffmpeg run (mismatched sample rates, exact target duration). |
 | 2026-09-02 | **Pipeline layout mode shipped** (G1 / P0): 6-stage centered workflow (Материал → Анализ → Бриф → Сценарий → Голос → Финал), clickable stepper with unlock/auto-advance, script+preview 50/50 with timecode-seek, «Озвучка →» and «Подготовить озвучку» now force pipeline mode. See implementation status in [VIDEO_STUDIO_LAYOUT_MODES.md](../ux/VIDEO_STUDIO_LAYOUT_MODES.md). Decision: Review+Export merged into one «Финал» stage (Result pane already carries export UI). |

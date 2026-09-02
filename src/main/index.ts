@@ -47,6 +47,49 @@ const voiceInstallJob = {
   detail: '',
 };
 
+const voiceProfileCache = {
+  data: null as unknown,
+  at: 0,
+  inflight: null as Promise<unknown> | null,
+};
+const VOICE_PROFILE_TTL_MS = 30_000;
+
+function invalidateVoiceProfileCache(): void {
+  voiceProfileCache.data = null;
+  voiceProfileCache.at = 0;
+}
+
+async function fetchVoiceProfile(force = false): Promise<unknown> {
+  const now = Date.now();
+  if (!force && voiceProfileCache.data && now - voiceProfileCache.at < VOICE_PROFILE_TTL_MS) {
+    return voiceProfileCache.data;
+  }
+  if (voiceProfileCache.inflight) {
+    return voiceProfileCache.inflight;
+  }
+  voiceProfileCache.inflight = (async () => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) {
+      throw new Error(ready.error || 'Sidecar unavailable');
+    }
+    const url = `${SIDECAR_URL}/api/audio/voice${force ? '?refresh=1' : ''}`;
+    const res = await net.fetch(url, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    voiceProfileCache.data = data;
+    voiceProfileCache.at = Date.now();
+    return data;
+  })();
+  try {
+    return await voiceProfileCache.inflight;
+  } finally {
+    voiceProfileCache.inflight = null;
+  }
+}
+
 function sidecarRootDir(): string {
   return join(__dirname, '../../sidecar');
 }
@@ -1240,6 +1283,8 @@ function setupIpc() {
       voiceInstallJob.percent = 100;
       voiceInstallJob.stage = 'done';
       voiceInstallJob.detail = 'XTTS ready';
+      invalidateVoiceProfileCache();
+      await fetchVoiceProfile(true).catch(() => { /* warm cache */ });
       broadcast('voice-engine-updated', voiceEngineStatusPayload());
       return { ok: true };
     } finally {
@@ -1255,6 +1300,7 @@ function setupIpc() {
     const venvDir = join(sidecarRootDir(), '.venv-tts');
     if (existsSync(venvDir)) rmSync(venvDir, { recursive: true, force: true });
     if (existsSync(coquiTtsCacheDir())) rmSync(coquiTtsCacheDir(), { recursive: true, force: true });
+    invalidateVoiceProfileCache();
     broadcast('voice-engine-updated', voiceEngineStatusPayload());
     return { deleted: true };
   });
@@ -1315,14 +1361,7 @@ function setupIpc() {
     return { file_path: converted.file_path as string };
   });
 
-  ipcMain.handle('get-voice-profile', async () => {
-    const ready = await ensureSidecarReady();
-    if (!ready.ok) {
-      throw new Error(ready.error || 'Sidecar unavailable');
-    }
-    const res = await net.fetch(`${SIDECAR_URL}/api/audio/voice`, { signal: AbortSignal.timeout(5000) });
-    return res.json();
-  });
+  ipcMain.handle('get-voice-profile', async () => fetchVoiceProfile());
 
   ipcMain.handle('get-voice-tts-progress', async () => {
     const ready = await ensureSidecarReady();
@@ -1333,7 +1372,11 @@ function setupIpc() {
     return res.json();
   });
 
-  ipcMain.handle('save-voice-sample', async (_, inputPath: string) => sidecarJson('/api/audio/voice', { input_path: inputPath }));
+  ipcMain.handle('save-voice-sample', async (_, inputPath: string) => {
+    const result = await sidecarJson('/api/audio/voice', { input_path: inputPath });
+    invalidateVoiceProfileCache();
+    return result;
+  });
 
   ipcMain.handle('synthesize-voice', async (_, payload: {
     text: string;

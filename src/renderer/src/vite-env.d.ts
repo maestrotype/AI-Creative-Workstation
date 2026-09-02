@@ -145,10 +145,22 @@ interface Window {
       prepared_text?: string;
     }) => Promise<{ file_path: string; spoken_text?: string }>;
     mixVoiceoverTrack?: (payload: {
-      parts: Array<{ file_path: string; start_sec: number }>;
+      parts: Array<{ file_path: string; start_sec: number; max_duration_sec?: number }>;
       total_sec?: number;
       output_name?: string;
-    }) => Promise<{ status: string; file_path: string; parts: number }>;
+    }) => Promise<{
+      status: string;
+      file_path: string;
+      parts: number;
+      fit?: Array<{
+        index: number;
+        source_sec: number;
+        output_sec: number;
+        window_sec: number;
+        tempo: number;
+        fitted: boolean;
+      }>;
+    }>;
     prepareVoiceText: (payload: { text: string; language?: string; apply_stress?: boolean }) => Promise<{
       status: string;
       original: string;

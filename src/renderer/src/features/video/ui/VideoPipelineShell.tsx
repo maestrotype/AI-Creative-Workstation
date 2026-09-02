@@ -510,7 +510,10 @@ function StageScript(): ReactNode {
                 const words = seg.text.split(/\s+/).filter(Boolean).length;
                 const windowSec = Math.max(0, seg.end_sec - seg.start_sec);
                 const estSec = (words / Math.max(60, script.meta.words_per_min || 130)) * 60;
-                const over = words > 0 && estSec > windowSec + 1;
+                const measuredSec = seg.speech_sec;
+                const displaySec = measuredSec ?? estSec;
+                const over = words > 0 && displaySec > windowSec + (measuredSec != null ? 0.5 : 1);
+                const tempoApplied = seg.speech_tempo != null && seg.speech_tempo > 1.01;
                 return (
                   <Fragment key={`${seg.start_sec}-${index}`}>
                     <tr data-live={live} className={s.scriptRow}>
@@ -530,10 +533,20 @@ function StageScript(): ReactNode {
                             data-over={over}
                             title={over ? d.t('video.pipe_estimate_over') : undefined}
                           >
-                            {d.t('video.pipe_estimate', {
-                              est: Math.round(estSec),
-                              window: Math.round(windowSec),
-                            })}
+                            {measuredSec != null
+                              ? d.t('video.pipe_measured', {
+                                  sec: Math.round(measuredSec * 10) / 10,
+                                  window: Math.round(windowSec),
+                                })
+                              : d.t('video.pipe_estimate', {
+                                  est: Math.round(estSec),
+                                  window: Math.round(windowSec),
+                                })}
+                            {tempoApplied && seg.speech_tempo != null
+                              ? ` · ${d.t('video.pipe_tempo', {
+                                  pct: Math.round((seg.speech_tempo - 1) * 100),
+                                })}`
+                              : null}
                           </span>
                         ) : null}
                         <button

@@ -224,9 +224,10 @@ Notes:
 - ~~Per-segment pronunciation fix on the Script stage (G5)~~ — ✅ shipped same day;
   each segment row has a «Произношение» toggle → inline panel with spoken preview
   (`prepare-text`) and a lexicon fix input. Saving a fix re-enables «Озвучить на A1».
-- WPM / pause tuning so speech fits scene windows (G5) — partially: the script table
-  now shows «речь ≈N с / окно M с» per segment with a warning color on overflow;
-  automatic tempo/pause adjustment from measured TTS durations is still open.
+- ~~WPM / tempo tuning (G5)~~ — ✅ shipped same day; script table shows speech vs scene
+  window; after A1 apply, measured duration + «ускорено N%» when atempo was applied.
+  `prepare-text` / lexicon fix run in a sidecar thread pool so they no longer block
+  `GET /api/audio/voice` (fixes `get-voice-profile` TimeoutError).
 
 ---
 

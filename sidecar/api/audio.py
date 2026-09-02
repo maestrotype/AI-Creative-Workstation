@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+import asyncio
 import json
 import os
 import re
@@ -8,8 +9,10 @@ import subprocess
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
+from media_probe import audio_duration_sec
 from text_ru import (
     LEXICON_PATH,
     apply_pronunciation_fix,
@@ -31,6 +34,9 @@ SPEAKER_WAV = os.path.join(VOICE_DIR, "speaker.wav")
 SOURCE_META = os.path.join(VOICE_DIR, "source.json")
 
 _tts_lock = threading.Lock()
+_text_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="voice-text")
+_clone_python_path: Optional[str] = None
+_clone_python_checked = False
 _tts_job: Dict[str, Any] = {
     "active": False,
     "stage": "idle",
@@ -140,6 +146,7 @@ class LexiconFixRequest(BaseModel):
 class VoiceoverTrackPart(BaseModel):
     file_path: str
     start_sec: float = 0.0
+    max_duration_sec: Optional[float] = None
 
 
 class VoiceoverTrackRequest(BaseModel):
@@ -180,7 +187,11 @@ def convert_audio(request: ConvertAudioRequest):
     return {"status": "completed", "file_path": dest, "format": fmt}
 
 
-def _clone_python() -> Optional[str]:
+def _clone_python(*, refresh: bool = False) -> Optional[str]:
+    global _clone_python_path, _clone_python_checked
+    if _clone_python_checked and not refresh:
+        return _clone_python_path
+
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     verify = os.path.join(here, "verify_xtts.py")
     candidates = [
@@ -188,6 +199,7 @@ def _clone_python() -> Optional[str]:
         os.path.join(here, ".venv-tts", "bin", "python3"),
     ]
     env = {**os.environ, "COQUI_TOS_AGREED": "1"}
+    found: Optional[str] = None
     for py in candidates:
         if not py or not os.path.isfile(py):
             continue
@@ -205,12 +217,15 @@ def _clone_python() -> Optional[str]:
         except (OSError, subprocess.TimeoutExpired):
             continue
         if proc.returncode == 0:
-            return py
-    return None
+            found = py
+            break
+    _clone_python_path = found
+    _clone_python_checked = True
+    return found
 
 
-def _coqui_available() -> bool:
-    return _clone_python() is not None
+def _coqui_available(*, refresh: bool = False) -> bool:
+    return _clone_python(refresh=refresh) is not None
 
 
 def _run_xtts_clone(text: str, dest: str, language: str) -> None:
@@ -285,8 +300,8 @@ def _run_xtts_clone(text: str, dest: str, language: str) -> None:
 
 
 @router.get("/audio/voice")
-def voice_status():
-    engine = "xtts" if _coqui_available() else "none"
+def voice_status(refresh: bool = False):
+    engine = "xtts" if _coqui_available(refresh=refresh) else "none"
     meta = _read_source_meta()
     return {
         "has_sample": os.path.isfile(SPEAKER_WAV),
@@ -352,11 +367,15 @@ def _resolve_tts_text(request: TtsRequest) -> tuple[str, dict]:
 
 
 @router.post("/audio/prepare-text")
-def prepare_voice_text(request: PrepareTextRequest):
+async def prepare_voice_text(request: PrepareTextRequest):
     text = (request.text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
-    result = prepare_text(text, language=request.language, apply_stress=request.apply_stress)
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        _text_pool,
+        lambda: prepare_text(text, language=request.language, apply_stress=request.apply_stress),
+    )
     return {"status": "ok", **result}
 
 
@@ -409,20 +428,24 @@ def remove_lexicon(word: str):
 
 
 @router.post("/audio/lexicon/fix")
-def fix_pronunciation(request: LexiconFixRequest):
+async def fix_pronunciation(request: LexiconFixRequest):
     prompt = (request.prompt or "").strip()
     if not prompt:
         raise HTTPException(status_code=400, detail="prompt is required")
-    try:
+    loop = asyncio.get_running_loop()
+
+    def _fix() -> Dict[str, Any]:
         result = apply_pronunciation_fix(prompt, default_word=request.word)
+        payload: Dict[str, Any] = {"status": "saved", **result}
+        context = (request.context_text or "").strip()
+        if context:
+            payload["prepared"] = prepare_text(context, language="auto", apply_stress=True)
+        return payload
+
+    try:
+        return await loop.run_in_executor(_text_pool, _fix)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    payload: Dict[str, Any] = {"status": "saved", **result}
-    context = (request.context_text or "").strip()
-    if context:
-        payload["prepared"] = prepare_text(context, language="auto", apply_stress=True)
-    return payload
 
 
 @router.post("/audio/tts")
@@ -452,6 +475,51 @@ def synthesize_voice(request: TtsRequest):
     }
 
 
+def _fit_speech_duration(
+    src: str,
+    dest: str,
+    target_sec: float,
+    *,
+    min_tempo: float = 0.92,
+    max_tempo: float = 1.20,
+) -> Dict[str, Any]:
+    """Speed up speech slightly so it fits a scene window (atempo > 1 shortens)."""
+    source_sec = audio_duration_sec(src)
+    window_sec = max(0.1, float(target_sec))
+    if source_sec <= window_sec + 0.08:
+        shutil.copy2(src, dest)
+        return {
+            "source_sec": round(source_sec, 3),
+            "output_sec": round(source_sec, 3),
+            "window_sec": round(window_sec, 3),
+            "tempo": 1.0,
+            "fitted": False,
+        }
+
+    tempo = min(max_tempo, max(min_tempo, source_sec / window_sec))
+    cmd = [
+        _ffmpeg_bin(), "-y", "-i", src,
+        "-filter:a", f"atempo={tempo:.4f}",
+        "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le",
+        dest,
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(exc.stderr or exc.stdout or "ffmpeg atempo failed")[:500],
+        ) from exc
+    output_sec = audio_duration_sec(dest)
+    return {
+        "source_sec": round(source_sec, 3),
+        "output_sec": round(output_sec, 3),
+        "window_sec": round(window_sec, 3),
+        "tempo": round(tempo, 4),
+        "fitted": True,
+    }
+
+
 @router.post("/audio/voiceover-track")
 def mix_voiceover_track(request: VoiceoverTrackRequest):
     """Merge per-segment TTS clips into one continuous track.
@@ -465,11 +533,19 @@ def mix_voiceover_track(request: VoiceoverTrackRequest):
     if not parts:
         raise HTTPException(status_code=400, detail="parts is required")
     resolved: List[tuple[str, float]] = []
-    for part in parts:
+    fit_stats: List[Dict[str, Any]] = []
+    for idx, part in enumerate(parts):
         path = os.path.expanduser(part.file_path)
         if not os.path.isfile(path):
             raise HTTPException(status_code=400, detail=f"File not found: {part.file_path}")
-        resolved.append((path, max(0.0, float(part.start_sec or 0.0))))
+        work_path = path
+        if part.max_duration_sec and part.max_duration_sec > 0:
+            fitted = _audio_out(f"fit-{idx}-{int(time.time())}", "wav")
+            stat = _fit_speech_duration(path, fitted, part.max_duration_sec)
+            stat["index"] = idx
+            fit_stats.append(stat)
+            work_path = fitted
+        resolved.append((work_path, max(0.0, float(part.start_sec or 0.0))))
     resolved.sort(key=lambda item: item[1])
 
     dest = _audio_out(f"{request.output_name}-{int(time.time())}", "wav")
@@ -510,7 +586,12 @@ def mix_voiceover_track(request: VoiceoverTrackRequest):
             status_code=500,
             detail=(exc.stderr or exc.stdout or "ffmpeg voiceover mix failed")[:500],
         ) from exc
-    return {"status": "completed", "file_path": dest, "parts": len(resolved)}
+    return {
+        "status": "completed",
+        "file_path": dest,
+        "parts": len(resolved),
+        "fit": fit_stats,
+    }
 
 
 def _parse_timestamp(raw: str) -> float:
