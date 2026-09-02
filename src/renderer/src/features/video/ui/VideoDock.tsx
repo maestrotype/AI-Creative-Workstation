@@ -40,7 +40,7 @@ interface VideoDockProps {
 const GROUPS: { labelKey: string; ids: DockPanelId[] }[] = [
   { labelKey: 'video.menu_group_sources', ids: ['sources'] },
   { labelKey: 'video.menu_group_edit', ids: ['timeline', 'preview'] },
-  { labelKey: 'video.menu_group_generate', ids: ['storyboard', 'recording'] },
+  { labelKey: 'video.menu_group_generate', ids: ['storyboard', 'recording', 'fromvideo'] },
 ];
 
 export function VideoMenuBar({ state, onState }: { state: DockState; onState: (s: DockState) => void }): ReactNode {

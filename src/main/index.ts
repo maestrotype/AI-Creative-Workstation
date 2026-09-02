@@ -1001,6 +1001,31 @@ function setupIpc() {
     return body;
   });
 
+  ipcMain.handle('analyze-video', async (_, payload: {
+    video_path: string;
+    transcribe?: boolean;
+    scene_detect?: boolean;
+    language?: string;
+    use_cache?: boolean;
+  }) => sidecarJson('/api/video/analyze', payload, 60 * 60 * 1000));
+
+  ipcMain.handle('get-video-analyze-progress', async () => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) {
+      return { active: false, stage: 'idle', percent: 0, detail: '', elapsed_sec: 0, error: null };
+    }
+    const res = await net.fetch(`${SIDECAR_URL}/api/video/analyze/progress`, { signal: AbortSignal.timeout(3000) });
+    return res.json();
+  });
+
+  ipcMain.handle('get-video-analyze-cache', async (_, videoPath: string) => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) throw new Error(ready.error || 'Sidecar unavailable');
+    const url = `${SIDECAR_URL}/api/video/analyze/cache?video_path=${encodeURIComponent(videoPath)}`;
+    const res = await net.fetch(url, { signal: AbortSignal.timeout(15000) });
+    return res.json();
+  });
+
   ipcMain.handle('pick-audio', async () => {
     const result = await dialog.showOpenDialog({
       title: 'Choose an audio file',

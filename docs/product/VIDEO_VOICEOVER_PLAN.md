@@ -274,3 +274,4 @@ When Director ships, `From video` becomes one **intent** inside Director; keep A
 | Date | Note |
 |------|------|
 | 2026-09-01 | Initial plan: analyze → script → pronunciation TTS → timeline; branch `feat/video-voiceover` |
+| 2026-09-02 | Phase 1 shipped: analyze API, FromVideoPanel, scene detect + optional Whisper |

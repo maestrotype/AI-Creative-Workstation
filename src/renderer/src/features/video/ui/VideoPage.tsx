@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import { FromIdeaPanel } from './FromIdeaPanel';
 import { FromRecordingPanel } from './FromRecordingPanel';
+import { FromVideoPanel } from './FromVideoPanel';
 import { DirectorProvider, useDirector } from './DirectorBoard';
 import {
   DirectorResultPane,
@@ -40,6 +41,18 @@ function RecordingPane(): ReactNode {
   );
 }
 
+function FromVideoPane(): ReactNode {
+  const d = useDirector();
+  return (
+    <div className={styles.densePane}>
+      <FromVideoPanel
+        embedded
+        onProduced={(path) => { d.addSources([{ kind: 'video', path }], true); }}
+      />
+    </div>
+  );
+}
+
 export function VideoPage(): ReactNode {
   const [dock, setDock] = useDockLayout();
 
@@ -57,6 +70,7 @@ export function VideoPage(): ReactNode {
               sources: <DirectorSourcesPane />,
               storyboard: <StoryboardPane />,
               recording: <RecordingPane />,
+              fromvideo: <FromVideoPane />,
             }}
           />
         </DirectorProvider>

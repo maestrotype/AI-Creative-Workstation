@@ -172,6 +172,26 @@ interface Window {
       file_path: string | null;
       plan?: { notes: string[]; trim_end_sec: number };
     }>;
+    analyzeVideo: (payload: {
+      video_path: string;
+      transcribe?: boolean;
+      scene_detect?: boolean;
+      language?: string;
+      use_cache?: boolean;
+    }) => Promise<{ status: string; context: Record<string, unknown> }>;
+    getVideoAnalyzeProgress: () => Promise<{
+      active: boolean;
+      stage: string;
+      percent: number;
+      detail: string;
+      elapsed_sec: number;
+      error: string | null;
+      whisper_available?: boolean;
+    }>;
+    getVideoAnalyzeCache: (videoPath: string) => Promise<{
+      status: 'hit' | 'miss';
+      context: Record<string, unknown> | null;
+    }>;
     get3dStatus: () => Promise<{
       ready: boolean;
       detail?: string | null;

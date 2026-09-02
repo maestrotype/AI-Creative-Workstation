@@ -2,29 +2,23 @@
 > **Purpose:** This document is the single source of truth for the current development state, recent changes, and immediate next steps. It is designed to be read by AI agents to quickly gain context without traversing Git logs.
 
 ## Current Focus
-**Branch:** `feat/voice-pronunciation`
-- Pronunciation / TTS quality — [VOICE_PRONUNCIATION_PLAN.md](product/VOICE_PRONUNCIATION_PLAN.md) (**active**)
-- Video content voiceover (analyze → script → TTS) — [VIDEO_VOICEOVER_PLAN.md](product/VIDEO_VOICEOVER_PLAN.md) (**next branch:** `feat/video-voiceover`)
+**Branch:** `feat/video-voiceover`
+- Video content voiceover — [VIDEO_VOICEOVER_PLAN.md](product/VIDEO_VOICEOVER_PLAN.md) (**active**, Phase 1 analyze)
+- Pronunciation / TTS quality — merged from `feat/voice-pronunciation`
 - Video + local TTS baseline — [VIDEO_STUDIO_PLAN.md](product/VIDEO_STUDIO_PLAN.md)
 
-**Goal:** Ship Russian pronunciation automation + human fix UI in Assets and Video; then start video-analyze + script track on a separate branch.
+**Goal:** Phase 1 — video analyze (Whisper + scenes) + From video UI; then script LLM + TTS timeline.
 
-## Active work (feat/voice-pronunciation)
+## Active work (feat/video-voiceover)
 
-### Phase A — automation baseline
-- [x] `sidecar/text_ru.py` — normalize + RUAccent stress
-- [x] `POST /api/audio/prepare-text`
-- [x] Extend `POST /api/audio/tts` with prepared text path
-- [x] Assets UI: test phrase → show processed text → TTS preview
+### Phase 1 — Analyze
+- [x] `scene_detect.py` + `transcribe.py` + `video_analyze.py`
+- [x] `POST /api/video/analyze` + progress + cache
+- [x] `FromVideoPanel` + dock panel «Озвучка видео»
+- [ ] Whisper install path in Studio (optional)
 
-### Phase B — human-in-the-loop
-- [x] Lexicon file `~/Documents/Canvas/Voice/lexicon.json` + API
-- [x] Prompt-based «fix pronunciation» → lexicon entry
-- [x] Video Director: per-segment fix after listen
-
-## Next branch (feat/video-voiceover)
-
-See [VIDEO_VOICEOVER_PLAN.md](product/VIDEO_VOICEOVER_PLAN.md) — Phase 1: Whisper + scene detect + `FromVideoPanel` UI.
+### Phase 2 — Script (next)
+- [ ] `POST /api/script/generate` + editor UI
 
 ## Recently Completed
 - [x] Initial React + Vite architecture setup with CSS modules.

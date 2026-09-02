@@ -97,6 +97,15 @@ const api = {
   }) => ipcRenderer.invoke('apply-video-timeline', payload),
   cleanScreencast: (payload: { input_path: string; prompt: string; dry_run?: boolean }) =>
     ipcRenderer.invoke('clean-screencast', payload),
+  analyzeVideo: (payload: {
+    video_path: string;
+    transcribe?: boolean;
+    scene_detect?: boolean;
+    language?: string;
+    use_cache?: boolean;
+  }) => ipcRenderer.invoke('analyze-video', payload),
+  getVideoAnalyzeProgress: () => ipcRenderer.invoke('get-video-analyze-progress'),
+  getVideoAnalyzeCache: (videoPath: string) => ipcRenderer.invoke('get-video-analyze-cache', videoPath),
   get3dStatus: () => ipcRenderer.invoke('get-3d-status'),
   get3dProgress: () => ipcRenderer.invoke('get-3d-progress'),
   generateMesh: (payload: {

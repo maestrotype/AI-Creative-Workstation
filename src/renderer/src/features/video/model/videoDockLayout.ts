@@ -1,4 +1,4 @@
-export type DockPanelId = 'timeline' | 'preview' | 'sources' | 'storyboard' | 'recording';
+export type DockPanelId = 'timeline' | 'preview' | 'sources' | 'storyboard' | 'recording' | 'fromvideo';
 export type DockMode = 'tile' | 'free';
 
 export interface DockRect {
@@ -22,7 +22,7 @@ export interface DockState {
   freeCanvasHpx?: number;
 }
 
-export const DOCK_PANEL_IDS: DockPanelId[] = ['timeline', 'preview', 'sources', 'storyboard', 'recording'];
+export const DOCK_PANEL_IDS: DockPanelId[] = ['timeline', 'preview', 'sources', 'storyboard', 'recording', 'fromvideo'];
 
 export const DOCK_TITLE_KEYS: Record<DockPanelId, string> = {
   timeline: 'video.dir_timeline',
@@ -30,6 +30,7 @@ export const DOCK_TITLE_KEYS: Record<DockPanelId, string> = {
   sources: 'video.dir_bin',
   storyboard: 'video.panel_storyboard',
   recording: 'video.panel_recording',
+  fromvideo: 'video.panel_fromvideo',
 };
 
 export function defaultDockState(): DockState {
@@ -41,16 +42,18 @@ export function defaultDockState(): DockState {
       timeline: { x: 0.5, y: 50, w: 99, h: 48, z: 1, span: 12, hpx: 268, order: 3, visible: true },
       storyboard: { x: 4, y: 3, w: 88, h: 90, z: 8, span: 8, hpx: 480, order: 4, visible: false },
       recording: { x: 8, y: 6, w: 82, h: 84, z: 8, span: 4, hpx: 360, order: 5, visible: false },
+      fromvideo: { x: 10, y: 8, w: 80, h: 82, z: 8, span: 6, hpx: 400, order: 6, visible: false },
     },
   };
 }
 
-const STORAGE_KEY = 'video-dock-layout-v5';
+const STORAGE_KEY = 'video-dock-layout-v6';
 
 export function loadDockState(): DockState {
   const base = defaultDockState();
   try {
     let raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) raw = localStorage.getItem('video-dock-layout-v5');
     if (!raw) raw = localStorage.getItem('video-dock-layout-v4');
     if (!raw) return base;
     const parsed = JSON.parse(raw) as Partial<DockState>;
@@ -58,6 +61,9 @@ export function loadDockState(): DockState {
     for (const id of DOCK_PANEL_IDS) {
       const next = parsed.panels?.[id];
       if (next && typeof next.span === 'number') base.panels[id] = { ...base.panels[id], ...next };
+    }
+    if (!base.panels.fromvideo) {
+      base.panels.fromvideo = defaultDockState().panels.fromvideo;
     }
     if (base.panels.recording.span >= 8) {
       base.panels.recording = { ...base.panels.recording, span: 4 };
