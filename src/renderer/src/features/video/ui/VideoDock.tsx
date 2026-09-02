@@ -74,11 +74,22 @@ export function VideoMenuBar({
       <div className={styles.menuTop}>
         <div className={styles.menuBrand}>
           <span className={styles.brand}>{t('video.title')}</span>
-          <span className={styles.brandHint}>{t('video.menu_lead')}</span>
+          <span className={styles.brandHint}>
+            {t(state.mode === 'pipeline' ? 'video.menu_lead_pipeline' : 'video.menu_lead')}
+          </span>
         </div>
         <div className={styles.menuTools}>
           <span className={styles.toolsLabel}>{t('video.menu_layout_label')}</span>
           <div className={styles.modeSwitch}>
+            <button
+              type="button"
+              className={styles.modeBtn}
+              data-on={state.mode === 'pipeline'}
+              title={t('video.menu_layout_pipeline_hint')}
+              onClick={() => onState({ ...state, mode: 'pipeline' })}
+            >
+              {t('video.menu_layout_pipeline')}
+            </button>
             <button
               type="button"
               className={styles.modeBtn}
@@ -110,6 +121,7 @@ export function VideoMenuBar({
           </button>
         </div>
       </div>
+      {state.mode === 'pipeline' ? null : (
       <div className={styles.menuGroups}>
         {GROUPS.map((group) => (
           <section key={group.labelKey} className={styles.menuGroup}>
@@ -139,6 +151,7 @@ export function VideoMenuBar({
           </section>
         ))}
       </div>
+      )}
     </header>
   );
 }
@@ -148,10 +161,6 @@ export function VideoDock({ state, onState, panels }: VideoDockProps): ReactNode
   const canvasRef = useRef<HTMLDivElement>(null);
   const freeSurfaceRef = useRef<HTMLDivElement>(null);
   const job = useRef<Job | null>(null);
-
-  useEffect(() => {
-    saveDockState(state);
-  }, [state]);
 
   const patch = (id: DockPanelId, next: Partial<DockRect>) => {
     if (state.mode === 'free') {
@@ -337,5 +346,9 @@ function maxZ(state: DockState): number {
 
 export function useDockLayout(): [DockState, (state: DockState) => void] {
   const [state, setState] = useState<DockState>(() => loadDockState());
+  // Persist here (not in VideoDock): the dock is unmounted in pipeline mode.
+  useEffect(() => {
+    saveDockState(state);
+  }, [state]);
   return [state, setState];
 }

@@ -327,8 +327,13 @@ export function DirectorResultPane(): ReactNode {
   );
 }
 
-export function DirectorSourcesPane(): ReactNode {
+export function DirectorSourcesPane({
+  onOpenVoiceover,
+}: {
+  onOpenVoiceover?: () => void;
+} = {}): ReactNode {
   const d = useDirector();
+  const openVoiceover = onOpenVoiceover ?? d.openVoiceover;
   const onSourcesDragOver = (event: DragEvent<HTMLElement>) => {
     if (!hasOsFiles(event)) return;
     event.preventDefault();
@@ -366,7 +371,7 @@ export function DirectorSourcesPane(): ReactNode {
             <button
               type="button"
               className={styles.toolPrimary}
-              onClick={d.openVoiceover}
+              onClick={openVoiceover}
             >
               {d.t('video.vo_open')}
             </button>
@@ -515,7 +520,7 @@ export function DirectorSourcesPane(): ReactNode {
                 <button
                   type="button"
                   className={styles.placeBtnPrimary}
-                  onClick={d.openVoiceover}
+                  onClick={openVoiceover}
                 >
                   {d.t('video.vo_open')}
                 </button>

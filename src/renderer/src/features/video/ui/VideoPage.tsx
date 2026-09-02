@@ -9,6 +9,7 @@ import {
 import { FromIdeaPanel } from './FromIdeaPanel';
 import { FromRecordingPanel } from './FromRecordingPanel';
 import { VideoDock, VideoMenuBar, useDockLayout } from './VideoDock';
+import { VideoPipelineShell } from './VideoPipelineShell';
 import type { DockState } from '../model/videoDockLayout';
 import styles from './VideoPage.module.css';
 
@@ -51,8 +52,10 @@ function VideoStudioShell(): ReactNode {
 
   const openVoiceover = () => {
     d.openVoiceover();
+    // Voiceover lives in the pipeline mode: one centered stage, no panel hunting.
     setDock({
       ...dock,
+      mode: 'pipeline',
       panels: {
         ...dock.panels,
         sources: {
@@ -68,17 +71,21 @@ function VideoStudioShell(): ReactNode {
     <>
       <VideoMenuBar state={dock} onState={setDock} onOpenVoiceover={openVoiceover} />
       <div className={styles.studioBody}>
-        <VideoDock
-          state={dock}
-          onState={setDock}
-          panels={{
-            timeline: <DirectorTimelinePane />,
-            preview: <DirectorResultPane />,
-            sources: <DirectorSourcesPane />,
-            storyboard: <StoryboardPane />,
-            recording: <RecordingPane />,
-          }}
-        />
+        {dock.mode === 'pipeline' ? (
+          <VideoPipelineShell />
+        ) : (
+          <VideoDock
+            state={dock}
+            onState={setDock}
+            panels={{
+              timeline: <DirectorTimelinePane />,
+              preview: <DirectorResultPane />,
+              sources: <DirectorSourcesPane onOpenVoiceover={openVoiceover} />,
+              storyboard: <StoryboardPane />,
+              recording: <RecordingPane />,
+            }}
+          />
+        )}
       </div>
     </>
   );

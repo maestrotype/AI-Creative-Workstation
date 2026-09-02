@@ -221,7 +221,7 @@ flowchart TB
 
 | Priority | Task | Outcome |
 |----------|------|---------|
-| **P0** | Pipeline layout mode + stepper | Usable voiceover without scattered panels |
+| **P0** | ✅ Pipeline layout mode + stepper (shipped 2 Sep 2026) | Usable voiceover without scattered panels |
 | **P0** | Single A1 voiceover track (concat) | Continuous narration |
 | **P1** | Keyframe + VLM captions per scene | Script describes screen content |
 | **P1** | Project context field + persistence | Reusable product brief |
@@ -269,5 +269,6 @@ flowchart TB
 
 | Date | Note |
 |------|------|
+| 2026-09-02 | **Pipeline layout mode shipped** (G1 / P0): 6-stage centered workflow (Материал → Анализ → Бриф → Сценарий → Голос → Финал), clickable stepper with unlock/auto-advance, script+preview 50/50 with timecode-seek, «Озвучка →» and «Подготовить озвучку» now force pipeline mode. See implementation status in [VIDEO_STUDIO_LAYOUT_MODES.md](../ux/VIDEO_STUDIO_LAYOUT_MODES.md). Decision: Review+Export merged into one «Финал» stage (Result pane already carries export UI). |
 | 2026-09-02 | V2 vision doc created from user feedback after V1 MVP demo |
 | 2026-09-02 | V1 MVP committed: analyze → script → inline voice → A1 segments → export |
