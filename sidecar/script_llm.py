@@ -75,6 +75,24 @@ def _scene_list(video_context: dict[str, Any]) -> list[dict[str, Any]]:
     return scenes
 
 
+def _captions_by_scene(video_context: dict[str, Any]) -> dict[int, str]:
+    """First VLM caption per scene index, if visual notes are present."""
+    out: dict[int, str] = {}
+    for note in video_context.get("visual_notes") or []:
+        if not isinstance(note, dict):
+            continue
+        caption = str(note.get("caption") or "").strip()
+        if not caption:
+            continue
+        try:
+            idx = int(note.get("scene_index", -1))
+        except (TypeError, ValueError):
+            continue
+        if idx >= 0 and idx not in out:
+            out[idx] = caption
+    return out
+
+
 def _align_segments_to_scenes(
     video_context: dict[str, Any],
     llm_segments: list[dict[str, Any]],
@@ -151,12 +169,17 @@ def _fallback_script(
     topic = (prompt or "").strip() or ("озвучка видео" if language.startswith("ru") else "video voiceover")
     segments: list[dict[str, Any]] = []
 
+    captions = _captions_by_scene(video_context)
+
     for i, scene in enumerate(scenes):
         start = float(scene.get("start", 0))
         end = float(scene.get("end", duration))
         overlap = _transcript_for_scene(transcript_segs, start, end)
+        caption = captions.get(int(scene.get("index", i)))
         if overlap:
             text = overlap
+        elif caption:
+            text = caption
         elif language.startswith("ru"):
             if i == 0:
                 text = f"Привет! Сегодня — {topic}."
@@ -198,20 +221,41 @@ def _build_llm_prompt(
     prompt: str,
     language: str,
     target_wpm: int,
+    project_context: str = "",
 ) -> str:
     duration = float(video_context.get("duration_sec") or 0)
     scenes = _scene_list(video_context)
     scene_count = len(scenes)
     transcript = (video_context.get("transcript") or {}).get("full_text") or ""
-    scene_lines = [
-        f"- scene {s.get('index', i)}: {s.get('start', 0):.1f}s – {s.get('end', 0):.1f}s"
-        for i, s in enumerate(scenes)
-    ]
+    captions = _captions_by_scene(video_context)
+    scene_lines = []
+    for i, s in enumerate(scenes):
+        idx = int(s.get("index", i))
+        line = f"- scene {idx}: {s.get('start', 0):.1f}s – {s.get('end', 0):.1f}s"
+        caption = captions.get(idx)
+        if caption:
+            line += f" — on screen: {caption}"
+        scene_lines.append(line)
     lang_label = "Russian" if language.startswith("ru") else "English"
+
+    context_block = ""
+    ctx = (project_context or "").strip()
+    if ctx:
+        context_block = f"""
+Project facts (ground truth about the product — rely on these, do not invent features):
+{ctx[:2500]}
+"""
+
+    visual_rule = (
+        "- Narrate what actually happens on screen using the per-scene notes above."
+        if captions
+        else "- No visual notes available — stay close to the brief and transcript."
+    )
+
     return f"""You write a voiceover script for an existing video.
 
 User brief: {prompt or '(no brief — infer from context)'}
-
+{context_block}
 Video duration: {duration:.1f} seconds
 Target language: {lang_label}
 Target pace: ~{target_wpm} words per minute
@@ -234,6 +278,7 @@ Rules:
 - You MUST return exactly {scene_count} segments — one per scene listed above.
 - segment[i].start_sec and end_sec MUST match scene[i] boundaries exactly.
 - Each segment text must fit its time window at ~{target_wpm} wpm.
+{visual_rule}
 - roles: hook | body | outro | cta
 - No markdown, no commentary outside JSON.
 """
@@ -279,9 +324,10 @@ def generate_voiceover_script(
     *,
     prefer_ollama: bool = True,
     ollama_model: str = DEFAULT_OLLAMA_MODEL,
+    project_context: str = "",
 ) -> dict[str, Any]:
     duration = float(video_context.get("duration_sec") or 60)
-    llm_prompt = _build_llm_prompt(video_context, prompt, language, target_wpm)
+    llm_prompt = _build_llm_prompt(video_context, prompt, language, target_wpm, project_context)
 
     if prefer_ollama:
         llm_result = _try_ollama(llm_prompt, model=ollama_model)

@@ -144,6 +144,11 @@ interface Window {
       skip_prepare?: boolean;
       prepared_text?: string;
     }) => Promise<{ file_path: string; spoken_text?: string }>;
+    mixVoiceoverTrack?: (payload: {
+      parts: Array<{ file_path: string; start_sec: number }>;
+      total_sec?: number;
+      output_name?: string;
+    }) => Promise<{ status: string; file_path: string; parts: number }>;
     prepareVoiceText: (payload: { text: string; language?: string; apply_stress?: boolean }) => Promise<{
       status: string;
       original: string;
@@ -220,6 +225,7 @@ interface Window {
     generateScript: (payload: {
       video_context: Record<string, unknown>;
       prompt?: string;
+      project_context?: string;
       language?: string;
       target_wpm?: number;
       prefer_ollama?: boolean;

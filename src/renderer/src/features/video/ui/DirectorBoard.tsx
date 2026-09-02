@@ -172,6 +172,7 @@ type DirectorSnap = {
   scriptBusy: boolean;
   scriptError: string | null;
   setScriptPrompt: (prompt: string) => void;
+  setProjectContext: (value: string) => void;
   generateScript: () => void;
   updateScriptSegment: (index: number, patch: Partial<{ text: string; start_sec: number; end_sec: number; role: string }>) => void;
   voiceoverApplyBusy: boolean;
@@ -1143,6 +1144,10 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     setVoiceover((prev) => ({ ...prev, scriptPrompt: prompt }));
   };
 
+  const setProjectContext = (value: string) => {
+    setVoiceover((prev) => ({ ...prev, projectContext: value }));
+  };
+
   const generateScript = async () => {
     const ctx = voiceover.analysis;
     if (!ctx || !window.api?.generateScript) {
@@ -1155,6 +1160,7 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
       const result = await window.api.generateScript({
         video_context: ctx as unknown as Record<string, unknown>,
         prompt: voiceover.scriptPrompt,
+        project_context: voiceover.projectContext,
         language: 'ru',
         target_wpm: 130,
       });
@@ -1231,6 +1237,7 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     }, 600);
 
     try {
+      const parts: Array<{ file_path: string; start_sec: number }> = [];
       for (let i = 0; i < segments.length; i += 1) {
         const seg = segments[i];
         setVoiceoverApplyProgress({
@@ -1247,11 +1254,34 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
           text: seg.text.trim(),
           prepared_text: preparedText,
         });
-        await ingestAudioPathAt(
-          result.file_path,
-          seg.start_sec,
-          t('video.vo_voice_clip_label', { n: i + 1 }),
+        parts.push({ file_path: result.file_path, start_sec: seg.start_sec });
+      }
+      if (window.api.mixVoiceoverTrack) {
+        // One continuous A1 clip: segments padded with silence to their
+        // timecodes, track stretched to the full video duration.
+        setVoiceoverApplyProgress({
+          current: segments.length,
+          total: segments.length,
+          detail: t('video.vo_voice_mixing'),
+        });
+        const totalSec = Math.max(
+          voiceover.analysis?.duration_sec ?? 0,
+          ...segments.map((seg) => seg.end_sec),
         );
+        const mixed = await window.api.mixVoiceoverTrack({
+          parts,
+          total_sec: totalSec > 0 ? totalSec : undefined,
+          output_name: 'voiceover',
+        });
+        await ingestAudioPathAt(mixed.file_path, 0, t('video.vo_voice_track_label'));
+      } else {
+        for (let i = 0; i < parts.length; i += 1) {
+          await ingestAudioPathAt(
+            parts[i].file_path,
+            parts[i].start_sec,
+            t('video.vo_voice_clip_label', { n: i + 1 }),
+          );
+        }
       }
       setVoiceover((prev) => ({ ...prev, status: 'voiced' }));
       setVoiceoverApplyProgress({
@@ -1634,6 +1664,7 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     scriptBusy,
     scriptError,
     setScriptPrompt,
+    setProjectContext,
     generateScript: () => { void generateScript(); },
     updateScriptSegment,
     voiceoverApplyBusy,

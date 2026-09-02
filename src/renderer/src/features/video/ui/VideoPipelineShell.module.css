@@ -138,6 +138,34 @@
   text-align: center;
 }
 
+/* ── brief stage: project context ────────────────────────── */
+
+.contextDetails {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+}
+
+.contextDetails > summary {
+  color: var(--color-text-secondary);
+  font-size: var(--text-body-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.contextDetails[open] > summary {
+  margin-bottom: var(--space-2);
+}
+
+.contextBadge {
+  margin-left: var(--space-2);
+  color: var(--color-accent);
+}
+
 /* ── script stage split ──────────────────────────────────── */
 
 .split {

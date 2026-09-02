@@ -107,12 +107,12 @@ Editable script table (unchanged UX, better content)
 
 **Implementation phases:**
 
-| Phase | Capability | Tech |
-|-------|------------|------|
-| V2a | Keyframe extract (1 per scene) + vision caption | ffmpeg + local VLM (MLX) or cloud vision API |
-| V2b | `ProjectContext` — user pastes/uploads product doc; stored in project | Renderer + optional sidecar chunk for LLM |
-| V2c | Script prompt uses `visual_notes` + `ProjectContext` + brief | Extend `script_llm.py` |
-| V2d | Post-check: segment count = scenes, coverage = duration | Already partial in V1 |
+| Phase | Capability | Tech | Status |
+|-------|------------|------|--------|
+| V2a | Keyframe extract (1 per scene) + vision caption | ffmpeg + **Ollama vision model** (auto-detected: qwen2.5vl / llava / llama3.2-vision / minicpm-v / gemma3 / moondream…) | ✅ shipped 2 Sep 2026 — `sidecar/visual_caption.py`, wired into `video_analyze.py` (stage `visual`, cached with analysis; degrades to `VISION_MODEL_MISSING` warning) |
+| V2b | `ProjectContext` — user pastes product doc | `voiceover.projectContext` in director session (persists across restarts); Brief stage UI | ✅ shipped 2 Sep 2026 |
+| V2c | Script prompt uses `visual_notes` + `ProjectContext` + brief | `script_llm._build_llm_prompt` — per-scene “on screen: …” lines + “Project facts” block; caption-aware fallback replaces «Сцена N» placeholders | ✅ shipped 2 Sep 2026 |
+| V2d | Post-check: segment count = scenes, coverage = duration | Already partial in V1 | partial |
 
 **Contract extension (`VideoContext.visual_notes`):**
 
@@ -143,6 +143,16 @@ Editable script table (unchanged UX, better content)
 **UI change:** User sees one “Voiceover” clip on A1, not four “Озвучка N” fragments.
 
 **Backend:** `POST /api/audio/tts/voiceover-track` — input: segments[], output: single wav + duration map for editor.
+
+> ✅ **Shipped 2 Sep 2026 (option C).** Actual endpoint: `POST /api/audio/voiceover-track`
+> (`sidecar/api/audio.py: mix_voiceover_track`). Per-segment XTTS stays (pronunciation
+> per line); ffmpeg then unifies rate/layout (`aresample=48000` + mono), delays each part
+> to its `start_sec` (`adelay`), mixes without loudness normalization (`amix normalize=0`,
+> speech never overlaps), and pads with silence to the full video duration
+> (`apad=whole_dur`). Renderer (`applyScriptVoiceover` in `DirectorBoard.tsx`) collects
+> segment wavs, calls `window.api.mixVoiceoverTrack`, and places **one clip «Озвучка»**
+> on A1 at 0:00 spanning the video. Falls back to per-segment placement if the mix API
+> is unavailable. IPC: `mix-voiceover-track` in `src/main/index.ts` + preload bridge.
 
 ### G4 — Project context prompt
 
@@ -222,10 +232,10 @@ flowchart TB
 | Priority | Task | Outcome |
 |----------|------|---------|
 | **P0** | ✅ Pipeline layout mode + stepper (shipped 2 Sep 2026) | Usable voiceover without scattered panels |
-| **P0** | Single A1 voiceover track (concat) | Continuous narration |
-| **P1** | Keyframe + VLM captions per scene | Script describes screen content |
-| **P1** | Project context field + persistence | Reusable product brief |
-| **P2** | Script preview sync (click segment → seek) | Edit with video context |
+| **P0** | ✅ Single A1 voiceover track (concat, shipped 2 Sep 2026) | Continuous narration |
+| **P1** | ✅ Keyframe + VLM captions per scene (shipped 2 Sep 2026) | Script describes screen content |
+| **P1** | ✅ Project context field + persistence (shipped 2 Sep 2026) | Reusable product brief |
+| **P2** | ✅ Script preview sync — click timecode → seek (shipped with pipeline mode) | Edit with video context |
 | **P2** | Pronunciation fix per segment in table | Quality |
 | **P3** | Cloud vision fallback | Better captions without local VLM |
 | **P3** | Duck / mute original audio | Demo workflow |
@@ -269,6 +279,8 @@ flowchart TB
 
 | Date | Note |
 |------|------|
+| 2026-09-02 | **Video-aware script + project context shipped** (G2 V2a–V2c, G4 / P1): `visual_caption.py` extracts one mid-scene keyframe per scene and captions it via any installed Ollama vision model (auto-detected from /api/tags); notes land in `visual_notes`, shown on the Analyze stage («Что на экране»), and feed the script prompt together with the new «Контекст проекта» field on the Brief stage (persisted in the director session). Fallback drafts now use captions instead of «Сцена N» placeholders. Main process starts Ollama before analyze so captions work. If no vision model: warning + hint in UI, everything else works as before. |
+| 2026-09-02 | **Continuous A1 voiceover shipped** (G3 / P0, option C): new `POST /api/audio/voiceover-track` merges per-segment TTS into one wav (adelay → amix normalize=0 → apad to video duration); A1 now gets a single «Озвучка» clip at 0:00. Verified with real ffmpeg run (mismatched sample rates, exact target duration). |
 | 2026-09-02 | **Pipeline layout mode shipped** (G1 / P0): 6-stage centered workflow (Материал → Анализ → Бриф → Сценарий → Голос → Финал), clickable stepper with unlock/auto-advance, script+preview 50/50 with timecode-seek, «Озвучка →» and «Подготовить озвучку» now force pipeline mode. See implementation status in [VIDEO_STUDIO_LAYOUT_MODES.md](../ux/VIDEO_STUDIO_LAYOUT_MODES.md). Decision: Review+Export merged into one «Финал» stage (Result pane already carries export UI). |
 | 2026-09-02 | V2 vision doc created from user feedback after V1 MVP demo |
 | 2026-09-02 | V1 MVP committed: analyze → script → inline voice → A1 segments → export |

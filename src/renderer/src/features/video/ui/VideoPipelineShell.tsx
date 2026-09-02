@@ -262,6 +262,23 @@ function StageAnalyze(): ReactNode {
               ))}
             </ul>
           </details>
+          {ctx.visual_notes?.length ? (
+            <details className={vp.voDetails}>
+              <summary>{d.t('video.pipe_visual_notes')}</summary>
+              <ul className={vp.transcriptList}>
+                {ctx.visual_notes.map((note, i) => (
+                  <li key={`${note.time}-${i}`}>
+                    <span className={vp.ts}>{formatTimecode(note.time)}</span>
+                    {note.caption}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : ctx.warnings?.includes('VISION_MODEL_MISSING') ? (
+            <p className={vp.hintTight}>{d.t('video.pipe_vision_missing')}</p>
+          ) : (
+            <p className={vp.hintTight}>{d.t('video.pipe_visual_empty')}</p>
+          )}
           {ctx.transcript.segments.length > 0 ? (
             <details className={vp.voDetails}>
               <summary>{d.t('video.vo_show_transcript')}</summary>
@@ -286,6 +303,7 @@ function StageBrief(): ReactNode {
   const busy = d.scriptBusy;
   const hasScript = Boolean(d.voiceover.script?.segments.length);
   const [ollamaReady, setOllamaReady] = useState<boolean | null>(null);
+  const [ctxOpen, setCtxOpen] = useState(() => Boolean(d.voiceover.projectContext.trim()));
 
   useEffect(() => {
     void window.api?.getOllamaEngineStatus?.().then((status) => {
@@ -316,6 +334,25 @@ function StageBrief(): ReactNode {
           disabled={busy}
         />
       </label>
+      <details
+        className={s.contextDetails}
+        open={ctxOpen}
+        onToggle={(e) => setCtxOpen((e.target as HTMLDetailsElement).open)}
+      >
+        <summary>
+          {d.t('video.pipe_context_title')}
+          {d.voiceover.projectContext.trim() ? <span className={s.contextBadge}>✓</span> : null}
+        </summary>
+        <p className={vp.hintTight}>{d.t('video.pipe_context_hint')}</p>
+        <textarea
+          className={vp.voPromptInput}
+          rows={6}
+          value={d.voiceover.projectContext}
+          onChange={(e) => d.setProjectContext(e.target.value)}
+          placeholder={d.t('video.pipe_context_placeholder')}
+          disabled={busy}
+        />
+      </details>
       <div className={vp.toolRow}>
         <button
           type="button"

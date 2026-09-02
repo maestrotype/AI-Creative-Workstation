@@ -87,6 +87,11 @@ const api = {
     skip_prepare?: boolean;
     prepared_text?: string;
   }) => ipcRenderer.invoke('synthesize-voice', payload),
+  mixVoiceoverTrack: (payload: {
+    parts: Array<{ file_path: string; start_sec: number }>;
+    total_sec?: number;
+    output_name?: string;
+  }) => ipcRenderer.invoke('mix-voiceover-track', payload),
   prepareVoiceText: (payload: { text: string; language?: string; apply_stress?: boolean }) =>
     ipcRenderer.invoke('prepare-voice-text', payload),
   getVoiceLexicon: () => ipcRenderer.invoke('get-voice-lexicon'),
@@ -113,6 +118,7 @@ const api = {
   generateScript: (payload: {
     video_context: Record<string, unknown>;
     prompt?: string;
+    project_context?: string;
     language?: string;
     target_wpm?: number;
     prefer_ollama?: boolean;

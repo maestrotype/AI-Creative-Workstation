@@ -11,6 +11,8 @@ export interface VoiceoverSession {
   analysis: VideoAnalysisContext | null;
   script: VoiceoverScript | null;
   scriptPrompt: string;
+  /** Reusable product/project facts fed into every script generation. */
+  projectContext: string;
   status: VoiceoverStatus;
   expanded: boolean;
 }
@@ -29,6 +31,7 @@ export function emptyVoiceoverSession(): VoiceoverSession {
     analysis: null,
     script: null,
     scriptPrompt: '',
+    projectContext: '',
     status: 'idle',
     expanded: false,
   };

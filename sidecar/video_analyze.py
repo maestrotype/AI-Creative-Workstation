@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, List, Optional
 from media_probe import video_duration_sec
 from scene_detect import detect_scenes
 from transcribe import transcribe_video, whisper_available
+from visual_caption import caption_scenes
 
 ANALYSIS_DIR = os.path.expanduser("~/Documents/Canvas/Generated/Video/analysis")
 
@@ -83,6 +84,7 @@ def analyze_video(
     *,
     transcribe: bool = True,
     scene_detect: bool = True,
+    visual_captions: bool = True,
     language: str = "auto",
     use_cache: bool = True,
     duration_sec: Optional[float] = None,
@@ -126,6 +128,26 @@ def analyze_video(
                 warnings.append(f"SCENE_DETECT_FAILED: {exc}")
                 scenes = [{"index": 0, "start": 0.0, "end": round(duration_sec, 3)}]
 
+        visual_notes: List[Dict[str, Any]] = []
+        if visual_captions and scenes:
+            try:
+                frames_dir = os.path.join(
+                    ANALYSIS_DIR,
+                    "frames",
+                    os.path.splitext(os.path.basename(_cache_path(resolved)))[0],
+                )
+                caption_lang = language if language not in ("", "auto") else "ru"
+                visual_notes, visual_warnings = caption_scenes(
+                    resolved,
+                    scenes,
+                    frames_dir,
+                    language=caption_lang,
+                    on_progress=_progress_cb,
+                )
+                warnings.extend(visual_warnings)
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(f"VISUAL_CAPTION_FAILED: {exc}")
+
         transcript: Dict[str, Any] = {
             "segments": [],
             "language": "unknown",
@@ -149,7 +171,7 @@ def analyze_video(
                 "full_text": transcript.get("full_text") or "",
             },
             "scenes": scenes,
-            "visual_notes": [],
+            "visual_notes": visual_notes,
             "warnings": warnings,
             "whisper_available": whisper_available(),
             "from_cache": False,

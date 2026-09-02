@@ -137,6 +137,17 @@ class LexiconFixRequest(BaseModel):
     context_text: Optional[str] = None
 
 
+class VoiceoverTrackPart(BaseModel):
+    file_path: str
+    start_sec: float = 0.0
+
+
+class VoiceoverTrackRequest(BaseModel):
+    parts: List[VoiceoverTrackPart]
+    total_sec: Optional[float] = None
+    output_name: str = "voiceover"
+
+
 def _encode_args(fmt: str) -> List[str]:
     key = (fmt or "wav").lower().replace("flack", "flac")
     if key == "mp3":
@@ -439,6 +450,67 @@ def synthesize_voice(request: TtsRequest):
         "spoken_text": tts_text,
         "preparation": prep_meta,
     }
+
+
+@router.post("/audio/voiceover-track")
+def mix_voiceover_track(request: VoiceoverTrackRequest):
+    """Merge per-segment TTS clips into one continuous track.
+
+    Each part is delayed to its absolute timeline position (adelay), the parts
+    are mixed without loudness normalization (speech segments do not overlap),
+    and the result is padded with silence to the full video duration. The
+    editor then places a single clip on A1 instead of N fragments.
+    """
+    parts = [p for p in request.parts if (p.file_path or "").strip()]
+    if not parts:
+        raise HTTPException(status_code=400, detail="parts is required")
+    resolved: List[tuple[str, float]] = []
+    for part in parts:
+        path = os.path.expanduser(part.file_path)
+        if not os.path.isfile(path):
+            raise HTTPException(status_code=400, detail=f"File not found: {part.file_path}")
+        resolved.append((path, max(0.0, float(part.start_sec or 0.0))))
+    resolved.sort(key=lambda item: item[1])
+
+    dest = _audio_out(f"{request.output_name}-{int(time.time())}", "wav")
+    cmd = [_ffmpeg_bin(), "-y"]
+    for path, _start in resolved:
+        cmd += ["-i", path]
+
+    filters: List[str] = []
+    labels: List[str] = []
+    for i, (_path, start) in enumerate(resolved):
+        delay_ms = int(round(start * 1000))
+        # Unify rate/layout first: XTTS output may differ between segments,
+        # and amix rejects mismatched inputs.
+        filters.append(
+            f"[{i}:a]aresample=48000,aformat=channel_layouts=mono,"
+            f"adelay={delay_ms}:all=1[a{i}]"
+        )
+        labels.append(f"[a{i}]")
+    filters.append(
+        f"{''.join(labels)}amix=inputs={len(resolved)}:duration=longest:"
+        f"dropout_transition=0:normalize=0[mix]"
+    )
+    out_label = "[mix]"
+    if request.total_sec and request.total_sec > 0:
+        filters.append(f"[mix]apad=whole_dur={request.total_sec}[out]")
+        out_label = "[out]"
+
+    cmd += [
+        "-filter_complex", ";".join(filters),
+        "-map", out_label,
+        "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le",
+        dest,
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(exc.stderr or exc.stdout or "ffmpeg voiceover mix failed")[:500],
+        ) from exc
+    return {"status": "completed", "file_path": dest, "parts": len(resolved)}
 
 
 def _parse_timestamp(raw: str) -> float:

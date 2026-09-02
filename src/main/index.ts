@@ -1008,7 +1008,11 @@ function setupIpc() {
     scene_detect?: boolean;
     language?: string;
     use_cache?: boolean;
-  }) => sidecarJson('/api/video/analyze', payload, 60 * 60 * 1000));
+  }) => {
+    // Vision captions during analysis need the Ollama server up (no-op otherwise).
+    await prepareOllamaForScript(broadcast).catch(() => { /* captions degrade gracefully */ });
+    return sidecarJson('/api/video/analyze', payload, 60 * 60 * 1000);
+  });
 
   ipcMain.handle('get-video-analyze-progress', async () => {
     const ready = await ensureSidecarReady();
@@ -1030,6 +1034,7 @@ function setupIpc() {
   ipcMain.handle('generate-script', async (_, payload: {
     video_context: Record<string, unknown>;
     prompt?: string;
+    project_context?: string;
     language?: string;
     target_wpm?: number;
     prefer_ollama?: boolean;
@@ -1336,6 +1341,12 @@ function setupIpc() {
     skip_prepare?: boolean;
     prepared_text?: string;
   }) => sidecarJson('/api/audio/tts', payload, 10 * 60 * 1000));
+
+  ipcMain.handle('mix-voiceover-track', async (_, payload: {
+    parts: Array<{ file_path: string; start_sec: number }>;
+    total_sec?: number;
+    output_name?: string;
+  }) => sidecarJson('/api/audio/voiceover-track', payload, 5 * 60 * 1000));
 
   ipcMain.handle('prepare-voice-text', async (_, payload: {
     text: string;

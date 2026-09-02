@@ -214,10 +214,15 @@ Notes:
 
 ### Not yet done (next slices)
 
-- Single continuous A1 voiceover clip (G3 in vision doc) — pipeline UI is ready
-  for it; only the Voice stage backend call changes.
-- «Контекст проекта» field on the Brief stage (G4).
+- ~~Single continuous A1 voiceover clip (G3)~~ — ✅ shipped same day; the Voice
+  stage now produces one «Озвучка» clip on A1 (see vision doc, G3).
+- ~~«Контекст проекта» field on the Brief stage (G4)~~ — ✅ shipped same day
+  (collapsible details with ✓ badge, persisted in director session).
+- ~~VLM visual notes (G2)~~ — ✅ shipped same day; Analyze stage shows
+  «Что на экране (по сценам)» + hints when the vision model is missing or the
+  cached analysis predates captions (press «Переанализировать»).
 - Per-segment pronunciation fix on the Script stage (G5).
+- WPM / pause tuning so speech fits scene windows (G5).
 
 ---
 
