@@ -135,14 +135,16 @@ export function VoiceoverScriptEditor(): ReactNode {
               type="button"
               className={styles.toolPrimary}
               onClick={d.applyScriptVoiceover}
-              disabled={busy || !d.ttsReady || voiced}
+              disabled={busy || !d.ttsReady}
             >
               {d.voiceoverApplyBusy
                 ? d.t('video.vo_voice_applying', {
                     current: d.voiceoverApplyProgress.current,
                     total: d.voiceoverApplyProgress.total,
                   })
-                : d.t('video.vo_voice_apply')}
+                : voiced
+                  ? d.t('video.vo_voice_apply_again')
+                  : d.t('video.vo_voice_apply')}
             </button>
             {d.voiceoverApplyBusy ? (
               <p className={styles.hintTight}>{d.voiceoverApplyProgress.detail}</p>

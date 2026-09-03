@@ -24,6 +24,36 @@ function ipcMessage(err: unknown): string {
   return raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '').trim();
 }
 
+function pickRecorderMime(): string | undefined {
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'video/webm;codecs=vp8,opus',
+    'video/webm',
+  ];
+  return candidates.find((mime) => MediaRecorder.isTypeSupported(mime));
+}
+
+function startRecorder(stream: MediaStream): MediaRecorder {
+  // Chromium refuses MediaRecorder.start() if video tracks were already stopped
+  // on a getDisplayMedia stream. Keep the dummy video track until stop().
+  const mime = pickRecorderMime();
+  const attempts: Array<MediaRecorderOptions | undefined> = mime
+    ? [{ mimeType: mime }, undefined]
+    : [undefined];
+  let last: unknown;
+  for (const opts of attempts) {
+    try {
+      const recorder = opts ? new MediaRecorder(stream, opts) : new MediaRecorder(stream);
+      recorder.start(250);
+      return recorder;
+    } catch (err) {
+      last = err;
+    }
+  }
+  throw last instanceof Error ? last : new Error('MediaRecorder start failed');
+}
+
 function formatElapsed(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
@@ -179,32 +209,32 @@ export function AssetsPage(): ReactNode {
       const data = await new Promise<ArrayBuffer>((resolve, reject) => {
         void (async () => {
           try {
-            const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+            const stream = await navigator.mediaDevices.getDisplayMedia({
+              video: true,
+              audio: true,
+            });
             const audioTracks = stream.getAudioTracks();
-            stream.getVideoTracks().forEach((track) => track.stop());
             if (audioTracks.length === 0) {
               stream.getTracks().forEach((track) => track.stop());
               reject(new Error('NO_SYSTEM_AUDIO'));
               return;
             }
-            const audioStream = new MediaStream(audioTracks);
-            const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-              ? 'audio/webm;codecs=opus'
-              : 'audio/webm';
-            const recorder = new MediaRecorder(audioStream, { mimeType: mime });
+            // Keep video tracks alive: stopping them before start() throws
+            // "Failed to execute 'start' on 'MediaRecorder'" in Chromium/Electron.
+            const recorder = startRecorder(stream);
             const chunks: Blob[] = [];
             recorder.ondataavailable = (event) => {
               if (event.data.size > 0) chunks.push(event.data);
             };
             recorder.onstop = () => {
               stream.getTracks().forEach((track) => track.stop());
-              void new Blob(chunks, { type: mime }).arrayBuffer().then(resolve).catch(reject);
+              const type = recorder.mimeType || 'audio/webm';
+              void new Blob(chunks, { type }).arrayBuffer().then(resolve).catch(reject);
             };
-            recorder.onerror = () => reject(new Error('Recorder failed'));
+            recorder.onerror = () => reject(new Error('RECORDER_FAILED'));
             systemStopRef.current = () => {
               if (recorder.state !== 'inactive') recorder.stop();
             };
-            recorder.start(250);
           } catch (err) {
             reject(err);
           }
@@ -214,7 +244,13 @@ export function AssetsPage(): ReactNode {
       await rememberPath(saved.file_path);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setCaptureError(msg === 'NO_SYSTEM_AUDIO' ? t('assets.audio_no_loopback') : ipcMessage(err));
+      if (msg === 'NO_SYSTEM_AUDIO') {
+        setCaptureError(t('assets.audio_no_loopback'));
+      } else if (/MediaRecorder|RECORDER_FAILED/i.test(msg)) {
+        setCaptureError(t('assets.audio_recorder_fail'));
+      } else {
+        setCaptureError(ipcMessage(err));
+      }
     } finally {
       systemStopRef.current = null;
       setRecording('idle');

@@ -168,6 +168,12 @@ User wants to prepare a **master prompt from studying their project**, reused ac
 
 ### G5 — Pronunciation in voiceover path
 
+> **Reference audio dominates everything below.** XTTS clones from
+> `~/Documents/Canvas/Voice/speaker.wav`. If that recording is quiet or short,
+> no amount of prompt or lexicon tuning helps — the timbre wanders between
+> segments and the model emits noise. Target: 15–30 s of clean speech peaking
+> near −3 dBFS. The sidecar now measures this and warns in the UI.
+
 Reuse [VOICE_PRONUNCIATION_PLAN.md](VOICE_PRONUNCIATION_PLAN.md):
 
 - Every segment → `prepare-text` → lexicon → XTTS (already wired in V1 per segment).
@@ -286,6 +292,7 @@ flowchart TB
 
 | Date | Note |
 |------|------|
+| 2026-09-02 | **Voice quality overhaul after full-cycle test.** Root cause of drifting male/female timbre, noise and broken speech: the cloning reference was near-silent (peak −50 dB vs a normal −3 dB), so XTTS was cloning the noise floor. Measured proof: with the quiet reference, segment durations came out at ratios 2.25 / 0.35 / 0.74 of target; with a correctly-leveled reference, 1.22 / 1.32 / 1.37. Fixes: (1) `save_voice` now trims silence, converts to mono 22.05 kHz and applies make-up gain, storing the source peak; `GET /audio/voice` returns `sample_peak_db` + `SAMPLE_TOO_QUIET` / `SAMPLE_TOO_SHORT`, surfaced as a blocking-looking alert with re-record buttons. (2) New `sidecar/tts_batch.py` + `POST /audio/tts/batch`: one worker process for the whole voiceover, conditioning latents computed once and a fixed seed per segment, so the voice can no longer drift; silence-trim and peak-normalize per segment removes artifact tails. Model loads once instead of once per segment (3 segments: ~31 s total). (3) Script prompt now states an explicit per-scene word budget and total length, so scenes are filled instead of leaving dead air. (4) Voice stage shows the full narration text with clickable timecodes — previously the script was only visible one row at a time on the Script stage. |
 | 2026-09-02 | **G5 pronunciation + tempo fit shipped** (P2): per-segment «Произношение» panel with spoken preview and lexicon fix; speech vs window estimate in script table; `mix_voiceover_track` fits each segment with ffmpeg `atempo` (up to +20%) via `max_duration_sec`; measured duration + tempo badge after A1 apply. **Timeout fix:** cached XTTS probe in sidecar, `prepare-text`/lexicon fix in thread pool, 30s timeout + deduped cache for `get-voice-profile` in main. |
 | 2026-09-02 | **Video-aware script + project context shipped** (G2 V2a–V2c, G4 / P1): `visual_caption.py` extracts one mid-scene keyframe per scene and captions it via any installed Ollama vision model (auto-detected from /api/tags); notes land in `visual_notes`, shown on the Analyze stage («Что на экране»), and feed the script prompt together with the new «Контекст проекта» field on the Brief stage (persisted in the director session). Fallback drafts now use captions instead of «Сцена N» placeholders. Main process starts Ollama before analyze so captions work. If no vision model: warning + hint in UI, everything else works as before. |
 | 2026-09-02 | **Continuous A1 voiceover shipped** (G3 / P0, option C): new `POST /api/audio/voiceover-track` merges per-segment TTS into one wav (adelay → amix normalize=0 → apad to video duration); A1 now gets a single «Озвучка» clip at 0:00. Verified with real ffmpeg run (mismatched sample rates, exact target duration). |

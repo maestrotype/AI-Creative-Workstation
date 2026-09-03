@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -73,13 +74,16 @@ def _read_source_meta() -> Optional[dict]:
     return None
 
 
-def _write_source_meta(input_path: str) -> None:
+def _write_source_meta(input_path: str, levels: Optional[Dict[str, Any]] = None) -> None:
     os.makedirs(VOICE_DIR, exist_ok=True)
     resolved = os.path.expanduser(input_path)
-    payload = {
+    payload: Dict[str, Any] = {
         "path": resolved,
         "name": os.path.basename(resolved),
     }
+    if levels:
+        payload["source_peak_db"] = levels.get("peak_db")
+        payload["source_mean_db"] = levels.get("mean_db")
     with open(SOURCE_META, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False)
 
@@ -147,6 +151,19 @@ class VoiceoverTrackPart(BaseModel):
     file_path: str
     start_sec: float = 0.0
     max_duration_sec: Optional[float] = None
+
+
+class TtsBatchItem(BaseModel):
+    text: str
+    index: int = 0
+    prepared_text: Optional[str] = None
+
+
+class TtsBatchRequest(BaseModel):
+    items: List[TtsBatchItem]
+    language: str = "ru"
+    seed: int = 1234
+    skip_prepare: bool = False
 
 
 class VoiceoverTrackRequest(BaseModel):
@@ -224,6 +241,13 @@ def _clone_python(*, refresh: bool = False) -> Optional[str]:
     return found
 
 
+def _xtts_venv_present() -> bool:
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.isfile(os.path.join(here, ".venv-tts", "bin", "python3")) or os.path.isfile(
+        os.path.join(here, ".venv-tts", "bin", "python")
+    )
+
+
 def _coqui_available(*, refresh: bool = False) -> bool:
     return _clone_python(refresh=refresh) is not None
 
@@ -299,9 +323,51 @@ def _run_xtts_clone(text: str, dest: str, language: str) -> None:
         raise
 
 
+MIN_REFERENCE_SEC = 6.0
+
+
+def _reference_info() -> Dict[str, Any]:
+    """Duration + quality warnings for the cloning reference.
+
+    XTTS clones from this sample, so a near-silent or very short recording is the
+    single biggest cause of drifting timbre and noise in the output.
+    """
+    empty = {"sample_sec": None, "sample_warning": None, "sample_peak_db": None}
+    if not os.path.isfile(SPEAKER_WAV):
+        return empty
+    try:
+        seconds = audio_duration_sec(SPEAKER_WAV)
+    except Exception:  # noqa: BLE001 — probe failure must not break status
+        return empty
+
+    meta = _read_source_meta() or {}
+    peak = meta.get("source_peak_db")
+    if not isinstance(peak, (int, float)):
+        # Sample saved before level checks existed: measure it as-is (those files
+        # were stored without gain, so the stored peak reflects the recording).
+        peak = _measure_levels(SPEAKER_WAV).get("peak_db")
+
+    warning = None
+    if isinstance(peak, (int, float)) and peak < MIN_REFERENCE_PEAK_DB:
+        warning = "SAMPLE_TOO_QUIET"
+    elif seconds < MIN_REFERENCE_SEC:
+        warning = "SAMPLE_TOO_SHORT"
+
+    return {
+        "sample_sec": round(seconds, 2),
+        "sample_warning": warning,
+        "sample_peak_db": round(peak, 1) if isinstance(peak, (int, float)) else None,
+    }
+
+
 @router.get("/audio/voice")
 def voice_status(refresh: bool = False):
-    engine = "xtts" if _coqui_available(refresh=refresh) else "none"
+    # Status must stay cheap: verify_xtts.py imports torch and can stall the
+    # whole sidecar. Real synthesis still runs the verify via _clone_python().
+    if refresh:
+        engine = "xtts" if _coqui_available(refresh=True) else "none"
+    else:
+        engine = "xtts" if _xtts_venv_present() else "none"
     meta = _read_source_meta()
     return {
         "has_sample": os.path.isfile(SPEAKER_WAV),
@@ -310,6 +376,7 @@ def voice_status(refresh: bool = False):
         "source_name": meta.get("name") if meta else None,
         "tts_ready": engine == "xtts",
         "engine": engine,
+        **_reference_info(),
     }
 
 
@@ -328,12 +395,79 @@ def tts_progress():
     }
 
 
+_PEAK_RE = re.compile(r"max_volume:\s*(-?\d+(?:\.\d+)?)\s*dB")
+_MEAN_RE = re.compile(r"mean_volume:\s*(-?\d+(?:\.\d+)?)\s*dB")
+
+# A usable recording peaks near 0 dBFS. Below this the microphone captured
+# essentially nothing, and XTTS then clones noise instead of a voice.
+MIN_REFERENCE_PEAK_DB = -30.0
+TARGET_REFERENCE_PEAK_DB = -3.0
+
+
+def _measure_levels(path: str) -> Dict[str, Optional[float]]:
+    """Peak and mean level in dBFS via ffmpeg volumedetect."""
+    cmd = [_ffmpeg_bin(), "-hide_banner", "-i", path, "-af", "volumedetect", "-f", "null", "-"]
+    try:
+        proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    except OSError:
+        return {"peak_db": None, "mean_db": None}
+    blob = f"{proc.stderr}\n{proc.stdout}"
+    peak = _PEAK_RE.search(blob)
+    mean = _MEAN_RE.search(blob)
+    return {
+        "peak_db": float(peak.group(1)) if peak else None,
+        "mean_db": float(mean.group(1)) if mean else None,
+    }
+
+
+def _convert_reference(src: str, dest: str) -> Dict[str, Optional[float]]:
+    """Write the cloning reference as mono 22.05 kHz, trimmed and level-matched.
+
+    XTTS loads references at 22.05 kHz mono anyway; converting here (instead of
+    handing it a 48 kHz stereo file) keeps the conditioning input identical every
+    run. Silence is trimmed so the short reference budget holds actual speech,
+    and gain is applied so quiet recordings still reach a usable level.
+
+    Returns the levels measured on the *source*, so the caller can warn when the
+    recording was too quiet to be worth cloning.
+    """
+    if not os.path.isfile(src):
+        raise HTTPException(status_code=400, detail=f"File not found: {src}")
+
+    levels = _measure_levels(src)
+    peak = levels.get("peak_db")
+    gain_db = 0.0
+    if peak is not None and peak < TARGET_REFERENCE_PEAK_DB:
+        gain_db = TARGET_REFERENCE_PEAK_DB - peak
+
+    filters = [
+        "silenceremove=start_periods=1:start_duration=0:start_threshold=-45dB",
+        "areverse",
+        "silenceremove=start_periods=1:start_duration=0:start_threshold=-45dB",
+        "areverse",
+    ]
+    if gain_db > 0.1:
+        filters.append(f"volume={gain_db:.1f}dB")
+
+    cmd = [
+        _ffmpeg_bin(), "-y", "-i", src, "-vn",
+        "-af", ",".join(filters),
+        "-ac", "1", "-ar", "22050", "-c:a", "pcm_s16le", dest,
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError:
+        # Trimming can fail on odd inputs; a plain mono conversion still works.
+        _convert(src, dest, "wav")
+    return levels
+
+
 @router.post("/audio/voice")
 def save_voice(request: SaveVoiceRequest):
     os.makedirs(VOICE_DIR, exist_ok=True)
     src = os.path.expanduser(request.input_path)
-    _convert(src, SPEAKER_WAV, "wav")
-    _write_source_meta(src)
+    levels = _convert_reference(src, SPEAKER_WAV)
+    _write_source_meta(src, levels)
     meta = _read_source_meta()
     return {
         "status": "saved",
@@ -341,6 +475,7 @@ def save_voice(request: SaveVoiceRequest):
         "has_sample": True,
         "source_path": meta.get("path") if meta else src,
         "source_name": meta.get("name") if meta else os.path.basename(src),
+        **_reference_info(),
     }
 
 
@@ -473,6 +608,132 @@ def synthesize_voice(request: TtsRequest):
         "spoken_text": tts_text,
         "preparation": prep_meta,
     }
+
+
+def _run_xtts_batch(job: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Synthesize every segment in one worker process (see tts_batch.py)."""
+    py = _clone_python()
+    if not py:
+        raise HTTPException(status_code=503, detail="CLONE_ENGINE_MISSING")
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    worker = os.path.join(root, "tts_batch.py")
+
+    with _tts_lock:
+        if _tts_job.get("active"):
+            raise HTTPException(status_code=409, detail="Another voiceover is already running.")
+        _set_tts_job(
+            active=True,
+            stage="starting",
+            percent=2,
+            detail="Starting voice clone",
+            started_at=time.time(),
+            error=None,
+        )
+
+    # Not in AUDIO_DIR: that folder is scanned into the media library.
+    fd, job_path = tempfile.mkstemp(prefix="tts-job-", suffix=".json")
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(job, handle, ensure_ascii=False)
+
+    try:
+        proc = subprocess.Popen(
+            [py, worker, job_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        assert proc.stdout is not None
+        final_line = ""
+        for line in proc.stdout:
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if "progress" in payload:
+                _set_tts_job(
+                    active=True,
+                    stage=str(payload.get("stage") or "working"),
+                    percent=int(payload.get("percent") or 0),
+                    detail=str(payload.get("detail") or ""),
+                    started_at=_tts_job.get("started_at") or time.time(),
+                )
+            elif "ok" in payload:
+                final_line = line
+        proc.wait()
+
+        payload: Dict[str, Any] = {}
+        if final_line:
+            try:
+                payload = json.loads(final_line)
+            except json.JSONDecodeError:
+                payload = {}
+
+        if proc.returncode != 0 or not payload.get("ok"):
+            error = str(payload.get("error") or "Voice clone failed")[:500]
+            _set_tts_job(active=False, stage="error", error=error)
+            raise HTTPException(status_code=500, detail=error)
+
+        _set_tts_job(active=False, stage="done", percent=100, detail="Voiceover ready")
+        return list(payload.get("results") or [])
+    finally:
+        if _tts_job.get("active"):
+            _set_tts_job(active=False)
+        try:
+            os.remove(job_path)
+        except OSError:
+            pass
+
+
+@router.post("/audio/tts/batch")
+def synthesize_batch(request: TtsBatchRequest):
+    """Synthesize all voiceover segments with one shared speaker conditioning."""
+    if not request.items:
+        raise HTTPException(status_code=400, detail="items is required")
+    if not os.path.isfile(SPEAKER_WAV):
+        raise HTTPException(
+            status_code=400,
+            detail="No voice sample yet. Record your voice first (10+ seconds, clear speech).",
+        )
+    if not _coqui_available():
+        raise HTTPException(status_code=503, detail="CLONE_ENGINE_MISSING")
+
+    os.makedirs(AUDIO_DIR, exist_ok=True)
+    stamp = int(time.time())
+    items: List[Dict[str, Any]] = []
+    spoken_texts: Dict[int, str] = {}
+    for i, item in enumerate(request.items):
+        raw = (item.text or "").strip()
+        if not raw:
+            continue
+        if item.prepared_text and item.prepared_text.strip():
+            spoken = to_spoken_text(item.prepared_text.strip())
+        elif request.skip_prepare:
+            spoken = raw
+        else:
+            spoken = prepare_text(raw, language=request.language, apply_stress=True)["spoken"]
+        spoken_texts[item.index] = spoken
+        items.append({
+            "index": item.index,
+            "text": spoken,
+            "file_path": _audio_out(f"vo-{stamp}-{i:03d}", "wav"),
+        })
+
+    if not items:
+        raise HTTPException(status_code=400, detail="all items are empty")
+
+    language = "ru" if (request.language or "ru").startswith("ru") else "en"
+    results = _run_xtts_batch({
+        "speaker_wav": SPEAKER_WAV,
+        "language": language,
+        "seed": request.seed,
+        "items": items,
+    })
+    for row in results:
+        row["spoken_text"] = spoken_texts.get(row.get("index", -1), "")
+    return {"status": "completed", "engine": "xtts", "results": results}
 
 
 def _fit_speech_duration(

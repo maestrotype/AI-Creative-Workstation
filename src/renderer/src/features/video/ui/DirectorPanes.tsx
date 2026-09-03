@@ -267,7 +267,7 @@ export function DirectorTimelinePane(): ReactNode {
   );
 }
 
-export function DirectorResultPane(): ReactNode {
+export function DirectorResultPane({ previewActive = true }: { previewActive?: boolean } = {}): ReactNode {
   const d = useDirector();
   return (
     <div className={`${styles.paneFill} ${styles.resultPane}`}>
@@ -281,6 +281,7 @@ export function DirectorResultPane(): ReactNode {
         trackLayout={d.visibleLayout}
         overlayPos={d.overlayPos}
         onOverlayMove={d.setOverlayPos}
+        active={previewActive}
         onDecodeFail={(binId) => {
           const bin = d.bins.find((item) => item.id === binId);
           if (!bin || bin.proxying) return;

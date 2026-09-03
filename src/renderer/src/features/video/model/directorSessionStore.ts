@@ -31,7 +31,7 @@ export function loadDirectorSession(): DirectorSession | null {
       trackLayout: parsed.trackLayout ?? DEFAULT_TRACK_LAYOUT,
       overlayPos: parsed.overlayPos ?? {},
       voiceover: parsed.voiceover
-        ? { ...emptyVoiceoverSession(), ...parsed.voiceover, analysis: null }
+        ? { ...emptyVoiceoverSession(), ...parsed.voiceover }
         : emptyVoiceoverSession(),
       bins: parsed.bins.map((b) => ({ ...b, proxying: false })),
     };
@@ -41,10 +41,20 @@ export function loadDirectorSession(): DirectorSession | null {
 }
 
 export function saveDirectorSession(session: DirectorSession): void {
+  const stamped = { ...session, savedAt: Date.now() };
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...session, savedAt: Date.now() }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stamped));
   } catch {
-    /* quota */
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        ...stamped,
+        voiceover: session.voiceover
+          ? { ...session.voiceover, analysis: null }
+          : undefined,
+      }));
+    } catch {
+      /* quota */
+    }
   }
 }
 

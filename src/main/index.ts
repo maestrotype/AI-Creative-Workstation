@@ -33,6 +33,8 @@ let sidecarProcess: ChildProcess | null = null;
 let engineStatus: 'stopped' | 'starting' | 'ready' | 'error' = 'stopped';
 let engineDetail = '';
 let ignoreSidecarExit = false;
+/** In-flight boot. Concurrent ensureSidecarReady must join this, not kill+restart. */
+let sidecarBoot: Promise<{ ok: boolean; error?: string }> | null = null;
 
 // Active download.py processes keyed by model id. If the handle is dropped,
 // killing/retrying leaves orphans (PPID=1) that keep using RAM and writing disk.
@@ -70,18 +72,25 @@ async function fetchVoiceProfile(force = false): Promise<unknown> {
   voiceProfileCache.inflight = (async () => {
     const ready = await ensureSidecarReady();
     if (!ready.ok) {
+      if (voiceProfileCache.data) return voiceProfileCache.data;
       throw new Error(ready.error || 'Sidecar unavailable');
     }
-    const url = `${SIDECAR_URL}/api/audio/voice${force ? '?refresh=1' : ''}`;
-    const res = await net.fetch(url, { signal: AbortSignal.timeout(30_000) });
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(body || `HTTP ${res.status}`);
+    try {
+      const url = `${SIDECAR_URL}/api/audio/voice${force ? '?refresh=1' : ''}`;
+      const res = await net.fetch(url, { signal: AbortSignal.timeout(8_000) });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(body || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      voiceProfileCache.data = data;
+      voiceProfileCache.at = Date.now();
+      return data;
+    } catch (err) {
+      // Sidecar restart / net::ERR_FAILED: keep the UI going on the last good profile.
+      if (voiceProfileCache.data) return voiceProfileCache.data;
+      throw err;
     }
-    const data = await res.json();
-    voiceProfileCache.data = data;
-    voiceProfileCache.at = Date.now();
-    return data;
   })();
   try {
     return await voiceProfileCache.inflight;
@@ -111,15 +120,9 @@ function voiceVerifyScript(): string {
 }
 
 function voicePackagesReady(): boolean {
-  const py = voiceVenvPython();
-  const script = voiceVerifyScript();
-  if (!existsSync(py) || !existsSync(script)) return false;
-  const check = spawnSync(py, [script], {
-    encoding: 'utf8',
-    timeout: 60_000,
-    env: { ...process.env, COQUI_TOS_AGREED: '1' },
-  });
-  return check.status === 0;
+  // File check only — spawning verify_xtts.py imports torch/TTS and freezes
+  // the Electron main process for many seconds on every status poll.
+  return existsSync(voiceVenvPython());
 }
 
 function voiceWeightsReady(): boolean {
@@ -471,32 +474,45 @@ function startSidecar(): void {
 }
 
 async function bootSidecar(timeoutMs = 20_000): Promise<{ ok: boolean; error?: string }> {
-  if (sidecarProcess && !sidecarProcess.killed) {
-    ignoreSidecarExit = true;
-    sidecarProcess.kill('SIGTERM');
-    sidecarProcess = null;
-  }
-  killProcessOnSidecarPort();
-  await new Promise((r) => setTimeout(r, 400));
+  if (sidecarBoot) return sidecarBoot;
+  sidecarBoot = (async () => {
+    try {
+      if (await isSidecarAlive()) {
+        setEngineStatus('ready');
+        return { ok: true };
+      }
+      if (sidecarProcess && !sidecarProcess.killed) {
+        ignoreSidecarExit = true;
+        sidecarProcess.kill('SIGTERM');
+        sidecarProcess = null;
+      }
+      killProcessOnSidecarPort();
+      await new Promise((r) => setTimeout(r, 400));
 
-  startSidecar();
+      startSidecar();
 
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    if (await isSidecarAlive()) {
-      setEngineStatus('ready');
-      return { ok: true };
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < timeoutMs) {
+        if (await isSidecarAlive()) {
+          setEngineStatus('ready');
+          return { ok: true };
+        }
+        await new Promise((r) => setTimeout(r, 400));
+      }
+
+      const msg = 'Sidecar did not become ready. Check that python3 can import fastapi/uvicorn.';
+      setEngineStatus('error', msg);
+      return { ok: false, error: msg };
+    } finally {
+      sidecarBoot = null;
     }
-    await new Promise((r) => setTimeout(r, 400));
-  }
-
-  const msg = 'Sidecar did not become ready. Check that python3 can import fastapi/uvicorn.';
-  setEngineStatus('error', msg);
-  return { ok: false, error: msg };
+  })();
+  return sidecarBoot;
 }
 
 async function ensureSidecarReady(timeoutMs = 20_000): Promise<{ ok: boolean; error?: string }> {
-  if (await isSidecarAlive() && sidecarProcess && !sidecarProcess.killed) {
+  if (sidecarBoot) return sidecarBoot;
+  if (await isSidecarAlive()) {
     setEngineStatus('ready');
     return { ok: true };
   }
@@ -1068,10 +1084,15 @@ function setupIpc() {
 
   ipcMain.handle('get-video-analyze-cache', async (_, videoPath: string) => {
     const ready = await ensureSidecarReady();
-    if (!ready.ok) throw new Error(ready.error || 'Sidecar unavailable');
-    const url = `${SIDECAR_URL}/api/video/analyze/cache?video_path=${encodeURIComponent(videoPath)}`;
-    const res = await net.fetch(url, { signal: AbortSignal.timeout(15000) });
-    return res.json();
+    if (!ready.ok) return { status: 'miss', context: null };
+    try {
+      const url = `${SIDECAR_URL}/api/video/analyze/cache?video_path=${encodeURIComponent(videoPath)}`;
+      const res = await net.fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) return { status: 'miss', context: null };
+      return res.json();
+    } catch {
+      return { status: 'miss', context: null };
+    }
   });
 
   ipcMain.handle('generate-script', async (_, payload: {
@@ -1361,7 +1382,21 @@ function setupIpc() {
     return { file_path: converted.file_path as string };
   });
 
-  ipcMain.handle('get-voice-profile', async () => fetchVoiceProfile());
+  ipcMain.handle('get-voice-profile', async () => {
+    try {
+      return await fetchVoiceProfile();
+    } catch {
+      return {
+        has_sample: false,
+        file_path: null,
+        tts_ready: false,
+        engine: 'none',
+        sample_sec: null,
+        sample_warning: null,
+        sample_peak_db: null,
+      };
+    }
+  });
 
   ipcMain.handle('get-voice-tts-progress', async () => {
     const ready = await ensureSidecarReady();
@@ -1384,6 +1419,12 @@ function setupIpc() {
     skip_prepare?: boolean;
     prepared_text?: string;
   }) => sidecarJson('/api/audio/tts', payload, 10 * 60 * 1000));
+
+  ipcMain.handle('synthesize-voice-batch', async (_, payload: {
+    items: Array<{ text: string; index: number; prepared_text?: string }>;
+    language?: string;
+    seed?: number;
+  }) => sidecarJson('/api/audio/tts/batch', payload, 60 * 60 * 1000));
 
   ipcMain.handle('mix-voiceover-track', async (_, payload: {
     parts: Array<{ file_path: string; start_sec: number }>;

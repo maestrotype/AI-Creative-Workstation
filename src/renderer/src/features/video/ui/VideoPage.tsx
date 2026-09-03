@@ -71,21 +71,22 @@ function VideoStudioShell(): ReactNode {
     <>
       <VideoMenuBar state={dock} onState={setDock} onOpenVoiceover={openVoiceover} />
       <div className={styles.studioBody}>
-        {dock.mode === 'pipeline' ? (
-          <VideoPipelineShell />
-        ) : (
+        <div className={styles.studioLayer} hidden={dock.mode !== 'pipeline'}>
+          <VideoPipelineShell active={dock.mode === 'pipeline'} />
+        </div>
+        <div className={styles.studioLayer} hidden={dock.mode === 'pipeline'}>
           <VideoDock
             state={dock}
             onState={setDock}
             panels={{
               timeline: <DirectorTimelinePane />,
-              preview: <DirectorResultPane />,
+              preview: <DirectorResultPane previewActive={dock.mode !== 'pipeline'} />,
               sources: <DirectorSourcesPane onOpenVoiceover={openVoiceover} />,
               storyboard: <StoryboardPane />,
               recording: <RecordingPane />,
             }}
           />
-        )}
+        </div>
       </div>
     </>
   );

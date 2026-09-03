@@ -229,9 +229,20 @@ def _build_llm_prompt(
     transcript = (video_context.get("transcript") or {}).get("full_text") or ""
     captions = _captions_by_scene(video_context)
     scene_lines = []
+    total_words = 0
     for i, s in enumerate(scenes):
         idx = int(s.get("index", i))
-        line = f"- scene {idx}: {s.get('start', 0):.1f}s – {s.get('end', 0):.1f}s"
+        start = float(s.get("start", 0))
+        end = float(s.get("end", 0))
+        window = max(0.0, end - start)
+        # Explicit word budget per scene: without it the model writes one short
+        # sentence for a long scene and the track ends up mostly silent.
+        words = max(4, int(round(window * target_wpm / 60)))
+        total_words += words
+        line = (
+            f"- scene {idx}: {start:.1f}s – {end:.1f}s "
+            f"({window:.1f}s → write ~{words} words)"
+        )
         caption = captions.get(idx)
         if caption:
             line += f" — on screen: {caption}"
@@ -277,7 +288,11 @@ Return ONLY valid JSON:
 Rules:
 - You MUST return exactly {scene_count} segments — one per scene listed above.
 - segment[i].start_sec and end_sec MUST match scene[i] boundaries exactly.
-- Each segment text must fit its time window at ~{target_wpm} wpm.
+- Hit the per-scene word budget shown above (±15%). The narration must cover the
+  whole scene: too few words leaves dead silence on the track.
+- Total script length: about {total_words} words for the whole video.
+- Write flowing continuous narration: each segment must continue the previous
+  one, not restart the pitch. No headings, no "Scene 1", no stage directions.
 {visual_rule}
 - roles: hook | body | outro | cta
 - No markdown, no commentary outside JSON.

@@ -95,6 +95,10 @@
   background: var(--color-bg-card);
 }
 
+.stageMount[hidden] {
+  display: none !important;
+}
+
 .stageHead {
   display: flex;
   flex-direction: column;
@@ -269,6 +273,54 @@
   margin: 0;
   color: var(--color-success);
   font-size: var(--text-body-sm);
+}
+
+/* ── full narration preview on the Voice stage ───────────── */
+
+.narrationDetails {
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+  padding: var(--space-2) var(--space-3);
+}
+
+.narrationDetails > summary {
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: var(--text-body-sm);
+}
+
+.narrationBody {
+  margin-top: var(--space-2);
+  max-height: 16rem;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.narrationLine {
+  margin: 0;
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  line-height: 1.5;
+}
+
+.narrationTime {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font: inherit;
+  font-size: var(--text-micro);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.narrationTime:hover {
+  color: var(--color-accent);
 }
 
 /* ── export stage ────────────────────────────────────────── */

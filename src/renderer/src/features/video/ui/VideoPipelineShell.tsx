@@ -34,11 +34,21 @@ function deriveStage(d: Director): PipelineStage {
   return 'material';
 }
 
-export function VideoPipelineShell(): ReactNode {
+export function VideoPipelineShell({ active = true }: { active?: boolean }): ReactNode {
   const d = useDirector();
   const [stage, setStage] = useState<PipelineStage>(() => deriveStage(d));
+  const [visited, setVisited] = useState<Set<PipelineStage>>(() => new Set([deriveStage(d)]));
   const maxIdx = maxUnlockedIndex(d);
   const stageIdx = STAGES.indexOf(stage);
+
+  useEffect(() => {
+    setVisited((prev) => {
+      if (prev.has(stage)) return prev;
+      const next = new Set(prev);
+      next.add(stage);
+      return next;
+    });
+  }, [stage]);
 
   useEffect(() => {
     if (STAGES.indexOf(stage) > maxIdx) setStage(STAGES[maxIdx]);
@@ -86,8 +96,8 @@ export function VideoPipelineShell(): ReactNode {
   const doneFlags: Record<PipelineStage, boolean> = {
     material: Boolean(d.voiceoverSource),
     analyze: Boolean(d.voiceover.analysis),
-    brief: Boolean(d.voiceover.script?.segments.length),
-    script: d.voiceover.status === 'voiced',
+    brief: Boolean(d.voiceover.scriptPrompt.trim() || d.voiceover.projectContext.trim() || d.voiceover.script?.segments.length),
+    script: Boolean(d.voiceover.script?.segments.length),
     voice: d.voiceover.status === 'voiced',
     export: Boolean(d.exportPath),
   };
@@ -121,12 +131,18 @@ export function VideoPipelineShell(): ReactNode {
             <p className={s.stageHint}>{d.t(`video.pipe_hint_${stage}`)}</p>
           </header>
 
-          {stage === 'material' ? <StageMaterial /> : null}
-          {stage === 'analyze' ? <StageAnalyze /> : null}
-          {stage === 'brief' ? <StageBrief /> : null}
-          {stage === 'script' ? <StageScript /> : null}
-          {stage === 'voice' ? <StageVoice /> : null}
-          {stage === 'export' ? <StageExport /> : null}
+          {STAGES.map((id) => (
+            visited.has(id) ? (
+              <div key={id} hidden={id !== stage} className={s.stageMount}>
+                {id === 'material' ? <StageMaterial /> : null}
+                {id === 'analyze' ? <StageAnalyze /> : null}
+                {id === 'brief' ? <StageBrief /> : null}
+                {id === 'script' ? <StageScript active={active && id === stage} /> : null}
+                {id === 'voice' ? <StageVoice /> : null}
+                {id === 'export' ? <StageExport active={active && id === stage} /> : null}
+              </div>
+            ) : null
+          ))}
 
           <footer className={s.nav}>
             {stageIdx > 0 ? (
@@ -454,7 +470,7 @@ function SegmentFixPanel({ index, text }: { index: number; text: string }): Reac
   );
 }
 
-function StageScript(): ReactNode {
+function StageScript({ active }: { active: boolean }): ReactNode {
   const d = useDirector();
   const script = d.voiceover.script;
   const analysis = d.voiceover.analysis;
@@ -593,6 +609,7 @@ function StageScript(): ReactNode {
           trackLayout={d.visibleLayout}
           overlayPos={d.overlayPos}
           onOverlayMove={d.setOverlayPos}
+          active={active}
           onDecodeFail={(binId) => {
             const bin = d.bins.find((item) => item.id === binId);
             if (!bin || bin.proxying) return;
@@ -621,23 +638,54 @@ function StageVoice(): ReactNode {
   const d = useDirector();
   const busy = d.scriptBusy || d.voiceoverApplyBusy;
   const voiced = d.voiceover.status === 'voiced';
+  const segments = d.voiceover.script?.segments.filter((seg) => seg.text.trim()) ?? [];
+  const totalWords = segments.reduce(
+    (sum, seg) => sum + seg.text.split(/\s+/).filter(Boolean).length,
+    0,
+  );
 
   return (
     <div className={s.stageBody}>
       <VoiceSampleSetup />
+      {segments.length > 0 ? (
+        <details className={s.narrationDetails} open>
+          <summary>
+            {d.t('video.pipe_narration_title', {
+              count: segments.length,
+              words: totalWords,
+            })}
+          </summary>
+          <div className={s.narrationBody}>
+            {segments.map((seg, i) => (
+              <p key={`${seg.start_sec}-${i}`} className={s.narrationLine}>
+                <button
+                  type="button"
+                  className={s.narrationTime}
+                  onClick={() => d.seekTo(seg.start_sec)}
+                >
+                  {formatTimecode(seg.start_sec)}
+                </button>
+                <span>{seg.text}</span>
+              </p>
+            ))}
+          </div>
+        </details>
+      ) : null}
       <div className={vp.toolRow}>
         <button
           type="button"
           className={vp.toolPrimary}
           onClick={d.applyScriptVoiceover}
-          disabled={busy || !d.ttsReady || voiced}
+          disabled={busy || !d.ttsReady}
         >
           {d.voiceoverApplyBusy
             ? d.t('video.vo_voice_applying', {
                 current: d.voiceoverApplyProgress.current,
                 total: d.voiceoverApplyProgress.total,
               })
-            : d.t('video.vo_voice_apply')}
+            : voiced
+              ? d.t('video.vo_voice_apply_again')
+              : d.t('video.vo_voice_apply')}
         </button>
       </div>
       {d.voiceoverApplyBusy ? (
@@ -653,12 +701,12 @@ function StageVoice(): ReactNode {
   );
 }
 
-function StageExport(): ReactNode {
+function StageExport({ active }: { active: boolean }): ReactNode {
   const d = useDirector();
   return (
     <div className={s.stageBody}>
       <div className={s.exportPreview}>
-        <DirectorResultPane />
+        <DirectorResultPane previewActive={active} />
       </div>
       <details className={s.timelineDetails}>
         <summary>{d.t('video.pipe_timeline_toggle')}</summary>

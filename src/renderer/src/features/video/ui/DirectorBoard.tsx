@@ -143,6 +143,10 @@ type DirectorSnap = {
   ttsReady: boolean;
   voiceEngineReady: boolean;
   voiceHasSample: boolean;
+  voiceSampleSec: number | null;
+  voiceSampleWarning: string | null;
+  voiceSamplePeakDb: number | null;
+  voiceSampleName: string | null;
   libraryAudio: Array<{ path: string; name: string }>;
   toggleVoiceRecord: () => void;
   voiceSampleRecording: boolean;
@@ -259,7 +263,6 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     () => ({
       ...emptyVoiceoverSession(),
       ...(SESSION_BOOT?.voiceover ?? {}),
-      analysis: null,
     }),
   );
   const [voiceoverBusy, setVoiceoverBusy] = useState(false);
@@ -275,6 +278,10 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
   const [ttsReady, setTtsReady] = useState(false);
   const [voiceEngineReady, setVoiceEngineReady] = useState(false);
   const [voiceHasSample, setVoiceHasSample] = useState(false);
+  const [voiceSampleSec, setVoiceSampleSec] = useState<number | null>(null);
+  const [voiceSampleWarning, setVoiceSampleWarning] = useState<string | null>(null);
+  const [voiceSamplePeakDb, setVoiceSamplePeakDb] = useState<number | null>(null);
+  const [voiceSampleName, setVoiceSampleName] = useState<string | null>(null);
   const [libraryAudio, setLibraryAudio] = useState<Array<{ path: string; name: string }>>([]);
   const blobs = useFileBlobs(bins.filter((b) => b.kind !== 'image' && !b.proxying).map((b) => b.path));
 
@@ -393,7 +400,7 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
         pxPerSec,
         trackLayout,
         overlayPos,
-        voiceover: { ...voiceover, analysis: null },
+        voiceover,
       });
     }, 350);
     return () => window.clearTimeout(timer);
@@ -887,6 +894,10 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
       if (profile) {
         hasSample = Boolean(profile.has_sample);
         engineReady = Boolean(profile.tts_ready);
+        setVoiceSampleSec(profile.sample_sec ?? null);
+        setVoiceSampleWarning(profile.sample_warning ?? null);
+        setVoiceSamplePeakDb(profile.sample_peak_db ?? null);
+        setVoiceSampleName(profile.source_name ?? profile.source_path ?? null);
       }
     } catch {
       /* optional */
@@ -1261,28 +1272,54 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     try {
       const parts: Array<{ file_path: string; start_sec: number; max_duration_sec?: number }> = [];
       const partScriptIndexes: number[] = [];
-      for (let i = 0; i < voicedSegments.length; i += 1) {
-        const { seg, scriptIndex } = voicedSegments[i];
+
+      if (window.api.synthesizeVoiceBatch) {
+        // One worker process for all segments: XTTS keeps a single speaker
+        // conditioning + seed, so the cloned voice does not drift between them.
         setVoiceoverApplyProgress({
-          current: i + 1,
+          current: 0,
           total: voicedSegments.length,
-          detail: t('video.vo_voice_segment', { n: i + 1, time: formatClock(seg.start_sec) }),
+          detail: t('video.vo_voice_batch_start'),
         });
-        let preparedText: string | undefined;
-        if (window.api.prepareVoiceText) {
-          const prep = await window.api.prepareVoiceText({ text: seg.text.trim() });
-          preparedText = prep.spoken;
+        const batch = await window.api.synthesizeVoiceBatch({
+          items: voicedSegments.map(({ seg }, i) => ({ index: i, text: seg.text.trim() })),
+          language: 'ru',
+        });
+        for (const row of batch.results) {
+          if (row.skipped) continue;
+          const entry = voicedSegments[row.index];
+          if (!entry) continue;
+          partScriptIndexes.push(entry.scriptIndex);
+          parts.push({
+            file_path: row.file_path,
+            start_sec: entry.seg.start_sec,
+            max_duration_sec: Math.max(0.5, entry.seg.end_sec - entry.seg.start_sec),
+          });
         }
-        const result = await window.api.synthesizeVoice({
-          text: seg.text.trim(),
-          prepared_text: preparedText,
-        });
-        partScriptIndexes.push(scriptIndex);
-        parts.push({
-          file_path: result.file_path,
-          start_sec: seg.start_sec,
-          max_duration_sec: Math.max(0.5, seg.end_sec - seg.start_sec),
-        });
+      } else {
+        for (let i = 0; i < voicedSegments.length; i += 1) {
+          const { seg, scriptIndex } = voicedSegments[i];
+          setVoiceoverApplyProgress({
+            current: i + 1,
+            total: voicedSegments.length,
+            detail: t('video.vo_voice_segment', { n: i + 1, time: formatClock(seg.start_sec) }),
+          });
+          let preparedText: string | undefined;
+          if (window.api.prepareVoiceText) {
+            const prep = await window.api.prepareVoiceText({ text: seg.text.trim() });
+            preparedText = prep.spoken;
+          }
+          const result = await window.api.synthesizeVoice({
+            text: seg.text.trim(),
+            prepared_text: preparedText,
+          });
+          partScriptIndexes.push(scriptIndex);
+          parts.push({
+            file_path: result.file_path,
+            start_sec: seg.start_sec,
+            max_duration_sec: Math.max(0.5, seg.end_sec - seg.start_sec),
+          });
+        }
       }
       if (window.api.mixVoiceoverTrack) {
         // One continuous A1 clip: segments padded with silence to their
@@ -1680,6 +1717,10 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     ttsReady,
     voiceEngineReady,
     voiceHasSample,
+    voiceSampleSec,
+    voiceSampleWarning,
+    voiceSamplePeakDb,
+    voiceSampleName,
     libraryAudio,
     toggleVoiceRecord: () => { void toggleVoiceRecord(); },
     toggleVoiceSampleRecord: () => { void toggleVoiceSampleRecord(); },

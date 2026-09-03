@@ -128,6 +128,9 @@ interface Window {
       source_name?: string | null;
       tts_ready: boolean;
       engine?: 'xtts' | 'macos' | 'none' | string;
+      sample_sec?: number | null;
+      sample_warning?: string | null;
+      sample_peak_db?: number | null;
     }>;
     getVoiceTtsProgress: () => Promise<{
       active: boolean;
@@ -144,6 +147,21 @@ interface Window {
       skip_prepare?: boolean;
       prepared_text?: string;
     }) => Promise<{ file_path: string; spoken_text?: string }>;
+    synthesizeVoiceBatch?: (payload: {
+      items: Array<{ text: string; index: number; prepared_text?: string }>;
+      language?: string;
+      seed?: number;
+    }) => Promise<{
+      status: string;
+      engine: string;
+      results: Array<{
+        index: number;
+        file_path: string;
+        duration_sec?: number;
+        skipped?: boolean;
+        spoken_text?: string;
+      }>;
+    }>;
     mixVoiceoverTrack?: (payload: {
       parts: Array<{ file_path: string; start_sec: number; max_duration_sec?: number }>;
       total_sec?: number;
