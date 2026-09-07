@@ -1,0 +1,150 @@
+.dock {
+  position: fixed;
+  top: 10px;
+  right: 14px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: min(22rem, calc(100vw - 5.5rem));
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-raised);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-caption);
+  cursor: pointer;
+}
+
+.chip[data-active='true'] {
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.dot[data-on='true'] {
+  background: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-glow);
+}
+
+.chipText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel {
+  width: 20rem;
+  padding: 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-card);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.head strong {
+  font-size: var(--text-body-sm);
+}
+
+.studio {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+  text-decoration: none;
+}
+
+.job p,
+.idle,
+.ram,
+.models span {
+  margin: 0 0 6px;
+  font-size: var(--text-caption);
+  color: var(--color-text-secondary);
+}
+
+.meta,
+.idle {
+  color: var(--color-text-tertiary);
+}
+
+.track {
+  height: 5px;
+  margin: 6px 0 8px;
+  border-radius: 99px;
+  background: var(--color-bg-elevated);
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  background: var(--color-accent);
+}
+
+.warnBtn,
+.clear,
+.models button {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-caption);
+  cursor: pointer;
+}
+
+.warnBtn,
+.clear {
+  width: 100%;
+  padding: 6px 8px;
+}
+
+.warnBtn {
+  margin-bottom: 8px;
+}
+
+.models ul {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.models li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-caption);
+}
+
+.models button:disabled,
+.clear:disabled,
+.warnBtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

@@ -23,6 +23,7 @@ from api import video as video_api
 from api import audio as audio_api
 from api import threed as threed_api
 from api import script as script_api
+from api import motion as motion_api
 
 app = FastAPI(title="AI Creative Workstation Inference Sidecar")
 
@@ -37,6 +38,7 @@ app.add_middleware(
 
 app.include_router(generation.router, prefix="/api")
 app.include_router(video_api.router, prefix="/api")
+app.include_router(motion_api.router, prefix="/api")
 app.include_router(audio_api.router, prefix="/api")
 app.include_router(threed_api.router, prefix="/api")
 app.include_router(script_api.router, prefix="/api")

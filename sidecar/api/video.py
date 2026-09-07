@@ -120,9 +120,7 @@ def _ken_burns_filter(index: int, w: int, h: int, frames: int) -> str:
         z, x, y = "min(1+0.0013*on,1.24)", "iw/2-(iw/zoom/2)", f"min((ih-ih/zoom)*on/{last},ih-ih/zoom)"
     else:
         z, x, y = "min(1+0.0016*on,1.3)", "iw/2-(iw/zoom/2)", f"max((ih-ih/zoom)*(1-on/{last}),0)"
-    return (
-        f"{prep},zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps=30,format=yuv420p"
-    )
+    return f"{prep},zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps=30"
 
 
 def _concat_with_xfade(ffmpeg: str, clips: list, durations: list, output_path: str) -> None:
@@ -355,6 +353,7 @@ class TimelineClipModel(BaseModel):
     start_sec: float
     duration_sec: float
     source_in_sec: float = 0.0
+    effect: Optional[str] = None
 
 
 class RenderTimelineRequest(BaseModel):
@@ -402,10 +401,39 @@ def _render_caption_png(text: str, video_w: int, video_h: int, out: str) -> None
     img.save(out)
 
 
+def _effect_filters(prompt: Optional[str]) -> str:
+    """Gentle grade only. colortemperature on yuv420p turns footage magenta/cyan."""
+    raw = (prompt or "").lower()
+    if not raw.strip():
+        return ""
+    parts: List[str] = []
+    if any(k in raw for k in ("зерн", "плёнк", "пленк", "grain", "film")):
+        parts.append("noise=alls=4:allf=t")
+    if any(k in raw for k in ("тепл", "warm", "sunset", "закат")):
+        parts.append("eq=gamma_r=1.06:gamma_g=1.02:gamma_b=0.94:saturation=1.05")
+    if any(k in raw for k in ("холод", "cool", "blue", "ноч")):
+        parts.append("eq=gamma_r=0.94:gamma_g=1.0:gamma_b=1.08:saturation=0.95")
+    if any(k in raw for k in ("контраст", "contrast", "драм")):
+        parts.append("eq=contrast=1.12:saturation=1.06")
+    if any(k in raw for k in ("мягк", "soft", "bloom", "размы")):
+        parts.append("gblur=sigma=0.45")
+    if any(k in raw for k in ("виньет", "vignette", "края")):
+        parts.append("vignette=PI/6")
+    if any(k in raw for k in ("чб", "черно", "чёрно", "mono", "bw", "b&w")):
+        parts.append("hue=s=0")
+    return ",".join(parts)
+
+
+def _with_effect(base_vf: str, clip: TimelineClipModel) -> str:
+    extra = _effect_filters(clip.effect)
+    chain = f"{base_vf},{extra}" if extra else base_vf
+    return f"{chain},format=yuv420p"
+
+
 def _fit_filter(w: int, h: int, fps: int) -> str:
     return (
-        f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-        f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,fps={fps},format=yuv420p"
+        f"scale={w}:{h}:force_original_aspect_ratio=decrease:flags=lanczos,"
+        f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,fps={fps}"
     )
 
 
@@ -421,7 +449,7 @@ def _encode_segment(ffmpeg: str, clip: TimelineClipModel, dur: float, index: int
         cmd = [
             ffmpeg, "-y", "-loop", "1", "-t", f"{dur:.3f}", "-i", src, *silence,
             "-frames:v", str(frames),
-            "-vf", _ken_burns_filter(index, w, h, frames),
+            "-vf", _with_effect(_ken_burns_filter(index, w, h, frames), clip),
             "-map", "0:v", "-map", "1:a",
             "-c:v", "libx264", "-pix_fmt", "yuv420p", *_SEG_AUDIO,
             out,
@@ -432,7 +460,7 @@ def _encode_segment(ffmpeg: str, clip: TimelineClipModel, dur: float, index: int
             ffmpeg, "-y",
             "-ss", f"{max(0.0, clip.source_in_sec):.3f}", "-t", f"{dur:.3f}", "-i", src,
             *silence,
-            "-vf", _fit_filter(w, h, fps),
+            "-vf", _with_effect(_fit_filter(w, h, fps), clip),
             "-map", "0:v", *audio_map,
             "-t", f"{dur:.3f}",
             "-c:v", "libx264", "-pix_fmt", "yuv420p", *_SEG_AUDIO,

@@ -107,12 +107,12 @@ Editable script table (unchanged UX, better content)
 
 **Implementation phases:**
 
-| Phase | Capability | Tech |
-|-------|------------|------|
-| V2a | Keyframe extract (1 per scene) + vision caption | ffmpeg + local VLM (MLX) or cloud vision API |
-| V2b | `ProjectContext` — user pastes/uploads product doc; stored in project | Renderer + optional sidecar chunk for LLM |
-| V2c | Script prompt uses `visual_notes` + `ProjectContext` + brief | Extend `script_llm.py` |
-| V2d | Post-check: segment count = scenes, coverage = duration | Already partial in V1 |
+| Phase | Capability | Tech | Status |
+|-------|------------|------|--------|
+| V2a | Keyframe extract (1 per scene) + vision caption | ffmpeg + **Ollama vision model** (auto-detected: qwen2.5vl / llava / llama3.2-vision / minicpm-v / gemma3 / moondream…) | ✅ shipped 2 Sep 2026 — `sidecar/visual_caption.py`, wired into `video_analyze.py` (stage `visual`, cached with analysis; degrades to `VISION_MODEL_MISSING` warning) |
+| V2b | `ProjectContext` — user pastes product doc | `voiceover.projectContext` in director session (persists across restarts); Brief stage UI | ✅ shipped 2 Sep 2026 |
+| V2c | Script prompt uses `visual_notes` + `ProjectContext` + brief | `script_llm._build_llm_prompt` — per-scene “on screen: …” lines + “Project facts” block; caption-aware fallback replaces «Сцена N» placeholders | ✅ shipped 2 Sep 2026 |
+| V2d | Post-check: segment count = scenes, coverage = duration | Already partial in V1 | partial |
 
 **Contract extension (`VideoContext.visual_notes`):**
 
@@ -144,6 +144,16 @@ Editable script table (unchanged UX, better content)
 
 **Backend:** `POST /api/audio/tts/voiceover-track` — input: segments[], output: single wav + duration map for editor.
 
+> ✅ **Shipped 2 Sep 2026 (option C).** Actual endpoint: `POST /api/audio/voiceover-track`
+> (`sidecar/api/audio.py: mix_voiceover_track`). Per-segment XTTS stays (pronunciation
+> per line); ffmpeg then unifies rate/layout (`aresample=48000` + mono), delays each part
+> to its `start_sec` (`adelay`), mixes without loudness normalization (`amix normalize=0`,
+> speech never overlaps), and pads with silence to the full video duration
+> (`apad=whole_dur`). Renderer (`applyScriptVoiceover` in `DirectorBoard.tsx`) collects
+> segment wavs, calls `window.api.mixVoiceoverTrack`, and places **one clip «Озвучка»**
+> on A1 at 0:00 spanning the video. Falls back to per-segment placement if the mix API
+> is unavailable. IPC: `mix-voiceover-track` in `src/main/index.ts` + preload bridge.
+
 ### G4 — Project context prompt
 
 User wants to prepare a **master prompt from studying their project**, reused across videos.
@@ -158,11 +168,24 @@ User wants to prepare a **master prompt from studying their project**, reused ac
 
 ### G5 — Pronunciation in voiceover path
 
+> **Reference audio dominates everything below.** XTTS clones from
+> `~/Documents/Canvas/Voice/speaker.wav`. If that recording is quiet or short,
+> no amount of prompt or lexicon tuning helps — the timbre wanders between
+> segments and the model emits noise. Target: 15–30 s of clean speech peaking
+> near −3 dBFS. The sidecar now measures this and warns in the UI.
+
 Reuse [VOICE_PRONUNCIATION_PLAN.md](VOICE_PRONUNCIATION_PLAN.md):
 
 - Every segment → `prepare-text` → lexicon → XTTS (already wired in V1 per segment).
-- **V2 add:** per-segment “Fix pronunciation” in script table; batch lexicon learn from edited segments.
-- **V2 add:** WPM / pause tuning so speech fits scene window without rushing.
+- **V2 add (✅ shipped 2 Sep 2026):** per-segment «Произношение» panel in the pipeline
+  script table — spoken preview via `prepare-text` + inline fix («слово → как произнести»
+  or «ударение на „а“») saved to the global lexicon via `POST /audio/lexicon/fix`.
+  A successful fix resets voiceover status to `scripted` so A1 can be re-voiced.
+- **V2 add (✅ shipped 2 Sep 2026):** speech-length estimate per segment
+  (`words / WPM` vs scene window, warning on overflow) plus automatic tempo fit at mix time:
+  `mix_voiceover_track` accepts `max_duration_sec` per part, applies ffmpeg `atempo` up to
+  +20% so speech fits the scene window; measured duration and tempo shown in the script table
+  after «Озвучить на A1».
 
 ---
 
@@ -221,12 +244,12 @@ flowchart TB
 
 | Priority | Task | Outcome |
 |----------|------|---------|
-| **P0** | Pipeline layout mode + stepper | Usable voiceover without scattered panels |
-| **P0** | Single A1 voiceover track (concat) | Continuous narration |
-| **P1** | Keyframe + VLM captions per scene | Script describes screen content |
-| **P1** | Project context field + persistence | Reusable product brief |
-| **P2** | Script preview sync (click segment → seek) | Edit with video context |
-| **P2** | Pronunciation fix per segment in table | Quality |
+| **P0** | ✅ Pipeline layout mode + stepper (shipped 2 Sep 2026) | Usable voiceover without scattered panels |
+| **P0** | ✅ Single A1 voiceover track (concat, shipped 2 Sep 2026) | Continuous narration |
+| **P1** | ✅ Keyframe + VLM captions per scene (shipped 2 Sep 2026) | Script describes screen content |
+| **P1** | ✅ Project context field + persistence (shipped 2 Sep 2026) | Reusable product brief |
+| **P2** | ✅ Script preview sync — click timecode → seek (shipped with pipeline mode) | Edit with video context |
+| **P2** | ✅ Pronunciation fix per segment in table (shipped 2 Sep 2026) | Quality |
 | **P3** | Cloud vision fallback | Better captions without local VLM |
 | **P3** | Duck / mute original audio | Demo workflow |
 
@@ -269,5 +292,10 @@ flowchart TB
 
 | Date | Note |
 |------|------|
+| 2026-09-02 | **Voice quality overhaul after full-cycle test.** Root cause of drifting male/female timbre, noise and broken speech: the cloning reference was near-silent (peak −50 dB vs a normal −3 dB), so XTTS was cloning the noise floor. Measured proof: with the quiet reference, segment durations came out at ratios 2.25 / 0.35 / 0.74 of target; with a correctly-leveled reference, 1.22 / 1.32 / 1.37. Fixes: (1) `save_voice` now trims silence, converts to mono 22.05 kHz and applies make-up gain, storing the source peak; `GET /audio/voice` returns `sample_peak_db` + `SAMPLE_TOO_QUIET` / `SAMPLE_TOO_SHORT`, surfaced as a blocking-looking alert with re-record buttons. (2) New `sidecar/tts_batch.py` + `POST /audio/tts/batch`: one worker process for the whole voiceover, conditioning latents computed once and a fixed seed per segment, so the voice can no longer drift; silence-trim and peak-normalize per segment removes artifact tails. Model loads once instead of once per segment (3 segments: ~31 s total). (3) Script prompt now states an explicit per-scene word budget and total length, so scenes are filled instead of leaving dead air. (4) Voice stage shows the full narration text with clickable timecodes — previously the script was only visible one row at a time on the Script stage. |
+| 2026-09-02 | **G5 pronunciation + tempo fit shipped** (P2): per-segment «Произношение» panel with spoken preview and lexicon fix; speech vs window estimate in script table; `mix_voiceover_track` fits each segment with ffmpeg `atempo` (up to +20%) via `max_duration_sec`; measured duration + tempo badge after A1 apply. **Timeout fix:** cached XTTS probe in sidecar, `prepare-text`/lexicon fix in thread pool, 30s timeout + deduped cache for `get-voice-profile` in main. |
+| 2026-09-02 | **Video-aware script + project context shipped** (G2 V2a–V2c, G4 / P1): `visual_caption.py` extracts one mid-scene keyframe per scene and captions it via any installed Ollama vision model (auto-detected from /api/tags); notes land in `visual_notes`, shown on the Analyze stage («Что на экране»), and feed the script prompt together with the new «Контекст проекта» field on the Brief stage (persisted in the director session). Fallback drafts now use captions instead of «Сцена N» placeholders. Main process starts Ollama before analyze so captions work. If no vision model: warning + hint in UI, everything else works as before. |
+| 2026-09-02 | **Continuous A1 voiceover shipped** (G3 / P0, option C): new `POST /api/audio/voiceover-track` merges per-segment TTS into one wav (adelay → amix normalize=0 → apad to video duration); A1 now gets a single «Озвучка» clip at 0:00. Verified with real ffmpeg run (mismatched sample rates, exact target duration). |
+| 2026-09-02 | **Pipeline layout mode shipped** (G1 / P0): 6-stage centered workflow (Материал → Анализ → Бриф → Сценарий → Голос → Финал), clickable stepper with unlock/auto-advance, script+preview 50/50 with timecode-seek, «Озвучка →» and «Подготовить озвучку» now force pipeline mode. See implementation status in [VIDEO_STUDIO_LAYOUT_MODES.md](../ux/VIDEO_STUDIO_LAYOUT_MODES.md). Decision: Review+Export merged into one «Финал» stage (Result pane already carries export UI). |
 | 2026-09-02 | V2 vision doc created from user feedback after V1 MVP demo |
 | 2026-09-02 | V1 MVP committed: analyze → script → inline voice → A1 segments → export |

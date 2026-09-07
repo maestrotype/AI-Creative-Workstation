@@ -1,5 +1,5 @@
 export type DockPanelId = 'timeline' | 'preview' | 'sources' | 'storyboard' | 'recording';
-export type DockMode = 'tile' | 'free';
+export type DockMode = 'pipeline' | 'tile' | 'free';
 
 export interface DockRect {
   /* free mode, in % of the canvas */
@@ -45,18 +45,19 @@ export function defaultDockState(): DockState {
   };
 }
 
-const STORAGE_KEY = 'video-dock-layout-v7';
+const STORAGE_KEY = 'video-dock-layout-v8';
 
 export function loadDockState(): DockState {
   const base = defaultDockState();
   try {
     let raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) raw = localStorage.getItem('video-dock-layout-v7');
     if (!raw) raw = localStorage.getItem('video-dock-layout-v6');
     if (!raw) raw = localStorage.getItem('video-dock-layout-v5');
     if (!raw) raw = localStorage.getItem('video-dock-layout-v4');
     if (!raw) return base;
     const parsed = JSON.parse(raw) as Partial<DockState>;
-    if (parsed.mode === 'tile' || parsed.mode === 'free') base.mode = parsed.mode;
+    if (parsed.mode === 'pipeline' || parsed.mode === 'tile' || parsed.mode === 'free') base.mode = parsed.mode;
     for (const id of DOCK_PANEL_IDS) {
       const next = parsed.panels?.[id];
       if (next && typeof next.span === 'number') base.panels[id] = { ...base.panels[id], ...next };
@@ -66,6 +67,9 @@ export function loadDockState(): DockState {
     }
   } catch {
     /* defaults */
+  }
+  if (base.mode === 'pipeline') {
+    return { ...packTileLayout({ ...base, mode: 'tile' }), mode: 'pipeline' };
   }
   if (base.mode === 'tile') return packTileLayout(base);
   if (!base.freeCanvasHpx) return tileToFreeLayout({ ...base, mode: 'tile' });

@@ -16,7 +16,19 @@ const api = {
   setActiveModel: (modelId: string) => ipcRenderer.invoke('set-active-model', modelId),
   getActive3dModel: () => ipcRenderer.invoke('get-active-3d-model'),
   setActive3dModel: (modelId: string) => ipcRenderer.invoke('set-active-3d-model', modelId),
+  getActiveVideoModel: () => ipcRenderer.invoke('get-active-video-model'),
+  setActiveVideoModel: (modelId: string) => ipcRenderer.invoke('set-active-video-model', modelId),
   getEngineStatus: () => ipcRenderer.invoke('get-engine-status'),
+  getRuntimeStatus: () => ipcRenderer.invoke('get-runtime-status'),
+  cancelRuntimeJob: () => ipcRenderer.invoke('cancel-runtime-job'),
+  unloadAllModels: () => ipcRenderer.invoke('unload-all-models'),
+  generateVideo: (payload: {
+    prompt: string;
+    format: string;
+    duration_sec?: number;
+    model_id?: string;
+    image_path?: string;
+  }) => ipcRenderer.invoke('generate-video', payload),
   generateImage: (payload: {
     prompt: string;
     format: string;
@@ -32,6 +44,14 @@ const api = {
     height: number;
     output_name: string;
   }) => ipcRenderer.invoke('assemble-video', payload),
+  listProjects: () => ipcRenderer.invoke('list-projects'),
+  createProject: (payload?: { name?: string; format?: 'landscape' | 'shorts' }) =>
+    ipcRenderer.invoke('create-project', payload),
+  loadProject: (id: string) => ipcRenderer.invoke('load-project', id),
+  saveProject: (doc: unknown) => ipcRenderer.invoke('save-project', doc),
+  deleteProject: (id: string) => ipcRenderer.invoke('delete-project', id),
+  importIntoProject: (payload: { projectId: string; path: string }) =>
+    ipcRenderer.invoke('import-into-project', payload),
   renderTimeline: (payload: {
     clips: Array<{
       kind: string;
@@ -41,6 +61,7 @@ const api = {
       start_sec: number;
       duration_sec: number;
       source_in_sec: number;
+      effect?: string | null;
     }>;
     width: number;
     height: number;
@@ -87,6 +108,16 @@ const api = {
     skip_prepare?: boolean;
     prepared_text?: string;
   }) => ipcRenderer.invoke('synthesize-voice', payload),
+  synthesizeVoiceBatch: (payload: {
+    items: Array<{ text: string; index: number; prepared_text?: string }>;
+    language?: string;
+    seed?: number;
+  }) => ipcRenderer.invoke('synthesize-voice-batch', payload),
+  mixVoiceoverTrack: (payload: {
+    parts: Array<{ file_path: string; start_sec: number; max_duration_sec?: number }>;
+    total_sec?: number;
+    output_name?: string;
+  }) => ipcRenderer.invoke('mix-voiceover-track', payload),
   prepareVoiceText: (payload: { text: string; language?: string; apply_stress?: boolean }) =>
     ipcRenderer.invoke('prepare-voice-text', payload),
   getVoiceLexicon: () => ipcRenderer.invoke('get-voice-lexicon'),
@@ -113,6 +144,7 @@ const api = {
   generateScript: (payload: {
     video_context: Record<string, unknown>;
     prompt?: string;
+    project_context?: string;
     language?: string;
     target_wpm?: number;
     prefer_ollama?: boolean;

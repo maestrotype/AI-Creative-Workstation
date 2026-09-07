@@ -38,7 +38,8 @@ import {
   type TrackLayout,
 } from '../model/directorTimeline';
 import { DEFAULT_TRACK_LAYOUT } from '../model/directorTimeline';
-import { loadDirectorSession, saveDirectorSession } from '../model/directorSessionStore';
+import { handoffPathsOf, takeProjectHandoff, type ProjectHandoff } from '../../projects/model/handoff';
+import { loadDirectorSession, saveDirectorSession, type DirectorSession } from '../model/directorSessionStore';
 import {
   emptyVoiceoverSession,
   resolveVoiceoverSource,
@@ -62,6 +63,7 @@ interface DragState {
 
 interface DirectorProviderProps {
   children: ReactNode;
+  projectId?: string | null;
 }
 
 const DirectorContext = createContext<DirectorSnap | null>(null);
@@ -143,6 +145,10 @@ type DirectorSnap = {
   ttsReady: boolean;
   voiceEngineReady: boolean;
   voiceHasSample: boolean;
+  voiceSampleSec: number | null;
+  voiceSampleWarning: string | null;
+  voiceSamplePeakDb: number | null;
+  voiceSampleName: string | null;
   libraryAudio: Array<{ path: string; name: string }>;
   toggleVoiceRecord: () => void;
   voiceSampleRecording: boolean;
@@ -172,12 +178,21 @@ type DirectorSnap = {
   scriptBusy: boolean;
   scriptError: string | null;
   setScriptPrompt: (prompt: string) => void;
+  setProjectContext: (value: string) => void;
   generateScript: () => void;
-  updateScriptSegment: (index: number, patch: Partial<{ text: string; start_sec: number; end_sec: number; role: string }>) => void;
+  updateScriptSegment: (index: number, patch: Partial<{
+    text: string;
+    start_sec: number;
+    end_sec: number;
+    role: string;
+    speech_sec: number;
+    speech_tempo: number;
+  }>) => void;
   voiceoverApplyBusy: boolean;
   voiceoverApplyError: string | null;
   voiceoverApplyProgress: { current: number; total: number; detail: string };
   applyScriptVoiceover: () => void;
+  projectScope: { id: string; name: string } | null;
 };
 
 export interface SourceInput {
@@ -187,7 +202,99 @@ export interface SourceInput {
   durationSec?: number;
 }
 
-const SESSION_BOOT = loadDirectorSession();
+function sessionMatchesHandoff(session: DirectorSession | null, handoff: ProjectHandoff): boolean {
+  if (!session) return false;
+  const have = session.bins
+    .filter((b) => b.kind === 'video' || b.kind === 'image')
+    .map((b) => b.path)
+    .sort();
+  const want = handoffPathsOf(handoff);
+  return have.length === want.length && have.every((path, i) => path === want[i]);
+}
+
+function sessionFromHandoff(handoff: ProjectHandoff): DirectorSession {
+  let t = 0;
+  const bins: BinItem[] = [];
+  const clips: TimelineClip[] = [];
+  for (const src of handoff.sources) {
+    const dur = src.durationSec ?? (src.kind === 'image' ? 4 : 8);
+    const binId = newId('bin');
+    bins.push({
+      id: binId,
+      kind: src.kind,
+      path: src.path,
+      name: src.name ?? fileName(src.path),
+      durationSec: dur,
+      inSec: 0,
+      outSec: dur,
+      durationKnown: src.kind === 'image' || src.durationSec != null,
+    });
+    clips.push({
+      id: newId('clip'),
+      binId,
+      track: 'v1',
+      startSec: t,
+      durationSec: dur,
+      sourceInSec: 0,
+      label: src.name ?? fileName(src.path),
+      autoLength: true,
+    });
+    t += dur;
+  }
+  const firstVideo = bins.find((b) => b.kind === 'video');
+  return {
+    savedAt: Date.now(),
+    bins,
+    clips,
+    playhead: 0,
+    selectedBin: bins[0]?.id ?? null,
+    selectedClip: null,
+    captionDraft: '',
+    pxPerSec: 16,
+    trackLayout: DEFAULT_TRACK_LAYOUT,
+    overlayPos: {},
+    projectName: handoff.projectName,
+    voiceover: {
+      ...emptyVoiceoverSession(),
+      projectContext: handoff.brief ?? '',
+      sourcePath: firstVideo?.path ?? null,
+      sourceBinId: firstVideo?.id ?? null,
+    },
+  };
+}
+
+function resolveBoot(projectId?: string | null): {
+  session: DirectorSession | null;
+  scopeId: string | null;
+  scopeName: string;
+} {
+  const handoff = takeProjectHandoff();
+  const scopeId = (projectId || handoff?.projectId || '').trim() || null;
+  const existing = loadDirectorSession(scopeId);
+  if (handoff && handoff.sources.length > 0) {
+    if (sessionMatchesHandoff(existing, handoff) && existing) {
+      return {
+        session: {
+          ...existing,
+          projectName: handoff.projectName || existing.projectName,
+          voiceover: {
+            ...emptyVoiceoverSession(),
+            ...existing.voiceover,
+            projectContext: existing.voiceover?.projectContext || handoff.brief || '',
+          },
+        },
+        scopeId,
+        scopeName: handoff.projectName || existing.projectName || '',
+      };
+    }
+    return {
+      session: sessionFromHandoff(handoff),
+      scopeId,
+      scopeName: handoff.projectName,
+    };
+  }
+  return { session: existing, scopeId, scopeName: existing?.projectName || '' };
+}
 
 function ipcMessage(err: unknown, fallback: string): string {
   const raw = err instanceof Error ? err.message : String(err);
@@ -195,22 +302,26 @@ function ipcMessage(err: unknown, fallback: string): string {
   return cleaned || fallback;
 }
 
-export function DirectorProvider({ children }: DirectorProviderProps): ReactNode {
+export function DirectorProvider({ children, projectId = null }: DirectorProviderProps): ReactNode {
   const { t } = useTranslation();
-  const [bins, setBins] = useState<BinItem[]>(() => SESSION_BOOT?.bins ?? []);
-  const [clips, setClips] = useState<TimelineClip[]>(() => unstackAllTracks(SESSION_BOOT?.clips ?? []));
-  const [selectedBin, setSelectedBin] = useState<string | null>(() => SESSION_BOOT?.selectedBin ?? null);
-  const [selectedClip, setSelectedClip] = useState<string | null>(() => SESSION_BOOT?.selectedClip ?? null);
-  const [playhead, setPlayhead] = useState(() => SESSION_BOOT?.playhead ?? 0);
+  const bootPack = useRef(resolveBoot(projectId)).current;
+  const boot = bootPack.session;
+  const scopeIdRef = useRef(bootPack.scopeId);
+  const scopeName = bootPack.scopeName;
+  const [bins, setBins] = useState<BinItem[]>(() => boot?.bins ?? []);
+  const [clips, setClips] = useState<TimelineClip[]>(() => unstackAllTracks(boot?.clips ?? []));
+  const [selectedBin, setSelectedBin] = useState<string | null>(() => boot?.selectedBin ?? null);
+  const [selectedClip, setSelectedClip] = useState<string | null>(() => boot?.selectedClip ?? null);
+  const [playhead, setPlayhead] = useState(() => boot?.playhead ?? 0);
   const [playing, setPlaying] = useState(false);
   const [seekNonce, setSeekNonce] = useState(0);
-  const [pxPerSec, setPxPerSec] = useState(() => SESSION_BOOT?.pxPerSec ?? 16);
+  const [pxPerSec, setPxPerSec] = useState(() => boot?.pxPerSec ?? 16);
   const [trackLayout, setTrackLayout] = useState<TrackLayout>(
-    () => SESSION_BOOT?.trackLayout ?? DEFAULT_TRACK_LAYOUT,
+    () => boot?.trackLayout ?? DEFAULT_TRACK_LAYOUT,
   );
-  const [captionDraft, setCaptionDraft] = useState(() => SESSION_BOOT?.captionDraft ?? '');
+  const [captionDraft, setCaptionDraft] = useState(() => boot?.captionDraft ?? '');
   const [overlayPos, setOverlayPosState] = useState<Record<string, OverlayPos>>(
-    () => SESSION_BOOT?.overlayPos ?? {},
+    () => boot?.overlayPos ?? {},
   );
   const [viewW, setViewW] = useState(640);
   const fittedOnce = useRef(false);
@@ -250,10 +361,33 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
   const [voiceover, setVoiceover] = useState<VoiceoverSession>(
     () => ({
       ...emptyVoiceoverSession(),
-      ...(SESSION_BOOT?.voiceover ?? {}),
-      analysis: null,
+      ...(boot?.voiceover ?? {}),
     }),
   );
+  const sessionSnapRef = useRef({
+    bins,
+    clips,
+    playhead,
+    selectedBin,
+    selectedClip,
+    captionDraft,
+    pxPerSec,
+    trackLayout,
+    overlayPos,
+    voiceover,
+  });
+  sessionSnapRef.current = {
+    bins,
+    clips,
+    playhead,
+    selectedBin,
+    selectedClip,
+    captionDraft,
+    pxPerSec,
+    trackLayout,
+    overlayPos,
+    voiceover,
+  };
   const [voiceoverBusy, setVoiceoverBusy] = useState(false);
   const [voiceoverError, setVoiceoverError] = useState<string | null>(null);
   const [voiceoverProgress, setVoiceoverProgress] = useState({ stage: 'idle', percent: 0, detail: '' });
@@ -267,6 +401,10 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
   const [ttsReady, setTtsReady] = useState(false);
   const [voiceEngineReady, setVoiceEngineReady] = useState(false);
   const [voiceHasSample, setVoiceHasSample] = useState(false);
+  const [voiceSampleSec, setVoiceSampleSec] = useState<number | null>(null);
+  const [voiceSampleWarning, setVoiceSampleWarning] = useState<string | null>(null);
+  const [voiceSamplePeakDb, setVoiceSamplePeakDb] = useState<number | null>(null);
+  const [voiceSampleName, setVoiceSampleName] = useState<string | null>(null);
   const [libraryAudio, setLibraryAudio] = useState<Array<{ path: string; name: string }>>([]);
   const blobs = useFileBlobs(bins.filter((b) => b.kind !== 'image' && !b.proxying).map((b) => b.path));
 
@@ -373,23 +511,34 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
   }, [pxPerSec, total]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
+    const persist = () => {
       saveDirectorSession({
         savedAt: Date.now(),
-        bins,
-        clips,
-        playhead,
-        selectedBin,
-        selectedClip,
-        captionDraft,
-        pxPerSec,
-        trackLayout,
-        overlayPos,
-        voiceover: { ...voiceover, analysis: null },
-      });
-    }, 350);
+        projectName: scopeName,
+        ...sessionSnapRef.current,
+      }, scopeIdRef.current);
+    };
+    const timer = window.setTimeout(persist, 350);
     return () => window.clearTimeout(timer);
   }, [bins, clips, playhead, selectedBin, selectedClip, captionDraft, pxPerSec, trackLayout, overlayPos, voiceover]);
+
+  useEffect(() => {
+    const persist = () => {
+      saveDirectorSession({
+        savedAt: Date.now(),
+        projectName: scopeName,
+        ...sessionSnapRef.current,
+      }, scopeIdRef.current);
+    };
+    const onHide = () => persist();
+    window.addEventListener('pagehide', onHide);
+    window.addEventListener('beforeunload', onHide);
+    return () => {
+      window.removeEventListener('pagehide', onHide);
+      window.removeEventListener('beforeunload', onHide);
+      persist();
+    };
+  }, []);
 
   useEffect(() => {
     setClips((prev) => {
@@ -879,6 +1028,10 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
       if (profile) {
         hasSample = Boolean(profile.has_sample);
         engineReady = Boolean(profile.tts_ready);
+        setVoiceSampleSec(profile.sample_sec ?? null);
+        setVoiceSampleWarning(profile.sample_warning ?? null);
+        setVoiceSamplePeakDb(profile.sample_peak_db ?? null);
+        setVoiceSampleName(profile.source_name ?? profile.source_path ?? null);
       }
     } catch {
       /* optional */
@@ -1143,6 +1296,10 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     setVoiceover((prev) => ({ ...prev, scriptPrompt: prompt }));
   };
 
+  const setProjectContext = (value: string) => {
+    setVoiceover((prev) => ({ ...prev, projectContext: value }));
+  };
+
   const generateScript = async () => {
     const ctx = voiceover.analysis;
     if (!ctx || !window.api?.generateScript) {
@@ -1155,6 +1312,7 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
       const result = await window.api.generateScript({
         video_context: ctx as unknown as Record<string, unknown>,
         prompt: voiceover.scriptPrompt,
+        project_context: voiceover.projectContext,
         language: 'ru',
         target_wpm: 130,
       });
@@ -1176,13 +1334,26 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
 
   const updateScriptSegment = (
     index: number,
-    patch: Partial<{ text: string; start_sec: number; end_sec: number; role: string }>,
+    patch: Partial<{
+      text: string;
+      start_sec: number;
+      end_sec: number;
+      role: string;
+      speech_sec: number;
+      speech_tempo: number;
+    }>,
   ) => {
     setVoiceover((prev) => {
       if (!prev.script) return prev;
-      const segments = prev.script.segments.map((seg, i) => (
-        i === index ? { ...seg, ...patch } : seg
-      ));
+      const segments = prev.script.segments.map((seg, i) => {
+        if (i !== index) return seg;
+        const next = { ...seg, ...patch };
+        if ('text' in patch && patch.text !== undefined && patch.text !== seg.text) {
+          delete next.speech_sec;
+          delete next.speech_tempo;
+        }
+        return next;
+      });
       return {
         ...prev,
         script: { ...prev.script, segments },
@@ -1207,8 +1378,10 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
       }
       return;
     }
-    const segments = script.segments.filter((seg) => seg.text.trim());
-    if (!segments.length) {
+    const voicedSegments = script.segments
+      .map((seg, scriptIndex) => ({ seg, scriptIndex }))
+      .filter(({ seg }) => seg.text.trim());
+    if (!voicedSegments.length) {
       setVoiceoverApplyError(t('video.vo_voice_need_text'));
       return;
     }
@@ -1231,32 +1404,106 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     }, 600);
 
     try {
-      for (let i = 0; i < segments.length; i += 1) {
-        const seg = segments[i];
+      const parts: Array<{ file_path: string; start_sec: number; max_duration_sec?: number }> = [];
+      const partScriptIndexes: number[] = [];
+
+      if (window.api.synthesizeVoiceBatch) {
+        // One worker process for all segments: XTTS keeps a single speaker
+        // conditioning + seed, so the cloned voice does not drift between them.
         setVoiceoverApplyProgress({
-          current: i + 1,
-          total: segments.length,
-          detail: t('video.vo_voice_segment', { n: i + 1, time: formatClock(seg.start_sec) }),
+          current: 0,
+          total: voicedSegments.length,
+          detail: t('video.vo_voice_batch_start'),
         });
-        let preparedText: string | undefined;
-        if (window.api.prepareVoiceText) {
-          const prep = await window.api.prepareVoiceText({ text: seg.text.trim() });
-          preparedText = prep.spoken;
+        const batch = await window.api.synthesizeVoiceBatch({
+          items: voicedSegments.map(({ seg }, i) => ({ index: i, text: seg.text.trim() })),
+          language: 'ru',
+        });
+        for (const row of batch.results) {
+          if (row.skipped) continue;
+          const entry = voicedSegments[row.index];
+          if (!entry) continue;
+          partScriptIndexes.push(entry.scriptIndex);
+          parts.push({
+            file_path: row.file_path,
+            start_sec: entry.seg.start_sec,
+            max_duration_sec: Math.max(0.5, entry.seg.end_sec - entry.seg.start_sec),
+          });
         }
-        const result = await window.api.synthesizeVoice({
-          text: seg.text.trim(),
-          prepared_text: preparedText,
+      } else {
+        for (let i = 0; i < voicedSegments.length; i += 1) {
+          const { seg, scriptIndex } = voicedSegments[i];
+          setVoiceoverApplyProgress({
+            current: i + 1,
+            total: voicedSegments.length,
+            detail: t('video.vo_voice_segment', { n: i + 1, time: formatClock(seg.start_sec) }),
+          });
+          let preparedText: string | undefined;
+          if (window.api.prepareVoiceText) {
+            const prep = await window.api.prepareVoiceText({ text: seg.text.trim() });
+            preparedText = prep.spoken;
+          }
+          const result = await window.api.synthesizeVoice({
+            text: seg.text.trim(),
+            prepared_text: preparedText,
+          });
+          partScriptIndexes.push(scriptIndex);
+          parts.push({
+            file_path: result.file_path,
+            start_sec: seg.start_sec,
+            max_duration_sec: Math.max(0.5, seg.end_sec - seg.start_sec),
+          });
+        }
+      }
+      if (window.api.mixVoiceoverTrack) {
+        // One continuous A1 clip: segments padded with silence to their
+        // timecodes, track stretched to the full video duration.
+        setVoiceoverApplyProgress({
+          current: voicedSegments.length,
+          total: voicedSegments.length,
+          detail: t('video.vo_voice_mixing'),
         });
-        await ingestAudioPathAt(
-          result.file_path,
-          seg.start_sec,
-          t('video.vo_voice_clip_label', { n: i + 1 }),
+        const totalSec = Math.max(
+          voiceover.analysis?.duration_sec ?? 0,
+          ...voicedSegments.map(({ seg }) => seg.end_sec),
         );
+        const mixed = await window.api.mixVoiceoverTrack({
+          parts,
+          total_sec: totalSec > 0 ? totalSec : undefined,
+          output_name: 'voiceover',
+        });
+        if (mixed.fit?.length) {
+          const fitByPart = new Map(mixed.fit.map((row) => [row.index, row]));
+          setVoiceover((prev) => {
+            if (!prev.script) return prev;
+            const nextSegments = prev.script.segments.map((seg, i) => {
+              const partIdx = partScriptIndexes.indexOf(i);
+              if (partIdx < 0) return seg;
+              const row = fitByPart.get(partIdx);
+              if (!row) return seg;
+              return {
+                ...seg,
+                speech_sec: row.output_sec,
+                speech_tempo: row.tempo,
+              };
+            });
+            return { ...prev, script: { ...prev.script, segments: nextSegments } };
+          });
+        }
+        await ingestAudioPathAt(mixed.file_path, 0, t('video.vo_voice_track_label'));
+      } else {
+        for (let i = 0; i < parts.length; i += 1) {
+          await ingestAudioPathAt(
+            parts[i].file_path,
+            parts[i].start_sec,
+            t('video.vo_voice_clip_label', { n: i + 1 }),
+          );
+        }
       }
       setVoiceover((prev) => ({ ...prev, status: 'voiced' }));
       setVoiceoverApplyProgress({
-        current: segments.length,
-        total: segments.length,
+        current: voicedSegments.length,
+        total: voicedSegments.length,
         detail: t('video.vo_voice_apply_done'),
       });
     } catch (err) {
@@ -1604,6 +1851,10 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     ttsReady,
     voiceEngineReady,
     voiceHasSample,
+    voiceSampleSec,
+    voiceSampleWarning,
+    voiceSamplePeakDb,
+    voiceSampleName,
     libraryAudio,
     toggleVoiceRecord: () => { void toggleVoiceRecord(); },
     toggleVoiceSampleRecord: () => { void toggleVoiceSampleRecord(); },
@@ -1634,12 +1885,16 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     scriptBusy,
     scriptError,
     setScriptPrompt,
+    setProjectContext,
     generateScript: () => { void generateScript(); },
     updateScriptSegment,
     voiceoverApplyBusy,
     voiceoverApplyError,
     voiceoverApplyProgress,
     applyScriptVoiceover: () => { void applyScriptVoiceover(); },
+    projectScope: scopeIdRef.current
+      ? { id: scopeIdRef.current, name: scopeName }
+      : null,
   };
 
   return <DirectorContext.Provider value={snap}>{children}</DirectorContext.Provider>;

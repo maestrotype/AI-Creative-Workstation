@@ -27,3 +27,8 @@ def video_duration_sec(path: str) -> float:
         text=True,
     )
     return float(result.stdout.strip())
+
+
+def audio_duration_sec(path: str) -> float:
+    """Duration of an audio file in seconds (same ffprobe path as video)."""
+    return video_duration_sec(path)

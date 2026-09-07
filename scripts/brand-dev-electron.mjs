@@ -58,6 +58,12 @@ const keys = {
   CFBundleName: PRODUCT_NAME,
   CFBundleDisplayName: PRODUCT_NAME,
   CFBundleIdentifier: BUNDLE_ID,
+  NSMicrophoneUsageDescription:
+    'AI Creative Workstation records your microphone for voice samples and voiceover.',
+  NSAudioCaptureUsageDescription:
+    'AI Creative Workstation captures Mac playback (YouTube, games) as an audio track.',
+  NSScreenCaptureDescription:
+    'Screen capture is used so macOS can attach system audio to the recording.',
 };
 
 let changed = false;

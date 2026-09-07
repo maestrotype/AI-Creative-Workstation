@@ -267,7 +267,7 @@ export function DirectorTimelinePane(): ReactNode {
   );
 }
 
-export function DirectorResultPane(): ReactNode {
+export function DirectorResultPane({ previewActive = true }: { previewActive?: boolean } = {}): ReactNode {
   const d = useDirector();
   return (
     <div className={`${styles.paneFill} ${styles.resultPane}`}>
@@ -281,6 +281,7 @@ export function DirectorResultPane(): ReactNode {
         trackLayout={d.visibleLayout}
         overlayPos={d.overlayPos}
         onOverlayMove={d.setOverlayPos}
+        active={previewActive}
         onDecodeFail={(binId) => {
           const bin = d.bins.find((item) => item.id === binId);
           if (!bin || bin.proxying) return;
@@ -327,8 +328,13 @@ export function DirectorResultPane(): ReactNode {
   );
 }
 
-export function DirectorSourcesPane(): ReactNode {
+export function DirectorSourcesPane({
+  onOpenVoiceover,
+}: {
+  onOpenVoiceover?: () => void;
+} = {}): ReactNode {
   const d = useDirector();
+  const openVoiceover = onOpenVoiceover ?? d.openVoiceover;
   const onSourcesDragOver = (event: DragEvent<HTMLElement>) => {
     if (!hasOsFiles(event)) return;
     event.preventDefault();
@@ -366,7 +372,7 @@ export function DirectorSourcesPane(): ReactNode {
             <button
               type="button"
               className={styles.toolPrimary}
-              onClick={d.openVoiceover}
+              onClick={openVoiceover}
             >
               {d.t('video.vo_open')}
             </button>
@@ -515,7 +521,7 @@ export function DirectorSourcesPane(): ReactNode {
                 <button
                   type="button"
                   className={styles.placeBtnPrimary}
-                  onClick={d.openVoiceover}
+                  onClick={openVoiceover}
                 >
                   {d.t('video.vo_open')}
                 </button>

@@ -32,6 +32,7 @@ class ScriptMetaOut(BaseModel):
 class ScriptGenerateRequest(BaseModel):
     video_context: dict[str, Any]
     prompt: str = ""
+    project_context: str = ""
     language: str = "ru"
     target_wpm: int = Field(default=130, ge=80, le=200)
     prefer_ollama: bool = True
@@ -57,6 +58,7 @@ def generate_script_route(request: ScriptGenerateRequest):
         target_wpm=request.target_wpm,
         prefer_ollama=request.prefer_ollama,
         ollama_model=request.ollama_model,
+        project_context=request.project_context,
     )
     segments = result.get("segments") or []
     if not segments:

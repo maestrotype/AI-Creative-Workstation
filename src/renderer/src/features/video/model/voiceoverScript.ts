@@ -5,6 +5,10 @@ export interface ScriptSegment {
   end_sec: number;
   text: string;
   role: ScriptSegmentRole | string;
+  /** Measured TTS duration after last A1 apply (seconds). */
+  speech_sec?: number;
+  /** Tempo factor applied to fit the scene window (1 = none). */
+  speech_tempo?: number;
 }
 
 export interface VoiceoverScriptMeta {

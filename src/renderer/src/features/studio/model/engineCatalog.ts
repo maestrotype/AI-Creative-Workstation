@@ -8,6 +8,8 @@ export interface CatalogEngine {
   size: string;
   /** Sidecar can run this family today. */
   downloadable: boolean;
+  /** Cloud API — key in Settings, no local weights. */
+  cloud?: boolean;
   noteKey: string;
 }
 
@@ -51,6 +53,25 @@ export const CATALOG_ENGINES: CatalogEngine[] = [
     noteKey: 'studio.note_flux_dev',
   },
   {
+    id: 'runwayml/gen4.5',
+    name: 'Runway Gen-4.5',
+    type: 'video',
+    gated: false,
+    size: 'Cloud API',
+    downloadable: false,
+    cloud: true,
+    noteKey: 'studio.note_runway',
+  },
+  {
+    id: 'stabilityai/stable-video-diffusion-img2vid-xt',
+    name: 'SVD XT (image→video)',
+    type: 'video',
+    gated: true,
+    size: '~9 GB',
+    downloadable: true,
+    noteKey: 'studio.note_svd',
+  },
+  {
     id: 'Lightricks/LTX-Video',
     name: 'LTX Video',
     type: 'video',
@@ -60,12 +81,12 @@ export const CATALOG_ENGINES: CatalogEngine[] = [
     noteKey: 'studio.note_ltx',
   },
   {
-    id: 'Wan-AI/Wan2.1-T2V-1.3B',
+    id: 'Wan-AI/Wan2.1-T2V-1.3B-Diffusers',
     name: 'Wan 2.1 T2V 1.3B',
     type: 'video',
     gated: false,
-    size: '~6 GB+',
-    downloadable: false,
+    size: '~6 GB',
+    downloadable: true,
     noteKey: 'studio.note_wan',
   },
   {
@@ -73,8 +94,8 @@ export const CATALOG_ENGINES: CatalogEngine[] = [
     name: 'MiniMax H3 Base',
     type: 'video',
     gated: false,
-    size: '33B · multi-GPU',
-    downloadable: false,
+    size: '~80 GB+',
+    downloadable: true,
     noteKey: 'studio.note_minimax_h3',
   },
   {

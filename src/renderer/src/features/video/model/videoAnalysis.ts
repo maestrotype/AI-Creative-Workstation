@@ -19,7 +19,13 @@ export interface VideoAnalysisContext {
     full_text: string;
   };
   scenes: VideoScene[];
-  visual_notes: Array<{ time: number; caption: string }>;
+  visual_notes: Array<{
+    time: number;
+    caption: string;
+    scene_index?: number;
+    source?: string;
+    frame_path?: string;
+  }>;
   warnings?: string[];
   whisper_available?: boolean;
   cache_path?: string;

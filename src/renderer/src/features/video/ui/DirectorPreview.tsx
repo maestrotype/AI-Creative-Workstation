@@ -26,6 +26,8 @@ interface DirectorPreviewProps {
   overlayPos?: Record<string, OverlayPos>;
   onOverlayMove?: (track: string, pos: OverlayPos) => void;
   onDecodeFail: (binId: string) => void;
+  /** When false the element stays mounted but does not play (hidden pipeline stages). */
+  active?: boolean;
 }
 
 function binFor(clip: TimelineClip | null, bins: BinItem[]): BinItem | null {
@@ -50,6 +52,7 @@ export function DirectorPreview({
   overlayPos = {},
   onOverlayMove,
   onDecodeFail,
+  active = true,
 }: DirectorPreviewProps): ReactNode {
   const { t } = useTranslation();
   const v1Ref = useRef<HTMLVideoElement>(null);
@@ -114,24 +117,25 @@ export function DirectorPreview({
       else el.addEventListener('loadeddata', apply, { once: true });
     };
 
-    attach(v1Ref.current, v1IsVideo ? v1Url : null, v1IsVideo ? mainClip : null, playing, false);
+    attach(v1Ref.current, v1IsVideo ? v1Url : null, v1IsVideo ? mainClip : null, playing && active, false);
 
     for (const { id, clip } of pipOverlays) {
       const bin = binFor(clip, bins);
       const url = playbackUrl(bin, blobs);
       const isVideo = bin?.kind === 'video' && Boolean(url) && !bin.proxying;
-      attach(overlayRefs.current[id], isVideo ? url : null, isVideo ? clip : null, playing, true);
+      attach(overlayRefs.current[id], isVideo ? url : null, isVideo ? clip : null, playing && active, true);
     }
 
     for (const { id, clip } of audioClips) {
       const bin = binFor(clip, bins);
-      attach(audioRefs.current[id], playbackUrl(bin, blobs), clip, playing, false);
+      attach(audioRefs.current[id], playbackUrl(bin, blobs), clip, playing && active, false);
     }
   }, [
     mainClip?.id,
     v1Url,
     v1IsVideo,
     playing,
+    active,
     seekNonce,
     bins,
     blobs,

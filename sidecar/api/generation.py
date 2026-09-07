@@ -45,6 +45,19 @@ class GenerationRequest(BaseModel):
 # Reuse loaded weights across requests.
 pipeline_cache: dict = {}
 
+# Shown in the app-wide engine monitor.
+_runtime_job: dict = {
+    "active": False,
+    "kind": "",
+    "stage": "idle",
+    "percent": 0,
+    "detail": "",
+    "model_id": "",
+    "started_at": 0.0,
+    "error": None,
+    "cancel": False,
+}
+
 # MPS is not safe for concurrent inference on one pipeline.
 _generation_lock = asyncio.Lock()
 
@@ -72,6 +85,100 @@ def _ensure_gpu_thread() -> None:
     if _gpu_thread is None or not _gpu_thread.is_alive():
         _gpu_thread = threading.Thread(target=_gpu_worker, name="acw-gpu", daemon=True)
         _gpu_thread.start()
+
+
+def set_runtime_job(**patch) -> None:
+    _runtime_job.update(patch)
+
+
+def clear_runtime_job(*, error: str | None = None) -> None:
+    _runtime_job.update({
+        "active": False,
+        "kind": _runtime_job.get("kind") or "",
+        "stage": "error" if error else "idle",
+        "percent": 0 if error else 100,
+        "detail": error or "",
+        "error": error,
+        "cancel": False,
+    })
+
+
+def runtime_should_cancel() -> bool:
+    return bool(_runtime_job.get("cancel"))
+
+
+def attach_step_callback(kwargs: dict, total_steps: int) -> dict:
+    """Best-effort Diffusers progress. Signature differs across versions."""
+
+    def on_step(step: int, *_rest, **_kw):
+        if runtime_should_cancel():
+            raise RuntimeError("CANCELLED")
+        total = max(1, total_steps)
+        pct = 12 + int(80 * (int(step) + 1) / total)
+        set_runtime_job(
+            active=True,
+            stage="infer",
+            percent=min(94, pct),
+            detail=f"{int(step) + 1}/{total}",
+        )
+        if _kw:
+            return _kw
+        return None
+
+    def on_step_end(pipe, i, t, callback_kwargs):  # noqa: ARG001
+        on_step(i)
+        return callback_kwargs
+
+    kwargs = dict(kwargs)
+    kwargs["callback_on_step_end"] = on_step_end
+    return kwargs
+
+
+def _process_rss_bytes() -> int:
+    try:
+        import subprocess
+
+        out = subprocess.check_output(
+            ["ps", "-o", "rss=", "-p", str(os.getpid())],
+            text=True,
+        )
+        return int((out or "0").strip() or 0) * 1024
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _memory_snapshot() -> dict:
+    mps_alloc = 0
+    if torch is not None:
+        try:
+            if torch.backends.mps.is_available():
+                mps_alloc = int(torch.mps.current_allocated_memory())
+        except Exception:  # noqa: BLE001
+            mps_alloc = 0
+    return {
+        "sidecar_rss_bytes": _process_rss_bytes(),
+        "mps_allocated_bytes": mps_alloc,
+    }
+
+
+def runtime_status_payload() -> dict:
+    started = float(_runtime_job.get("started_at") or 0)
+    elapsed = max(0.0, time.time() - started) if started else 0.0
+    return {
+        "job": {
+            "active": bool(_runtime_job.get("active")),
+            "kind": _runtime_job.get("kind") or "",
+            "stage": _runtime_job.get("stage") or "idle",
+            "percent": int(_runtime_job.get("percent") or 0),
+            "detail": _runtime_job.get("detail") or "",
+            "model_id": _runtime_job.get("model_id") or "",
+            "elapsed_sec": round(elapsed, 1),
+            "error": _runtime_job.get("error"),
+        },
+        "loaded": list(pipeline_cache.keys()),
+        "memory": _memory_snapshot(),
+        "busy": _generation_lock.locked(),
+    }
 
 
 async def run_on_gpu(fn, *args):
@@ -485,7 +592,7 @@ def _encode_flux_prompts(pipe, clip_prompt: str, t5_prompt: str, max_sequence_le
 
 def _run_pipe(pipe, request: GenerationRequest, infer_kwargs: dict, init_image, width: int, height: int, strength: float):
 
-    kwargs = dict(infer_kwargs)
+    kwargs = attach_step_callback(dict(infer_kwargs), int(infer_kwargs.get("num_inference_steps") or 20))
     if _is_flux(request.model_id):
         clip = kwargs.pop("prompt")
         t5 = kwargs.pop("prompt_2", clip)
@@ -497,20 +604,28 @@ def _run_pipe(pipe, request: GenerationRequest, infer_kwargs: dict, init_image, 
         kwargs.pop("strength", None)
         if init_image is not None:
             print("FLUX text-to-image: attached photos are not used as a canvas", flush=True)
-        return pipe(**kwargs).images[0]
+        return _call_pipe(pipe, kwargs)
 
     if init_image is not None:
         kwargs["image"] = init_image
         kwargs["strength"] = strength
         kwargs.pop("width", None)
         kwargs.pop("height", None)
-        return _img2img_pipe(pipe)(**kwargs).images[0]
+        return _call_pipe(_img2img_pipe(pipe), kwargs)
 
     kwargs["width"] = width
     kwargs["height"] = height
     kwargs.pop("image", None)
     kwargs.pop("strength", None)
-    return pipe(**kwargs).images[0]
+    return _call_pipe(pipe, kwargs)
+
+
+def _call_pipe(pipe, kwargs):
+    try:
+        return pipe(**kwargs).images[0]
+    except TypeError:
+        kwargs.pop("callback_on_step_end", None)
+        return pipe(**kwargs).images[0]
 
 
 def _run_inference(pipe, request: GenerationRequest, job_id: str) -> str:
@@ -531,6 +646,17 @@ def _run_inference(pipe, request: GenerationRequest, job_id: str) -> str:
     if _is_flux(request.model_id):
         _pin_flux_t5(pipe)
 
+    set_runtime_job(
+        active=True,
+        kind="image",
+        stage="infer",
+        percent=10,
+        detail=f"{width}x{height}",
+        model_id=request.model_id,
+        started_at=time.time(),
+        error=None,
+        cancel=False,
+    )
     print(
         f"[{job_id}] Generating on MPS ({width}x{height}) model={request.model_id} "
         f"steps={steps} guidance={guidance} refs={len(payloads)} strength={strength} "
@@ -587,6 +713,7 @@ def _run_inference(pipe, request: GenerationRequest, job_id: str) -> str:
 
     filepath = os.path.join(output_dir, f"{job_id}.png")
     image.save(filepath)
+    set_runtime_job(active=False, stage="idle", percent=100, detail="done")
     print(f"[{job_id}] DONE! Image saved to {filepath}", flush=True)
     return filepath
 
@@ -613,6 +740,7 @@ async def generate_image(request: GenerationRequest):
         except HTTPException:
             raise
         except Exception as e:
+            clear_runtime_job(error=str(e)[:240])
             print(f"[{job_id}] ERROR during generation: {e}", flush=True)
             if _is_mps_placeholder(e):
                 try:
@@ -690,9 +818,39 @@ def _unload_model(cache_key: str) -> bool:
     return True
 
 
+def _unload_all_models() -> int:
+    """Drop every cached pipeline. GPU worker thread only."""
+    keys = list(pipeline_cache.keys())
+    count = 0
+    for key in keys:
+        if _unload_model(key):
+            count += 1
+    return count
+
+
 class UnloadRequest(BaseModel):
     cache_key: Optional[str] = None
     model_id: Optional[str] = None
+
+
+@router.get("/runtime/status")
+async def runtime_status():
+    return runtime_status_payload()
+
+
+@router.post("/runtime/cancel")
+async def runtime_cancel():
+    set_runtime_job(cancel=True, detail="cancelling")
+    return {"ok": True}
+
+
+@router.post("/models/unload-all")
+async def unload_all_models():
+    if _runtime_job.get("active"):
+        raise HTTPException(status_code=409, detail="BUSY")
+    async with _generation_lock:
+        count = await run_on_gpu(_unload_all_models)
+    return {"unloaded": count, "loaded": list(pipeline_cache.keys())}
 
 
 @router.get("/models/loaded")
