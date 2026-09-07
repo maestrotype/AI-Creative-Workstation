@@ -98,6 +98,31 @@ def _ffmpeg_bin() -> str:
     return path
 
 
+def _ffmpeg_user_error(raw: Optional[str], fallback: str) -> str:
+    """FFmpeg prints a long banner first; the useful line is at the end."""
+    text = (raw or "").strip()
+    if not text:
+        return fallback
+    skip = (
+        "ffmpeg version",
+        "built with",
+        "configuration:",
+        "libav",
+        "libsw",
+        "libpostproc",
+    )
+    lines = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip()
+        and not any(line.strip().lower().startswith(prefix) for prefix in skip)
+        and not line.strip().startswith("--")
+    ]
+    if lines:
+        return " ".join(lines[-8:])[:400]
+    return text[-400:]
+
+
 def _audio_out(name: str, ext: str) -> str:
     os.makedirs(AUDIO_DIR, exist_ok=True)
     safe = re.sub(r"[^a-zA-Z0-9._-]+", "-", name).strip("-") or "audio"
@@ -181,17 +206,65 @@ def _encode_args(fmt: str) -> List[str]:
     return ["-c:a", "pcm_s16le"]
 
 
+def _has_audio_stream(path: str) -> bool:
+    probe = shutil.which("ffprobe")
+    if not probe:
+        ffmpeg = shutil.which("ffmpeg")
+        sibling = os.path.join(os.path.dirname(ffmpeg), "ffprobe") if ffmpeg else ""
+        probe = sibling if sibling and os.path.isfile(sibling) else None
+    if not probe:
+        return True
+    result = subprocess.run(
+        [
+            probe,
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "csv=p=0",
+            path,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return bool((result.stdout or "").strip())
+
+
 def _convert(src: str, dest: str, fmt: str) -> None:
     if not os.path.isfile(src):
         raise HTTPException(status_code=400, detail=f"File not found: {src}")
-    cmd = [_ffmpeg_bin(), "-y", "-i", src, "-vn", "-ar", "48000", "-ac", "2", *_encode_args(fmt), dest]
+    if not _has_audio_stream(src):
+        raise HTTPException(status_code=400, detail="NO_AUDIO_STREAM")
+    cmd = [
+        _ffmpeg_bin(),
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        src,
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        *_encode_args(fmt),
+        dest,
+    ]
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
     except subprocess.CalledProcessError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=(exc.stderr or exc.stdout or "ffmpeg failed")[:500],
-        ) from exc
+        detail = _ffmpeg_user_error(exc.stderr or exc.stdout, "ffmpeg failed")
+        if re.search(r"does not contain any stream|Invalid argument", detail, re.I):
+            raise HTTPException(status_code=400, detail="NO_AUDIO_STREAM") from exc
+        raise HTTPException(status_code=500, detail=detail) from exc
 
 
 @router.post("/audio/convert")
@@ -769,7 +842,7 @@ def _fit_speech_duration(
     except subprocess.CalledProcessError as exc:
         raise HTTPException(
             status_code=500,
-            detail=(exc.stderr or exc.stdout or "ffmpeg atempo failed")[:500],
+            detail=_ffmpeg_user_error(exc.stderr or exc.stdout, "ffmpeg atempo failed"),
         ) from exc
     output_sec = audio_duration_sec(dest)
     return {
@@ -845,7 +918,7 @@ def mix_voiceover_track(request: VoiceoverTrackRequest):
     except subprocess.CalledProcessError as exc:
         raise HTTPException(
             status_code=500,
-            detail=(exc.stderr or exc.stdout or "ffmpeg voiceover mix failed")[:500],
+            detail=_ffmpeg_user_error(exc.stderr or exc.stdout, "ffmpeg voiceover mix failed"),
         ) from exc
     return {
         "status": "completed",
@@ -982,7 +1055,7 @@ def apply_timeline(request: TimelineRequest):
         except subprocess.CalledProcessError as exc:
             raise HTTPException(
                 status_code=500,
-                detail=(exc.stderr or exc.stdout or "ffmpeg mix failed")[:500],
+                detail=_ffmpeg_user_error(exc.stderr or exc.stdout, "ffmpeg mix failed"),
             ) from exc
 
     return {"status": "completed", "file_path": output_path, "plan": plan}

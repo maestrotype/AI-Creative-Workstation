@@ -42,6 +42,7 @@ export function StudioPage(): ReactNode {
   const [loadedCacheKeys, setLoadedCacheKeys] = useState<string[]>([]);
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [active3dModelId, setActive3dModelId] = useState<string | null>(null);
+  const [activeVideoModelId, setActiveVideoModelId] = useState<string | null>(null);
   const [unloadingId, setUnloadingId] = useState<string | null>(null);
   const [unloadError, setUnloadError] = useState<string | null>(null);
   const [voiceHas, setVoiceHas] = useState(false);
@@ -107,6 +108,11 @@ export function StudioPage(): ReactNode {
         setActive3dModelId(await window.api.getActive3dModel());
       } catch {
         setActive3dModelId(null);
+      }
+      try {
+        setActiveVideoModelId(await window.api.getActiveVideoModel());
+      } catch {
+        setActiveVideoModelId(null);
       }
       void refreshResources();
     }
@@ -265,8 +271,9 @@ export function StudioPage(): ReactNode {
 
   const handleUse = async (modelId: string) => {
     if (!window.api) return;
-    if (family === 'image') await window.api.setActiveModel(modelId);
-    if (family === '3d') await window.api.setActive3dModel(modelId);
+    if (family === 'image' && modelId) await window.api.setActiveModel(modelId);
+    if (family === '3d' && modelId) await window.api.setActive3dModel(modelId);
+    if (family === 'video') await window.api.setActiveVideoModel(modelId);
     await loadModels();
   };
 
@@ -321,13 +328,22 @@ export function StudioPage(): ReactNode {
         {m.status === 'ready' && family === 'image' && activeModelId === m.id && (
           <span className={styles.status}>{t('studio.using')}</span>
         )}
-        {m.status === 'ready' && family === '3d' && active3dModelId === m.id && (
-          <span className={styles.status}>{t('studio.using')}</span>
+        {m.status === 'ready' && family === 'video' && activeVideoModelId === m.id && (
+          <>
+            <span className={styles.status} title={t('studio.using_hint')}>{t('studio.using')}</span>
+            <button
+              type="button"
+              className={styles.textButton}
+              onClick={() => { void handleUse(''); }}
+            >
+              {t('studio.clear_active')}
+            </button>
+          </>
         )}
-        {m.status === 'ready' && inRam && (
+        {m.status === 'ready' && m.id !== 'runwayml/gen4.5' && inRam && (
           <span className={styles.status}>{t('studio.in_ram')}</span>
         )}
-        {m.status === 'ready' && !inRam && (
+        {m.status === 'ready' && m.id !== 'runwayml/gen4.5' && !inRam && (
           <span className={styles.statusMuted} title={t('studio.not_in_ram_hint')}>{t('studio.not_in_ram')}</span>
         )}
         {m.status === 'error' && m.errorMessage && (
@@ -355,6 +371,16 @@ export function StudioPage(): ReactNode {
             {t('studio.use')}
           </button>
         )}
+        {m.status === 'ready' && family === 'video' && activeVideoModelId !== m.id && (
+          <button
+            type="button"
+            className={styles.textButton}
+            onClick={() => handleUse(m.id)}
+            title={t('studio.use_title')}
+          >
+            {t('studio.use')}
+          </button>
+        )}
         {m.status === 'ready' && inRam && (
           <button
             type="button"
@@ -366,15 +392,17 @@ export function StudioPage(): ReactNode {
             {unloadingId === m.id ? t('studio.unloading') : t('studio.unload')}
           </button>
         )}
-        <button
-          type="button"
-          className={styles.textButtonDanger}
-          onClick={() => { void handleDelete(m.id); }}
-          disabled={isDownloading}
-          title={t('studio.delete_title')}
-        >
-          {t('studio.delete_disk')}
-        </button>
+        {m.id !== 'runwayml/gen4.5' ? (
+          <button
+            type="button"
+            className={styles.textButtonDanger}
+            onClick={() => { void handleDelete(m.id); }}
+            disabled={isDownloading}
+            title={t('studio.delete_title')}
+          >
+            {t('studio.delete_disk')}
+          </button>
+        ) : null}
       </div>
     );
   };
@@ -411,6 +439,14 @@ export function StudioPage(): ReactNode {
       </div>
 
       <p className={styles.hint}>{t(`studio.family_hint_${family}`)}</p>
+      {family === 'video' ? (
+        <p className={styles.hint}>
+          {t('studio.family_video_now')}{' '}
+          <Link to="/projects">{t('studio.family_video_now_projects')}</Link>
+          {' · '}
+          <Link to="/video">{t('studio.family_video_now_voice')}</Link>
+        </p>
+      ) : null}
       {unloadError ? <p className={styles.unloadError}>{unloadError}</p> : null}
 
       {family === 'voice' ? (
@@ -580,7 +616,13 @@ export function StudioPage(): ReactNode {
                         {m.type} · {m.size} · <span style={{ opacity: 0.7 }}>{t(m.noteKey)}</span>
                       </span>
                     </div>
-                    {!m.downloadable && !localModel && (
+                    {m.cloud && !localModel && (
+                      <Link className={styles.textButton} to="/settings">{t('studio.runway_need_key')}</Link>
+                    )}
+                    {m.cloud && isReady && (
+                      <span className={styles.status}>✓ {t('studio.runway_ready')}</span>
+                    )}
+                    {!m.downloadable && !m.cloud && !localModel && (
                       <span className={styles.status}>{t('studio.pipeline_later')}</span>
                     )}
                     {m.downloadable && !localModel && (

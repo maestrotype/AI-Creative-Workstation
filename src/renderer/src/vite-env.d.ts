@@ -21,7 +21,36 @@ interface Window {
     setActiveModel: (modelId: string) => Promise<boolean>;
     getActive3dModel: () => Promise<string | null>;
     setActive3dModel: (modelId: string) => Promise<boolean>;
+    getActiveVideoModel: () => Promise<string | null>;
+    setActiveVideoModel: (modelId: string) => Promise<boolean>;
     getEngineStatus: () => Promise<{ status: string; detail: string }>;
+    getRuntimeStatus: () => Promise<{
+      job: {
+        active: boolean;
+        kind: string;
+        stage: string;
+        percent: number;
+        detail: string;
+        model_id: string;
+        elapsed_sec: number;
+        error: string | null;
+      };
+      loaded: string[];
+      memory: { sidecar_rss_bytes: number; mps_allocated_bytes: number };
+      busy: boolean;
+      ram_total: number;
+      ram_free: number;
+      engine: string;
+    }>;
+    cancelRuntimeJob: () => Promise<{ ok: boolean }>;
+    unloadAllModels: () => Promise<{ ok: boolean; unloaded?: number; reason?: string }>;
+    generateVideo: (payload: {
+      prompt: string;
+      format: string;
+      duration_sec?: number;
+      model_id?: string;
+      image_path?: string;
+    }) => Promise<{ job_id: string; file_path: string | null; model_id: string }>;
     generateImage: (payload: {
       prompt: string;
       format: string;
@@ -30,6 +59,58 @@ interface Window {
       image_base64?: string;
       images_base64?: string[];
     }) => Promise<{ job_id: string; file_path: string | null; model_id: string }>;
+    listProjects: () => Promise<Array<{
+      id: string;
+      name: string;
+      format: 'landscape' | 'shorts';
+      sceneCount: number;
+      updatedAt: number;
+      coverPath: string | null;
+      assembledPath: string | null;
+    }>>;
+    createProject: (payload?: { name?: string; format?: 'landscape' | 'shorts' }) => Promise<{
+      id: string;
+      name: string;
+      kind: string;
+      format: 'landscape' | 'shorts';
+      brief: string;
+      scenes: Array<{
+        id: string;
+        title: string;
+        prompt: string;
+        effectPrompt: string;
+        textOverlay: string;
+        durationSec: number;
+        stillPath: string | null;
+        clipPath: string | null;
+      }>;
+      assembledPath: string | null;
+      createdAt: number;
+      updatedAt: number;
+    }>;
+    loadProject: (id: string) => Promise<{
+      id: string;
+      name: string;
+      kind: string;
+      format: 'landscape' | 'shorts';
+      brief: string;
+      scenes: Array<{
+        id: string;
+        title: string;
+        prompt: string;
+        effectPrompt: string;
+        textOverlay: string;
+        durationSec: number;
+        stillPath: string | null;
+        clipPath: string | null;
+      }>;
+      assembledPath: string | null;
+      createdAt: number;
+      updatedAt: number;
+    } | null>;
+    saveProject: (doc: unknown) => Promise<unknown>;
+    deleteProject: (id: string) => Promise<{ deleted: boolean }>;
+    importIntoProject: (payload: { projectId: string; path: string }) => Promise<{ file_path: string }>;
     renderTimeline: (payload: {
       clips: Array<{
         kind: string;
@@ -38,8 +119,9 @@ interface Window {
         text: string | null;
         start_sec: number;
         duration_sec: number;
-        source_in_sec: number;
-      }>;
+      source_in_sec: number;
+      effect?: string | null;
+    }>;
       width: number;
       height: number;
       fps: number;

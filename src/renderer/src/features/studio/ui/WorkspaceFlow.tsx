@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 
 import styles from './WorkspaceFlow.module.css';
 
-type FlowKind = 'create' | 'video' | 'threed' | 'assets';
+type FlowKind = 'create' | 'video' | 'threed' | 'assets' | 'projects';
 
 interface WorkspaceFlowProps {
   kind: FlowKind;
@@ -35,11 +35,17 @@ export function WorkspaceFlow({ kind }: WorkspaceFlowProps): ReactNode {
       { to: '/assets', label: t('flow.to_assets') },
     ],
     video: [
+      { to: '/projects', label: t('flow.to_projects') },
       { to: '/studio?family=image', label: t('flow.to_studio_image') },
       { to: '/studio?family=video', label: t('flow.to_studio_video') },
       { to: '/create', label: t('flow.to_create') },
       { to: '/assets', label: t('flow.to_assets') },
       { to: '/threed', label: t('flow.to_threed') },
+    ],
+    projects: [
+      { to: '/create', label: t('flow.to_create') },
+      { to: '/assets', label: t('flow.to_assets') },
+      { to: '/studio?family=image', label: t('flow.to_studio_image') },
     ],
     threed: [
       { to: '/studio?family=3d', label: t('flow.to_studio_3d') },

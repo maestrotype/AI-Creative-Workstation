@@ -29,7 +29,11 @@ IGNORE_PATTERNS = [
 # FLUX repos also ship the transformer weights as one monolithic file that duplicates
 # the sharded transformer/ files diffusers actually loads. Skipping it saves ~24 GB.
 FLUX_MONOLITHIC_DUPES = ["flux1-dev.safetensors", "flux1-schnell.safetensors"]
-ALL_IGNORE_PATTERNS = IGNORE_PATTERNS + FLUX_MONOLITHIC_DUPES
+ALL_IGNORE_PATTERNS = IGNORE_PATTERNS + FLUX_MONOLITHIC_DUPES + [
+    # MiniMax H3 Ref2VA is a second ~62 GB transformer. Ads use FL2VA only.
+    "Ref2VA/*",
+    "transformer_ref/*",
+]
 
 # Shape-only turbo checkpoint. The 2mini repo also has non-turbo / other folders.
 REPO_ALLOW_PREFIXES = {

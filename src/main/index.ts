@@ -9,6 +9,16 @@ import { homedir, freemem, totalmem } from 'os';
 import { initDb, getDb } from './db';
 import { models, settings } from './db/schema';
 import { eq } from 'drizzle-orm';
+import {
+  createProject,
+  deleteProject,
+  importIntoProject,
+  listProjects,
+  loadProject,
+  saveProject,
+  type ProjectDoc,
+  type ProjectFormat,
+} from './projectStore';
 import { registerOllamaIpc, stopOllamaIfStartedByApp, prepareOllamaForScript } from './ollamaEngine';
 
 app.setName('AI Creative Workstation');
@@ -29,6 +39,7 @@ const SIDECAR_URL = 'http://127.0.0.1:57291';
 const SIDECAR_PORT = 57291;
 const ACTIVE_MODEL_KEY = 'active_model_id';
 const ACTIVE_3D_MODEL_KEY = 'active_3d_model_id';
+const ACTIVE_VIDEO_MODEL_KEY = 'active_video_model_id';
 let sidecarProcess: ChildProcess | null = null;
 let engineStatus: 'stopped' | 'starting' | 'ready' | 'error' = 'stopped';
 let engineDetail = '';
@@ -271,6 +282,18 @@ function previewProxyPath(sourcePath: string): string {
   return join(dir, `preview-${hash.toString(16)}.mp4`);
 }
 
+function ffmpegUserError(raw: string, fallback: string): string {
+  const text = (raw || '').trim();
+  if (!text) return fallback;
+  const skip = /^(ffmpeg version|built with|configuration:|libav|libsw|libpostproc)/i;
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !skip.test(line) && !line.startsWith('--'));
+  if (lines.length > 0) return lines.slice(-8).join(' ').slice(0, 400);
+  return text.slice(-400);
+}
+
 function runFfmpeg(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(ffmpegBin(), args);
@@ -282,7 +305,7 @@ function runFfmpeg(args: string[]): Promise<void> {
     child.on('error', reject);
     child.on('close', (code) => {
       if (code === 0) resolve();
-      else reject(new Error(err.slice(-400) || `ffmpeg exited ${code}`));
+      else reject(new Error(ffmpegUserError(err, `ffmpeg exited ${code}`)));
     });
   });
 }
@@ -410,12 +433,21 @@ function putSettingValue(key: string, value: string): void {
 
 function listReadyModels(kind: 'image' | 'video' | '3d' = 'image'): { id: string; name: string }[] {
   const db = getDb();
-  return db
+  const rows = db
     .select()
     .from(models)
     .all()
     .filter((m) => m.status === 'ready' && m.type === kind)
     .map((m) => ({ id: m.id, name: m.name }));
+  if (kind !== 'video') return rows;
+  const extra: { id: string; name: string }[] = [];
+  if (hasH3Endpoint() && !rows.some((m) => m.id === H3_MODEL_ID)) {
+    extra.push({ id: H3_MODEL_ID, name: 'MiniMax H3 Base' });
+  }
+  if (hasRunwayKey() && !rows.some((m) => m.id === RUNWAY_MODEL_ID)) {
+    extra.push({ id: RUNWAY_MODEL_ID, name: 'Runway Gen-4.5' });
+  }
+  return extra.length ? [...extra, ...rows] : rows;
 }
 
 function resolveActiveModelId(): string | null {
@@ -425,6 +457,48 @@ function resolveActiveModelId(): string | null {
   if (stored && ready.some((m) => m.id === stored)) return stored;
   putSettingValue(ACTIVE_MODEL_KEY, ready[0].id);
   return ready[0].id;
+}
+
+const RUNWAY_MODEL_ID = 'runwayml/gen4.5';
+const H3_MODEL_ID = 'MiniMaxAI/MiniMax-H3';
+
+function hasRunwayKey(): boolean {
+  return Boolean(getSettingValue('RUNWAY_API_SECRET')?.trim());
+}
+
+function hasH3Endpoint(): boolean {
+  return Boolean(getSettingValue('H3_ENDPOINT')?.trim());
+}
+
+function runwayModelRow() {
+  return {
+    id: RUNWAY_MODEL_ID,
+    name: 'Runway Gen-4.5',
+    type: 'video',
+    path: null as string | null,
+    status: 'ready',
+    errorMessage: null as string | null,
+    createdAt: new Date(0),
+  };
+}
+
+function h3ModelRow() {
+  return {
+    id: H3_MODEL_ID,
+    name: 'MiniMax H3 Base',
+    type: 'video',
+    path: null as string | null,
+    status: 'ready',
+    errorMessage: null as string | null,
+    createdAt: new Date(0),
+  };
+}
+
+function resolveActiveVideoModelId(): string | null {
+  const ready = listReadyModels('video');
+  if (ready.some((m) => m.id === H3_MODEL_ID) || hasH3Endpoint()) return H3_MODEL_ID;
+  if (hasRunwayKey()) return RUNWAY_MODEL_ID;
+  return null;
 }
 
 function resolveActive3dModelId(): string | null {
@@ -469,6 +543,12 @@ function startSidecar(): void {
     if (engineStatus !== 'stopped') {
       console.error(`Sidecar exited with code ${code}`);
       setEngineStatus('error', `exited ${code ?? 'unknown'}`);
+      // Wan/Metal can SIGABRT the Python process — bring the engine back without restarting the app.
+      setTimeout(() => {
+        if (engineStatus !== 'stopped') {
+          void bootSidecar(45_000);
+        }
+      }, 1200);
     }
   });
 }
@@ -663,7 +743,7 @@ function transcodeAudioToWav(src: string, dest: string): void {
     { encoding: 'utf8' },
   );
   if (result.status !== 0 || !existsSync(dest)) {
-    throw new Error((result.stderr || result.stdout || 'ffmpeg could not convert this audio').slice(0, 400));
+    throw new Error(ffmpegUserError(result.stderr || result.stdout || '', 'ffmpeg could not convert this audio'));
   }
 }
 
@@ -801,7 +881,15 @@ function setupIpc() {
   loadPickedMedia();
   ipcMain.handle('get-models', async () => {
     const db = getDb();
-    return db.select().from(models).all();
+    const rows = db.select().from(models).all();
+    const injected = [];
+    if (hasH3Endpoint() && !rows.some((row) => row.id === H3_MODEL_ID)) {
+      injected.push(h3ModelRow());
+    }
+    if (hasRunwayKey() && !rows.some((row) => row.id === RUNWAY_MODEL_ID)) {
+      injected.push(runwayModelRow());
+    }
+    return injected.length ? [...injected, ...rows] : rows;
   });
 
   ipcMain.handle('get-studio-resources', async () => getStudioResourcesSnapshot());
@@ -836,6 +924,81 @@ function setupIpc() {
     return { status: engineStatus, detail: engineDetail };
   });
 
+  ipcMain.handle('get-runtime-status', async () => {
+    const ram = getStudioResourcesSnapshot();
+    const base = {
+      job: {
+        active: false,
+        kind: '',
+        stage: 'idle',
+        percent: 0,
+        detail: '',
+        model_id: '',
+        elapsed_sec: 0,
+        error: null as string | null,
+      },
+      loaded: [] as string[],
+      memory: { sidecar_rss_bytes: 0, mps_allocated_bytes: 0 },
+      busy: false,
+      ram_total: ram.ram_total,
+      ram_free: ram.ram_free,
+      engine: engineStatus,
+    };
+    try {
+      const res = await net.fetch(`${SIDECAR_URL}/api/runtime/status`, {
+        signal: AbortSignal.timeout(2500),
+      });
+      if (!res.ok) return base;
+      const body = (await res.json()) as {
+        job?: typeof base.job;
+        loaded?: string[];
+        memory?: { sidecar_rss_bytes?: number; mps_allocated_bytes?: number };
+        busy?: boolean;
+      };
+      return {
+        ...base,
+        job: { ...base.job, ...(body.job ?? {}) },
+        loaded: body.loaded ?? [],
+        memory: {
+          sidecar_rss_bytes: body.memory?.sidecar_rss_bytes ?? 0,
+          mps_allocated_bytes: body.memory?.mps_allocated_bytes ?? 0,
+        },
+        busy: Boolean(body.busy),
+      };
+    } catch {
+      return base;
+    }
+  });
+
+  ipcMain.handle('cancel-runtime-job', async () => {
+    try {
+      const res = await net.fetch(`${SIDECAR_URL}/api/runtime/cancel`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(4000),
+      });
+      return { ok: res.ok };
+    } catch {
+      return { ok: false };
+    }
+  });
+
+  ipcMain.handle('unload-all-models', async () => {
+    try {
+      const res = await net.fetch(`${SIDECAR_URL}/api/models/unload-all`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(180_000),
+      });
+      const body = (await res.json().catch(() => ({}))) as { unloaded?: number; detail?: string };
+      if (!res.ok) {
+        return { ok: false, reason: body.detail ? String(body.detail) : `http-${res.status}` };
+      }
+      broadcast('models-updated');
+      return { ok: true, unloaded: body.unloaded ?? 0 };
+    } catch {
+      return { ok: false, reason: 'sidecar-unavailable' };
+    }
+  });
+
   ipcMain.handle('unload-model', async (_, modelId: string) => {
     const result = await unloadFromSidecar(modelId);
     broadcast('models-updated');
@@ -864,6 +1027,83 @@ function setupIpc() {
     putSettingValue(ACTIVE_3D_MODEL_KEY, modelId);
     broadcast('models-updated');
     return true;
+  });
+
+  ipcMain.handle('get-active-video-model', async () => resolveActiveVideoModelId());
+
+  ipcMain.handle('set-active-video-model', async (_, modelId: string) => {
+    const id = (modelId || '').trim();
+    if (!id) {
+      putSettingValue(ACTIVE_VIDEO_MODEL_KEY, '');
+      broadcast('models-updated');
+      return true;
+    }
+    if (id === RUNWAY_MODEL_ID && hasRunwayKey()) {
+      putSettingValue(ACTIVE_VIDEO_MODEL_KEY, id);
+      broadcast('models-updated');
+      return true;
+    }
+    if (id === H3_MODEL_ID && (hasH3Endpoint() || listReadyModels('video').some((m) => m.id === id))) {
+      putSettingValue(ACTIVE_VIDEO_MODEL_KEY, id);
+      broadcast('models-updated');
+      return true;
+    }
+    const ready = listReadyModels('video');
+    if (!ready.some((m) => m.id === id)) {
+      throw new Error('Model is not installed');
+    }
+    putSettingValue(ACTIVE_VIDEO_MODEL_KEY, id);
+    broadcast('models-updated');
+    return true;
+  });
+
+  ipcMain.handle('generate-video', async (_, payload: {
+    prompt: string;
+    format: string;
+    duration_sec?: number;
+    model_id?: string;
+    image_path?: string;
+  }) => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) {
+      throw new Error(ready.error || 'Sidecar unavailable');
+    }
+    if (!payload.image_path) {
+      throw new Error('IMAGE_REQUIRED');
+    }
+    const modelId = payload.model_id || resolveActiveVideoModelId();
+    if (!modelId) {
+      throw new Error('H3_REQUIRED');
+    }
+    const useH3 = /minimax|h3/i.test(modelId);
+    const apiSecret = useH3 ? '' : (getSettingValue('RUNWAY_API_SECRET')?.trim() || '');
+    const h3Endpoint = useH3 ? (getSettingValue('H3_ENDPOINT')?.trim() || '') : '';
+    if (!useH3 && !apiSecret) {
+      throw new Error('H3_REQUIRED');
+    }
+    const res = await net.fetch(`${SIDECAR_URL}/api/generate/video`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: payload.prompt,
+        format: payload.format,
+        duration_sec: payload.duration_sec ?? 5,
+        model_id: modelId,
+        image_path: payload.image_path || null,
+        api_secret: apiSecret || null,
+        h3_endpoint: h3Endpoint || null,
+      }),
+      signal: AbortSignal.timeout(30 * 60 * 1000),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      detail?: unknown;
+      job_id?: string;
+      file_path?: string | null;
+    };
+    if (!res.ok) {
+      throw new Error(body.detail != null ? String(body.detail).slice(0, 400) : `HTTP ${res.status}`);
+    }
+    return { job_id: body.job_id, file_path: body.file_path ?? null, model_id: modelId };
   });
 
   ipcMain.handle('generate-image', async (_, payload: {
@@ -934,6 +1174,25 @@ function setupIpc() {
     return { file_path: body.file_path as string };
   });
 
+  ipcMain.handle('list-projects', async () => listProjects());
+
+  ipcMain.handle('create-project', async (_, payload: { name?: string; format?: ProjectFormat } = {}) => {
+    return createProject(payload.name || 'Новый проект', payload.format === 'shorts' ? 'shorts' : 'landscape');
+  });
+
+  ipcMain.handle('load-project', async (_, id: string) => loadProject(id));
+
+  ipcMain.handle('save-project', async (_, doc: ProjectDoc) => {
+    if (!doc?.id) throw new Error('project id is required');
+    return saveProject(doc);
+  });
+
+  ipcMain.handle('delete-project', async (_, id: string) => ({ deleted: deleteProject(id) }));
+
+  ipcMain.handle('import-into-project', async (_, payload: { projectId: string; path: string }) => {
+    return { file_path: importIntoProject(payload.projectId, payload.path) };
+  });
+
   ipcMain.handle('render-timeline', async (_, payload: {
     clips: Array<{
       kind: string;
@@ -943,6 +1202,7 @@ function setupIpc() {
       start_sec: number;
       duration_sec: number;
       source_in_sec: number;
+      effect?: string | null;
     }>;
     width: number;
     height: number;
@@ -1372,7 +1632,11 @@ function setupIpc() {
     const dir = join(homedir(), 'Documents/Canvas/Generated/Audio');
     mkdirSync(dir, { recursive: true });
     const webm = join(dir, `capture-${Date.now()}.webm`);
-    writeFileSync(webm, Buffer.from(payload.data));
+    const bytes = Buffer.from(payload.data);
+    if (bytes.byteLength < 256) {
+      throw new Error('RECORDING_TOO_SHORT');
+    }
+    writeFileSync(webm, bytes);
     const fmt = payload.format || 'wav';
     const converted = await sidecarJson('/api/audio/convert', {
       input_path: webm,
@@ -1666,6 +1930,11 @@ function setupIpc() {
       if (next3d) putSettingValue(ACTIVE_3D_MODEL_KEY, next3d.id);
       else getDb().delete(settings).where(eq(settings.key, ACTIVE_3D_MODEL_KEY)).run();
     }
+    if (getSettingValue(ACTIVE_VIDEO_MODEL_KEY) === modelId) {
+      const nextVid = listReadyModels('video')[0];
+      if (nextVid) putSettingValue(ACTIVE_VIDEO_MODEL_KEY, nextVid.id);
+      else getDb().delete(settings).where(eq(settings.key, ACTIVE_VIDEO_MODEL_KEY)).run();
+    }
 
     broadcast('models-updated');
     return true;
@@ -1684,6 +1953,15 @@ function setupIpc() {
       target: settings.key,
       set: { value }
     }).run();
+    if (key === 'RUNWAY_API_SECRET' || key === 'H3_ENDPOINT') {
+      if (key === 'RUNWAY_API_SECRET' && value.trim() && !hasH3Endpoint()) {
+        putSettingValue(ACTIVE_VIDEO_MODEL_KEY, RUNWAY_MODEL_ID);
+      }
+      if (key === 'H3_ENDPOINT' && value.trim()) {
+        putSettingValue(ACTIVE_VIDEO_MODEL_KEY, H3_MODEL_ID);
+      }
+      broadcast('models-updated');
+    }
     return true;
   });
 }
@@ -1896,16 +2174,24 @@ function createWindow(): void {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.aicreativeworkstation.app');
 
-  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
-    desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
-      const source = sources[0];
-      if (!source) {
-        callback({});
-        return;
-      }
-      callback({ video: source, audio: 'loopback' });
-    }).catch(() => callback({}));
-  });
+  if (process.platform === 'darwin') {
+    // macOS only exposes system-audio loopback through ScreenCaptureKit.
+    // useSystemPicker triggers the native dialog (with "Share system audio").
+    session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+      callback({ audio: 'loopback' });
+    }, { useSystemPicker: true });
+  } else {
+    session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+      desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
+        const source = sources[0];
+        if (!source) {
+          callback({});
+          return;
+        }
+        callback({ video: source, audio: 'loopback' });
+      }).catch(() => callback({}));
+    });
+  }
 
   // Local files for images and video preview (video needs byte-range + stream privilege).
   protocol.handle('asset', (request) => serveAssetFile(request));

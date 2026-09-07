@@ -6,11 +6,21 @@ import styles from '../../projects/ui/ProjectsPage.module.css';
 export function SettingsPage(): ReactNode {
   const { t, i18n } = useTranslation();
   const [hfToken, setHfToken] = useState('');
+  const [runwayKey, setRunwayKey] = useState('');
+  const [h3Endpoint, setH3Endpoint] = useState('');
   const [saved, setSaved] = useState(false);
+  const [runwaySaved, setRunwaySaved] = useState(false);
+  const [h3Saved, setH3Saved] = useState(false);
 
   useEffect(() => {
     window.api?.getSetting('HF_TOKEN').then(val => {
       if (val) setHfToken(val);
+    });
+    window.api?.getSetting('RUNWAY_API_SECRET').then(val => {
+      if (val) setRunwayKey(val);
+    });
+    window.api?.getSetting('H3_ENDPOINT').then(val => {
+      if (val) setH3Endpoint(val);
     });
   }, []);
 
@@ -22,6 +32,18 @@ export function SettingsPage(): ReactNode {
     await window.api?.setSetting('HF_TOKEN', hfToken.trim());
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleSaveH3 = async () => {
+    await window.api?.setSetting('H3_ENDPOINT', h3Endpoint.trim());
+    setH3Saved(true);
+    setTimeout(() => setH3Saved(false), 2000);
+  };
+
+  const handleSaveRunway = async () => {
+    await window.api?.setSetting('RUNWAY_API_SECRET', runwayKey.trim());
+    setRunwaySaved(true);
+    setTimeout(() => setRunwaySaved(false), 2000);
   };
 
   return (
@@ -80,6 +102,7 @@ export function SettingsPage(): ReactNode {
             }}
           />
           <button
+            type="button"
             onClick={handleSaveToken}
             style={{
               padding: '0.6rem 1.25rem',
@@ -94,6 +117,99 @@ export function SettingsPage(): ReactNode {
             }}
           >
             {saved ? '✓ Сохранено' : 'Сохранить'}
+          </button>
+        </div>
+      </section>
+
+      <section style={{ marginBottom: '2.5rem' }}>
+        <h2 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
+          {t('settings.h3_title')}
+        </h2>
+        <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '0.75rem', lineHeight: 1.5 }}>
+          {t('settings.h3_lead')}
+        </p>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <input
+            type="url"
+            value={h3Endpoint}
+            onChange={(e) => { setH3Endpoint(e.target.value); setH3Saved(false); }}
+            placeholder="http://127.0.0.1:30010"
+            style={{
+              flex: 1,
+              padding: '0.6rem 0.875rem',
+              borderRadius: '8px',
+              border: '1px solid var(--color-border-subtle)',
+              background: 'var(--color-bg-card)',
+              color: 'var(--color-text-primary)',
+              fontFamily: 'monospace',
+              fontSize: '13px',
+              outline: 'none',
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => { void handleSaveH3(); }}
+            style={{
+              padding: '0.6rem 1.25rem',
+              borderRadius: '8px',
+              border: 'none',
+              background: h3Saved ? '#48bb78' : 'var(--color-accent)',
+              color: '#000',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'background 0.2s',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {h3Saved ? t('settings.saved') : t('settings.save')}
+          </button>
+        </div>
+      </section>
+
+      <section style={{ marginBottom: '2.5rem' }}>
+        <h2 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
+          {t('settings.runway_title')}
+        </h2>
+        <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '0.75rem', lineHeight: 1.5 }}>
+          {t('settings.runway_lead')}{' '}
+          <a href="https://dev.runwayml.com/" target="_blank" rel="noreferrer" style={{ color: 'var(--color-accent)' }}>
+            dev.runwayml.com
+          </a>
+        </p>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <input
+            type="password"
+            value={runwayKey}
+            onChange={(e) => { setRunwayKey(e.target.value); setRunwaySaved(false); }}
+            placeholder="key_xxxxxxxx"
+            style={{
+              flex: 1,
+              padding: '0.6rem 0.875rem',
+              borderRadius: '8px',
+              border: '1px solid var(--color-border-subtle)',
+              background: 'var(--color-bg-card)',
+              color: 'var(--color-text-primary)',
+              fontFamily: 'monospace',
+              fontSize: '13px',
+              outline: 'none',
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => { void handleSaveRunway(); }}
+            style={{
+              padding: '0.6rem 1.25rem',
+              borderRadius: '8px',
+              border: 'none',
+              background: runwaySaved ? '#48bb78' : 'var(--color-accent)',
+              color: '#000',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'background 0.2s',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {runwaySaved ? t('settings.saved') : t('settings.save')}
           </button>
         </div>
       </section>

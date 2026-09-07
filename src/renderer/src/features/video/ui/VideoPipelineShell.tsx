@@ -638,8 +638,9 @@ function StageVoice(): ReactNode {
   const d = useDirector();
   const busy = d.scriptBusy || d.voiceoverApplyBusy;
   const voiced = d.voiceover.status === 'voiced';
-  const segments = d.voiceover.script?.segments.filter((seg) => seg.text.trim()) ?? [];
-  const totalWords = segments.reduce(
+  const allSegments = d.voiceover.script?.segments ?? [];
+  const filled = allSegments.filter((seg) => seg.text.trim());
+  const totalWords = filled.reduce(
     (sum, seg) => sum + seg.text.split(/\s+/).filter(Boolean).length,
     0,
   );
@@ -647,17 +648,17 @@ function StageVoice(): ReactNode {
   return (
     <div className={s.stageBody}>
       <VoiceSampleSetup />
-      {segments.length > 0 ? (
+      {allSegments.length > 0 ? (
         <details className={s.narrationDetails} open>
           <summary>
             {d.t('video.pipe_narration_title', {
-              count: segments.length,
+              count: filled.length,
               words: totalWords,
             })}
           </summary>
           <div className={s.narrationBody}>
-            {segments.map((seg, i) => (
-              <p key={`${seg.start_sec}-${i}`} className={s.narrationLine}>
+            {allSegments.map((seg, index) => (
+              <label key={`${seg.start_sec}-${index}`} className={s.narrationLine}>
                 <button
                   type="button"
                   className={s.narrationTime}
@@ -665,8 +666,14 @@ function StageVoice(): ReactNode {
                 >
                   {formatTimecode(seg.start_sec)}
                 </button>
-                <span>{seg.text}</span>
-              </p>
+                <textarea
+                  className={s.narrationText}
+                  rows={2}
+                  value={seg.text}
+                  disabled={busy}
+                  onChange={(e) => d.updateScriptSegment(index, { text: e.target.value })}
+                />
+              </label>
             ))}
           </div>
         </details>

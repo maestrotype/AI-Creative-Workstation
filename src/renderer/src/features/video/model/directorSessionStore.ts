@@ -15,15 +15,20 @@ export interface DirectorSession {
   trackLayout?: TrackLayout;
   overlayPos?: Record<string, OverlayPos>;
   voiceover?: VoiceoverSession;
+  projectName?: string;
 }
 
-const STORAGE_KEY = 'acw-director-session-v2';
+const STANDALONE_KEY = 'acw-director-session-v2';
+const LEGACY_KEY = 'acw-director-session-v1';
 
-export function loadDirectorSession(): DirectorSession | null {
+function storageKey(projectId?: string | null): string {
+  const id = (projectId || '').trim();
+  return id ? `acw-director-session-project:${id}` : STANDALONE_KEY;
+}
+
+function parseSession(raw: string | null): DirectorSession | null {
+  if (!raw) return null;
   try {
-    let raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) raw = localStorage.getItem('acw-director-session-v1');
-    if (!raw) return null;
     const parsed = JSON.parse(raw) as DirectorSession;
     if (!parsed || !Array.isArray(parsed.bins) || !Array.isArray(parsed.clips)) return null;
     return {
@@ -40,13 +45,25 @@ export function loadDirectorSession(): DirectorSession | null {
   }
 }
 
-export function saveDirectorSession(session: DirectorSession): void {
-  const stamped = { ...session, savedAt: Date.now() };
+export function loadDirectorSession(projectId?: string | null): DirectorSession | null {
+  const key = storageKey(projectId);
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(stamped));
+    let raw = localStorage.getItem(key);
+    if (!raw && !projectId) raw = localStorage.getItem(LEGACY_KEY);
+    return parseSession(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function saveDirectorSession(session: DirectorSession, projectId?: string | null): void {
+  const stamped = { ...session, savedAt: Date.now() };
+  const key = storageKey(projectId);
+  try {
+    localStorage.setItem(key, JSON.stringify(stamped));
   } catch {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      localStorage.setItem(key, JSON.stringify({
         ...stamped,
         voiceover: session.voiceover
           ? { ...session.voiceover, analysis: null }
@@ -58,9 +75,9 @@ export function saveDirectorSession(session: DirectorSession): void {
   }
 }
 
-export function clearDirectorSession(): void {
+export function clearDirectorSession(projectId?: string | null): void {
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(storageKey(projectId));
   } catch {
     /* ignore */
   }

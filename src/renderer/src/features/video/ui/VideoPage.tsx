@@ -1,4 +1,6 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 import { DirectorProvider, useDirector } from './DirectorBoard';
 import {
@@ -11,6 +13,7 @@ import { FromRecordingPanel } from './FromRecordingPanel';
 import { VideoDock, VideoMenuBar, useDockLayout } from './VideoDock';
 import { VideoPipelineShell } from './VideoPipelineShell';
 import type { DockState } from '../model/videoDockLayout';
+import { peekProjectHandoff } from '../../projects/model/handoff';
 import styles from './VideoPage.module.css';
 
 function maxZ(state: DockState): number {
@@ -47,6 +50,7 @@ function RecordingPane(): ReactNode {
 }
 
 function VideoStudioShell(): ReactNode {
+  const { t } = useTranslation();
   const [dock, setDock] = useDockLayout();
   const d = useDirector();
 
@@ -67,8 +71,24 @@ function VideoStudioShell(): ReactNode {
     });
   };
 
+  useEffect(() => {
+    if (!d.projectScope) return;
+    openVoiceover();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [d.projectScope?.id]);
+
   return (
     <>
+      {d.projectScope ? (
+        <div className={styles.projectBanner}>
+          <Link className={styles.projectBannerBack} to={`/projects/${d.projectScope.id}`}>
+            {t('video.back_to_project')}
+          </Link>
+          <span>
+            {t('video.finishing_project', { name: d.projectScope.name || t('projects.untitled') })}
+          </span>
+        </div>
+      ) : null}
       <VideoMenuBar state={dock} onState={setDock} onOpenVoiceover={openVoiceover} />
       <div className={styles.studioBody}>
         <div className={styles.studioLayer} hidden={dock.mode !== 'pipeline'}>
@@ -93,9 +113,14 @@ function VideoStudioShell(): ReactNode {
 }
 
 export function VideoPage(): ReactNode {
+  const [params] = useSearchParams();
+  const fromQuery = params.get('project');
+  const fromHandoff = peekProjectHandoff()?.projectId || null;
+  const projectId = fromQuery || fromHandoff || null;
+  const scopeKey = projectId || 'standalone';
   return (
     <div className={styles.container} data-mode="studio">
-      <DirectorProvider>
+      <DirectorProvider key={scopeKey} projectId={projectId}>
         <VideoStudioShell />
       </DirectorProvider>
     </div>

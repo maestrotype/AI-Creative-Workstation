@@ -24,20 +24,38 @@ function ipcMessage(err: unknown): string {
   return raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '').trim();
 }
 
-function pickRecorderMime(): string | undefined {
+function isFfmpegBanner(msg: string): boolean {
+  return /ffmpeg version|configuration:\s*--|built with Apple clang/i.test(msg);
+}
+
+function captureFailMessage(err: unknown, t: (key: string) => string): string {
+  const msg = ipcMessage(err);
+  if (/NO_AUDIO_STREAM|does not contain any stream/i.test(msg)) {
+    return t('assets.audio_no_loopback');
+  }
+  if (/Timeout starting video|timeout/i.test(msg)) {
+    return t('assets.audio_picker_timeout');
+  }
+  if (/NotAllowed|Permission denied|denied by user/i.test(msg)) {
+    return t('assets.audio_permission_denied');
+  }
+  if (/RECORDING_TOO_SHORT|Invalid data found|Output file is empty|Invalid argument/i.test(msg) || isFfmpegBanner(msg)) {
+    return t('assets.audio_convert_fail');
+  }
+  return msg;
+}
+
+function pickAudioRecorderMime(): string | undefined {
   const candidates = [
     'audio/webm;codecs=opus',
     'audio/webm',
-    'video/webm;codecs=vp8,opus',
-    'video/webm',
+    'audio/ogg;codecs=opus',
   ];
   return candidates.find((mime) => MediaRecorder.isTypeSupported(mime));
 }
 
-function startRecorder(stream: MediaStream): MediaRecorder {
-  // Chromium refuses MediaRecorder.start() if video tracks were already stopped
-  // on a getDisplayMedia stream. Keep the dummy video track until stop().
-  const mime = pickRecorderMime();
+function startAudioRecorder(stream: MediaStream): MediaRecorder {
+  const mime = pickAudioRecorderMime();
   const attempts: Array<MediaRecorderOptions | undefined> = mime
     ? [{ mimeType: mime }, undefined]
     : [undefined];
@@ -212,16 +230,21 @@ export function AssetsPage(): ReactNode {
             const stream = await navigator.mediaDevices.getDisplayMedia({
               video: true,
               audio: true,
-            });
-            const audioTracks = stream.getAudioTracks();
+              systemAudio: 'include',
+            } as MediaStreamConstraints & { systemAudio?: 'include' | 'exclude' });
+            const audioTracks = stream.getAudioTracks().filter((track) => track.readyState === 'live');
             if (audioTracks.length === 0) {
               stream.getTracks().forEach((track) => track.stop());
               reject(new Error('NO_SYSTEM_AUDIO'));
               return;
             }
-            // Keep video tracks alive: stopping them before start() throws
-            // "Failed to execute 'start' on 'MediaRecorder'" in Chromium/Electron.
-            const recorder = startRecorder(stream);
+            audioTracks.forEach((track) => {
+              track.enabled = true;
+            });
+            // Record a sibling audio-only stream. Stopping video on the display
+            // stream before MediaRecorder.start() throws in Chromium; keeping
+            // video in the recorded file makes ffmpeg -vn emit an empty WAV.
+            const recorder = startAudioRecorder(new MediaStream(audioTracks));
             const chunks: Blob[] = [];
             recorder.ondataavailable = (event) => {
               if (event.data.size > 0) chunks.push(event.data);
@@ -244,12 +267,12 @@ export function AssetsPage(): ReactNode {
       await rememberPath(saved.file_path);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg === 'NO_SYSTEM_AUDIO') {
+      if (msg === 'NO_SYSTEM_AUDIO' || /NO_SYSTEM_AUDIO/.test(ipcMessage(err))) {
         setCaptureError(t('assets.audio_no_loopback'));
       } else if (/MediaRecorder|RECORDER_FAILED/i.test(msg)) {
         setCaptureError(t('assets.audio_recorder_fail'));
       } else {
-        setCaptureError(ipcMessage(err));
+        setCaptureError(captureFailMessage(err, t));
       }
     } finally {
       systemStopRef.current = null;
@@ -263,7 +286,7 @@ export function AssetsPage(): ReactNode {
         const stopped = await window.api.stopMicRecord();
         await rememberPath(stopped.file_path);
       } catch (err) {
-        setCaptureError(ipcMessage(err));
+        setCaptureError(captureFailMessage(err, t));
       } finally {
         setRecording('idle');
       }
@@ -274,7 +297,7 @@ export function AssetsPage(): ReactNode {
       await window.api.startMicRecord(format);
       setRecording('mic');
     } catch (err) {
-      setCaptureError(ipcMessage(err));
+      setCaptureError(captureFailMessage(err, t));
     }
   };
 
@@ -424,7 +447,7 @@ export function AssetsPage(): ReactNode {
       if (result.imported[0]) await rememberPath(result.imported[0]);
       else await loadLibrary();
     } catch (err) {
-      setCaptureError(ipcMessage(err));
+      setCaptureError(captureFailMessage(err, t));
     }
   };
 
@@ -441,7 +464,7 @@ export function AssetsPage(): ReactNode {
       await loadLibrary();
       await refreshVoiceEngine();
     } catch (err) {
-      setCaptureError(ipcMessage(err));
+      setCaptureError(captureFailMessage(err, t));
     }
   };
 
@@ -477,7 +500,7 @@ export function AssetsPage(): ReactNode {
         if (prepared.converted) await loadLibrary();
       }
     } catch (err) {
-      setCaptureError(ipcMessage(err));
+      setCaptureError(captureFailMessage(err, t));
       return;
     }
     setSelectedAudioPath(target);
@@ -500,7 +523,7 @@ export function AssetsPage(): ReactNode {
       setPlayUrl(url);
     }).catch((err) => {
       if (!cancelled) {
-        setCaptureError(ipcMessage(err));
+        setCaptureError(captureFailMessage(err, t));
         setPlayingPath(null);
       }
     });
@@ -531,6 +554,7 @@ export function AssetsPage(): ReactNode {
       <section className={ui.card}>
         <h2 className={ui.subtitle}>{t('assets.capture_title')}</h2>
         <p className={ui.lead}>{t('assets.capture_lead')}</p>
+        <p className={ui.hint}>{t('assets.audio_system_why')}</p>
         <div className={ui.pills}>
           {(['wav', 'mp3', 'flac'] as const).map((fmt) => (
             <button key={fmt} type="button" className={ui.pill} data-on={format === fmt} onClick={() => setFormat(fmt)}>
@@ -539,16 +563,16 @@ export function AssetsPage(): ReactNode {
           ))}
         </div>
         <div className={ui.actions}>
+          <button type="button" className={ui.primary} onClick={() => { void handleMic(); }} disabled={recording === 'system' || voiceBusy}>
+            {recording === 'mic' ? t('assets.audio_stop') : t('assets.audio_record_mic')}
+          </button>
           {recording === 'system' ? (
-            <button type="button" className={ui.primary} onClick={() => systemStopRef.current?.()}>{t('assets.audio_stop')}</button>
+            <button type="button" className={ui.secondary} onClick={() => systemStopRef.current?.()}>{t('assets.audio_stop')}</button>
           ) : (
-            <button type="button" className={ui.primary} onClick={() => { void handleSystemRecord(); }} disabled={recording !== 'idle' || voiceBusy}>
+            <button type="button" className={ui.secondary} onClick={() => { void handleSystemRecord(); }} disabled={recording !== 'idle' || voiceBusy}>
               {t('assets.audio_record_system')}
             </button>
           )}
-          <button type="button" className={ui.secondary} onClick={() => { void handleMic(); }} disabled={recording === 'system' || voiceBusy}>
-            {recording === 'mic' ? t('assets.audio_stop') : t('assets.audio_record_mic')}
-          </button>
           <button
             type="button"
             className={ui.secondary}

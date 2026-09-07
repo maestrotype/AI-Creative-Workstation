@@ -38,7 +38,8 @@ import {
   type TrackLayout,
 } from '../model/directorTimeline';
 import { DEFAULT_TRACK_LAYOUT } from '../model/directorTimeline';
-import { loadDirectorSession, saveDirectorSession } from '../model/directorSessionStore';
+import { handoffPathsOf, takeProjectHandoff, type ProjectHandoff } from '../../projects/model/handoff';
+import { loadDirectorSession, saveDirectorSession, type DirectorSession } from '../model/directorSessionStore';
 import {
   emptyVoiceoverSession,
   resolveVoiceoverSource,
@@ -62,6 +63,7 @@ interface DragState {
 
 interface DirectorProviderProps {
   children: ReactNode;
+  projectId?: string | null;
 }
 
 const DirectorContext = createContext<DirectorSnap | null>(null);
@@ -190,6 +192,7 @@ type DirectorSnap = {
   voiceoverApplyError: string | null;
   voiceoverApplyProgress: { current: number; total: number; detail: string };
   applyScriptVoiceover: () => void;
+  projectScope: { id: string; name: string } | null;
 };
 
 export interface SourceInput {
@@ -199,7 +202,99 @@ export interface SourceInput {
   durationSec?: number;
 }
 
-const SESSION_BOOT = loadDirectorSession();
+function sessionMatchesHandoff(session: DirectorSession | null, handoff: ProjectHandoff): boolean {
+  if (!session) return false;
+  const have = session.bins
+    .filter((b) => b.kind === 'video' || b.kind === 'image')
+    .map((b) => b.path)
+    .sort();
+  const want = handoffPathsOf(handoff);
+  return have.length === want.length && have.every((path, i) => path === want[i]);
+}
+
+function sessionFromHandoff(handoff: ProjectHandoff): DirectorSession {
+  let t = 0;
+  const bins: BinItem[] = [];
+  const clips: TimelineClip[] = [];
+  for (const src of handoff.sources) {
+    const dur = src.durationSec ?? (src.kind === 'image' ? 4 : 8);
+    const binId = newId('bin');
+    bins.push({
+      id: binId,
+      kind: src.kind,
+      path: src.path,
+      name: src.name ?? fileName(src.path),
+      durationSec: dur,
+      inSec: 0,
+      outSec: dur,
+      durationKnown: src.kind === 'image' || src.durationSec != null,
+    });
+    clips.push({
+      id: newId('clip'),
+      binId,
+      track: 'v1',
+      startSec: t,
+      durationSec: dur,
+      sourceInSec: 0,
+      label: src.name ?? fileName(src.path),
+      autoLength: true,
+    });
+    t += dur;
+  }
+  const firstVideo = bins.find((b) => b.kind === 'video');
+  return {
+    savedAt: Date.now(),
+    bins,
+    clips,
+    playhead: 0,
+    selectedBin: bins[0]?.id ?? null,
+    selectedClip: null,
+    captionDraft: '',
+    pxPerSec: 16,
+    trackLayout: DEFAULT_TRACK_LAYOUT,
+    overlayPos: {},
+    projectName: handoff.projectName,
+    voiceover: {
+      ...emptyVoiceoverSession(),
+      projectContext: handoff.brief ?? '',
+      sourcePath: firstVideo?.path ?? null,
+      sourceBinId: firstVideo?.id ?? null,
+    },
+  };
+}
+
+function resolveBoot(projectId?: string | null): {
+  session: DirectorSession | null;
+  scopeId: string | null;
+  scopeName: string;
+} {
+  const handoff = takeProjectHandoff();
+  const scopeId = (projectId || handoff?.projectId || '').trim() || null;
+  const existing = loadDirectorSession(scopeId);
+  if (handoff && handoff.sources.length > 0) {
+    if (sessionMatchesHandoff(existing, handoff) && existing) {
+      return {
+        session: {
+          ...existing,
+          projectName: handoff.projectName || existing.projectName,
+          voiceover: {
+            ...emptyVoiceoverSession(),
+            ...existing.voiceover,
+            projectContext: existing.voiceover?.projectContext || handoff.brief || '',
+          },
+        },
+        scopeId,
+        scopeName: handoff.projectName || existing.projectName || '',
+      };
+    }
+    return {
+      session: sessionFromHandoff(handoff),
+      scopeId,
+      scopeName: handoff.projectName,
+    };
+  }
+  return { session: existing, scopeId, scopeName: existing?.projectName || '' };
+}
 
 function ipcMessage(err: unknown, fallback: string): string {
   const raw = err instanceof Error ? err.message : String(err);
@@ -207,22 +302,26 @@ function ipcMessage(err: unknown, fallback: string): string {
   return cleaned || fallback;
 }
 
-export function DirectorProvider({ children }: DirectorProviderProps): ReactNode {
+export function DirectorProvider({ children, projectId = null }: DirectorProviderProps): ReactNode {
   const { t } = useTranslation();
-  const [bins, setBins] = useState<BinItem[]>(() => SESSION_BOOT?.bins ?? []);
-  const [clips, setClips] = useState<TimelineClip[]>(() => unstackAllTracks(SESSION_BOOT?.clips ?? []));
-  const [selectedBin, setSelectedBin] = useState<string | null>(() => SESSION_BOOT?.selectedBin ?? null);
-  const [selectedClip, setSelectedClip] = useState<string | null>(() => SESSION_BOOT?.selectedClip ?? null);
-  const [playhead, setPlayhead] = useState(() => SESSION_BOOT?.playhead ?? 0);
+  const bootPack = useRef(resolveBoot(projectId)).current;
+  const boot = bootPack.session;
+  const scopeIdRef = useRef(bootPack.scopeId);
+  const scopeName = bootPack.scopeName;
+  const [bins, setBins] = useState<BinItem[]>(() => boot?.bins ?? []);
+  const [clips, setClips] = useState<TimelineClip[]>(() => unstackAllTracks(boot?.clips ?? []));
+  const [selectedBin, setSelectedBin] = useState<string | null>(() => boot?.selectedBin ?? null);
+  const [selectedClip, setSelectedClip] = useState<string | null>(() => boot?.selectedClip ?? null);
+  const [playhead, setPlayhead] = useState(() => boot?.playhead ?? 0);
   const [playing, setPlaying] = useState(false);
   const [seekNonce, setSeekNonce] = useState(0);
-  const [pxPerSec, setPxPerSec] = useState(() => SESSION_BOOT?.pxPerSec ?? 16);
+  const [pxPerSec, setPxPerSec] = useState(() => boot?.pxPerSec ?? 16);
   const [trackLayout, setTrackLayout] = useState<TrackLayout>(
-    () => SESSION_BOOT?.trackLayout ?? DEFAULT_TRACK_LAYOUT,
+    () => boot?.trackLayout ?? DEFAULT_TRACK_LAYOUT,
   );
-  const [captionDraft, setCaptionDraft] = useState(() => SESSION_BOOT?.captionDraft ?? '');
+  const [captionDraft, setCaptionDraft] = useState(() => boot?.captionDraft ?? '');
   const [overlayPos, setOverlayPosState] = useState<Record<string, OverlayPos>>(
-    () => SESSION_BOOT?.overlayPos ?? {},
+    () => boot?.overlayPos ?? {},
   );
   const [viewW, setViewW] = useState(640);
   const fittedOnce = useRef(false);
@@ -262,9 +361,33 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
   const [voiceover, setVoiceover] = useState<VoiceoverSession>(
     () => ({
       ...emptyVoiceoverSession(),
-      ...(SESSION_BOOT?.voiceover ?? {}),
+      ...(boot?.voiceover ?? {}),
     }),
   );
+  const sessionSnapRef = useRef({
+    bins,
+    clips,
+    playhead,
+    selectedBin,
+    selectedClip,
+    captionDraft,
+    pxPerSec,
+    trackLayout,
+    overlayPos,
+    voiceover,
+  });
+  sessionSnapRef.current = {
+    bins,
+    clips,
+    playhead,
+    selectedBin,
+    selectedClip,
+    captionDraft,
+    pxPerSec,
+    trackLayout,
+    overlayPos,
+    voiceover,
+  };
   const [voiceoverBusy, setVoiceoverBusy] = useState(false);
   const [voiceoverError, setVoiceoverError] = useState<string | null>(null);
   const [voiceoverProgress, setVoiceoverProgress] = useState({ stage: 'idle', percent: 0, detail: '' });
@@ -388,23 +511,34 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
   }, [pxPerSec, total]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
+    const persist = () => {
       saveDirectorSession({
         savedAt: Date.now(),
-        bins,
-        clips,
-        playhead,
-        selectedBin,
-        selectedClip,
-        captionDraft,
-        pxPerSec,
-        trackLayout,
-        overlayPos,
-        voiceover,
-      });
-    }, 350);
+        projectName: scopeName,
+        ...sessionSnapRef.current,
+      }, scopeIdRef.current);
+    };
+    const timer = window.setTimeout(persist, 350);
     return () => window.clearTimeout(timer);
   }, [bins, clips, playhead, selectedBin, selectedClip, captionDraft, pxPerSec, trackLayout, overlayPos, voiceover]);
+
+  useEffect(() => {
+    const persist = () => {
+      saveDirectorSession({
+        savedAt: Date.now(),
+        projectName: scopeName,
+        ...sessionSnapRef.current,
+      }, scopeIdRef.current);
+    };
+    const onHide = () => persist();
+    window.addEventListener('pagehide', onHide);
+    window.addEventListener('beforeunload', onHide);
+    return () => {
+      window.removeEventListener('pagehide', onHide);
+      window.removeEventListener('beforeunload', onHide);
+      persist();
+    };
+  }, []);
 
   useEffect(() => {
     setClips((prev) => {
@@ -1758,6 +1892,9 @@ export function DirectorProvider({ children }: DirectorProviderProps): ReactNode
     voiceoverApplyError,
     voiceoverApplyProgress,
     applyScriptVoiceover: () => { void applyScriptVoiceover(); },
+    projectScope: scopeIdRef.current
+      ? { id: scopeIdRef.current, name: scopeName }
+      : null,
   };
 
   return <DirectorContext.Provider value={snap}>{children}</DirectorContext.Provider>;
