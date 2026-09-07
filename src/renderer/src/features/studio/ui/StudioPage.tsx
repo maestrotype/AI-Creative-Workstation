@@ -69,6 +69,7 @@ export function StudioPage(): ReactNode {
     started_by_app: false,
   });
   const [ollamaBusy, setOllamaBusy] = useState(false);
+  const [showAdvancedVideo, setShowAdvancedVideo] = useState(false);
 
   const toCacheKey = (modelId: string) => modelId.replaceAll('/', '__');
   const familyModels = models.filter((m) => m.type === family);
@@ -598,8 +599,13 @@ export function StudioPage(): ReactNode {
 
           <div>
             <h3>{t('studio.discover')}</h3>
+            {family === 'video' ? (
+              <p className={styles.hint}>{t('studio.capability_video')}</p>
+            ) : null}
             <ul className={styles.modelList}>
-              {catalog.map((m) => {
+              {catalog
+                .filter((m) => family !== 'video' || showAdvancedVideo || m.tier !== 'advanced')
+                .map((m) => {
                 const localModel = models.find((local) => local.id === m.id);
                 const isDownloading = localModel?.status === 'downloading';
                 const isReady = localModel?.status === 'ready';
@@ -655,6 +661,15 @@ export function StudioPage(): ReactNode {
                 );
               })}
             </ul>
+            {family === 'video' && catalog.some((m) => m.tier === 'advanced') ? (
+              <button
+                type="button"
+                className={styles.textButton}
+                onClick={() => setShowAdvancedVideo((v) => !v)}
+              >
+                {showAdvancedVideo ? t('studio.hide_advanced') : t('studio.show_advanced')}
+              </button>
+            ) : null}
           </div>
         </>
       )}

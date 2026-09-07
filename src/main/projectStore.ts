@@ -5,6 +5,8 @@ import { randomUUID } from 'crypto';
 
 export type ProjectKind = 'video';
 export type ProjectFormat = 'landscape' | 'shorts';
+export type FilmPreset = 'marketplace' | 'hero' | 'youtube' | 'shorts';
+export type ShotMotion = 'still_motion' | 'import' | 'i2v';
 
 export interface ProjectScene {
   id: string;
@@ -15,6 +17,7 @@ export interface ProjectScene {
   durationSec: number;
   stillPath: string | null;
   clipPath: string | null;
+  motion: ShotMotion;
 }
 
 export interface ProjectDoc {
@@ -22,6 +25,7 @@ export interface ProjectDoc {
   name: string;
   kind: ProjectKind;
   format: ProjectFormat;
+  preset: FilmPreset;
   brief: string;
   scenes: ProjectScene[];
   assembledPath: string | null;
@@ -53,13 +57,30 @@ function projectFile(id: string): string {
   return join(projectDir(id), 'project.json');
 }
 
-function emptyProject(name: string, format: ProjectFormat = 'landscape'): ProjectDoc {
+function formatForPreset(preset: FilmPreset): ProjectFormat {
+  return preset === 'shorts' ? 'shorts' : 'landscape';
+}
+
+function normalizeMotion(value: unknown): ShotMotion {
+  if (value === 'import' || value === 'i2v' || value === 'still_motion') return value;
+  return 'still_motion';
+}
+
+function normalizePreset(value: unknown): FilmPreset {
+  if (value === 'hero' || value === 'youtube' || value === 'shorts' || value === 'marketplace') return value;
+  return 'marketplace';
+}
+
+function emptyProject(name: string, format: ProjectFormat = 'landscape', preset: FilmPreset = 'marketplace'): ProjectDoc {
   const now = Date.now();
+  const nextPreset = preset;
+  const nextFormat = preset === 'shorts' ? 'shorts' : format;
   return {
     id: randomUUID(),
     name: name.trim() || 'Untitled',
     kind: 'video',
-    format,
+    format: nextPreset === 'shorts' ? 'shorts' : nextFormat,
+    preset: nextPreset,
     brief: '',
     scenes: [],
     assembledPath: null,
@@ -78,6 +99,7 @@ export function emptyScene(title = ''): ProjectScene {
     durationSec: 5,
     stillPath: null,
     clipPath: null,
+    motion: 'still_motion',
   };
 }
 
@@ -85,12 +107,20 @@ function parseDoc(raw: string): ProjectDoc | null {
   try {
     const parsed = JSON.parse(raw) as ProjectDoc;
     if (!parsed?.id || !parsed.name) return null;
+    const preset = normalizePreset(parsed.preset);
+    const format = parsed.format === 'shorts' || preset === 'shorts' ? 'shorts' : 'landscape';
+    const scenes = (Array.isArray(parsed.scenes) ? parsed.scenes : []).map((scene) => ({
+      ...emptyScene(scene.title),
+      ...scene,
+      motion: normalizeMotion(scene.motion) || (scene.clipPath ? 'import' : 'still_motion'),
+    }));
     return {
-      ...emptyProject(parsed.name, parsed.format === 'shorts' ? 'shorts' : 'landscape'),
+      ...emptyProject(parsed.name, format, preset),
       ...parsed,
       id: parsed.id,
-      format: parsed.format === 'shorts' ? 'shorts' : 'landscape',
-      scenes: Array.isArray(parsed.scenes) ? parsed.scenes : [],
+      format,
+      preset,
+      scenes,
     };
   } catch {
     return null;
@@ -126,8 +156,12 @@ export function listProjects(): ProjectSummary[] {
   return out.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-export function createProject(name: string, format: ProjectFormat = 'landscape'): ProjectDoc {
-  const doc = emptyProject(name, format);
+export function createProject(
+  name: string,
+  format: ProjectFormat = 'landscape',
+  preset: FilmPreset = 'marketplace',
+): ProjectDoc {
+  const doc = emptyProject(name, formatForPreset(preset) === 'shorts' ? 'shorts' : format, preset);
   mkdirSync(projectDir(doc.id), { recursive: true });
   writeFileSync(projectFile(doc.id), JSON.stringify(doc, null, 2));
   return doc;

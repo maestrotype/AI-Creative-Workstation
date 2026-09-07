@@ -68,11 +68,16 @@ interface Window {
       coverPath: string | null;
       assembledPath: string | null;
     }>>;
-    createProject: (payload?: { name?: string; format?: 'landscape' | 'shorts' }) => Promise<{
+    createProject: (payload?: {
+      name?: string;
+      format?: 'landscape' | 'shorts';
+      preset?: 'marketplace' | 'hero' | 'youtube' | 'shorts';
+    }) => Promise<{
       id: string;
       name: string;
       kind: string;
       format: 'landscape' | 'shorts';
+      preset: 'marketplace' | 'hero' | 'youtube' | 'shorts';
       brief: string;
       scenes: Array<{
         id: string;
@@ -83,6 +88,7 @@ interface Window {
         durationSec: number;
         stillPath: string | null;
         clipPath: string | null;
+        motion: 'still_motion' | 'import' | 'i2v';
       }>;
       assembledPath: string | null;
       createdAt: number;
@@ -93,6 +99,7 @@ interface Window {
       name: string;
       kind: string;
       format: 'landscape' | 'shorts';
+      preset: 'marketplace' | 'hero' | 'youtube' | 'shorts';
       brief: string;
       scenes: Array<{
         id: string;
@@ -103,6 +110,7 @@ interface Window {
         durationSec: number;
         stillPath: string | null;
         clipPath: string | null;
+        motion: 'still_motion' | 'import' | 'i2v';
       }>;
       assembledPath: string | null;
       createdAt: number;

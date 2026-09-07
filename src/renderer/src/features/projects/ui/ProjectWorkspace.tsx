@@ -3,10 +3,9 @@ import type { ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
-import { WorkspaceFlow } from '../../studio/ui/WorkspaceFlow';
 import { toAssetUrl } from '../../video/model/directorMedia';
 import { writeLastProjectId, writeProjectHandoff } from '../model/handoff';
-import { composeClips, newScene, projectDuration, sceneHasMedia, type ProjectDoc, type ProjectScene } from '../model/project';
+import { composeClips, formatForPreset, newScene, normalizePreset, normalizeShotMotion, projectDuration, sceneHasMedia, type FilmPreset, type ProjectDoc, type ProjectScene } from '../model/project';
 import styles from './ProjectsPage.module.css';
 
 function ipcMessage(err: unknown): string {
@@ -90,7 +89,15 @@ export function ProjectWorkspace(): ReactNode {
         setError(t('projects.missing'));
         return;
       }
-      setDoc(loaded);
+      setDoc({
+        ...loaded,
+        preset: normalizePreset(loaded.preset),
+        scenes: loaded.scenes.map((scene) => ({
+          ...newScene(scene.title),
+          ...scene,
+          motion: normalizeShotMotion(scene.motion) || (scene.clipPath ? 'import' : 'still_motion'),
+        })),
+      });
       writeLastProjectId(loaded.id);
     }).catch((err) => setError(ipcMessage(err)));
   }, [projectId, t]);
@@ -142,7 +149,7 @@ export function ProjectWorkspace(): ReactNode {
       ...latest,
       assembledPath: null,
       scenes: latest.scenes.map((row) => (
-        row.id === scene.id ? { ...row, stillPath: copied.file_path, clipPath: null } : row
+        row.id === scene.id ? { ...row, stillPath: copied.file_path, clipPath: null, motion: 'still_motion' } : row
       )),
     });
     return copied.file_path;
@@ -202,7 +209,7 @@ export function ProjectWorkspace(): ReactNode {
         assembledPath: null,
         scenes: after.scenes.map((row) => (
           row.id === scene.id
-            ? { ...row, clipPath: copied.file_path, durationSec: duration > 0 ? Math.round(duration * 10) / 10 : 2 }
+            ? { ...row, clipPath: copied.file_path, durationSec: duration > 0 ? Math.round(duration * 10) / 10 : 2, motion: 'i2v' }
             : row
         )),
       });
@@ -227,7 +234,7 @@ export function ProjectWorkspace(): ReactNode {
         ...latest,
         assembledPath: null,
         scenes: latest.scenes.map((row) => (
-          row.id === scene.id ? { ...row, stillPath: copied.file_path, clipPath: null } : row
+          row.id === scene.id ? { ...row, stillPath: copied.file_path, clipPath: null, motion: 'still_motion' } : row
         )),
       });
     } catch (err) {
@@ -249,7 +256,7 @@ export function ProjectWorkspace(): ReactNode {
         ...latest,
         scenes: latest.scenes.map((row) => (
           row.id === scene.id
-            ? { ...row, clipPath: copied.file_path, durationSec: duration > 0 ? Math.round(duration * 10) / 10 : row.durationSec }
+            ? { ...row, clipPath: copied.file_path, durationSec: duration > 0 ? Math.round(duration * 10) / 10 : row.durationSec, motion: 'import' }
             : row
         )),
       });
@@ -313,6 +320,18 @@ export function ProjectWorkspace(): ReactNode {
     navigate(`/video?project=${encodeURIComponent(fresh.id)}`);
   };
 
+  const useStillMotion = (scene: ProjectScene) => {
+    if (!scene.stillPath) {
+      setError(t('projects.need_product_still'));
+      return;
+    }
+    patchScene(scene.id, { motion: 'still_motion', clipPath: null });
+    setStatus(t('projects.still_motion_ok'));
+  };
+
+  const preset = doc.preset ?? 'marketplace';
+  const filmStep = !doc.scenes.some(sceneHasMedia) ? 'shots' : doc.assembledPath ? 'voice' : 'picture';
+
   return (
     <div className={styles.container}>
       <header className={styles.workHead}>
@@ -324,16 +343,25 @@ export function ProjectWorkspace(): ReactNode {
         />
         <select
           className={styles.select}
-          value={doc.format}
-          onChange={(e) => patch({ format: e.target.value as ProjectDoc['format'] })}
+          value={preset}
+          onChange={(e) => {
+            const next = e.target.value as FilmPreset;
+            patch({ preset: next, format: formatForPreset(next) });
+          }}
         >
-          <option value="landscape">{t('projects.format_landscape')}</option>
-          <option value="shorts">{t('projects.format_shorts')}</option>
+          <option value="marketplace">{t('projects.preset_marketplace')}</option>
+          <option value="hero">{t('projects.preset_hero')}</option>
+          <option value="youtube">{t('projects.preset_youtube')}</option>
+          <option value="shorts">{t('projects.preset_shorts')}</option>
         </select>
       </header>
 
-      <WorkspaceFlow kind="projects" />
-      <p className={styles.lead}>{t('projects.workspace_lead')}</p>
+      <ol className={styles.filmSteps}>
+        <li data-on={filmStep === 'shots'}>{t('projects.step_shots')}</li>
+        <li data-on={filmStep === 'picture'}>{t('projects.step_picture')}</li>
+        <li data-on={filmStep === 'voice'}>{t('projects.step_voice')}</li>
+      </ol>
+      <p className={styles.lead}>{t(`projects.preset_lead_${preset}`)}</p>
 
       <label className={styles.field}>
         <span>{t('projects.brief')}</span>
@@ -346,12 +374,12 @@ export function ProjectWorkspace(): ReactNode {
       </label>
 
       <div className={styles.sceneHead}>
-        <h2 className={styles.h2}>
-          {t('projects.scenes')}
+          <h2 className={styles.h2}>
+          {t('projects.shots')}
           <span className={styles.count}>{doc.scenes.length} · {formatClock(projectDuration(doc))}</span>
         </h2>
         <button type="button" className={styles.ghostBtn} onClick={addScene}>
-          {t('projects.add_scene')}
+          {t('projects.add_shot')}
         </button>
       </div>
 
@@ -397,7 +425,7 @@ export function ProjectWorkspace(): ReactNode {
                     </button>
                   </div>
                   <label className={styles.sceneField}>
-                    <span>{t('projects.scene_prompt_label')}</span>
+                    <span>{t('projects.shot_direction')}</span>
                     <textarea
                       rows={2}
                       value={scene.prompt}
@@ -438,9 +466,17 @@ export function ProjectWorkspace(): ReactNode {
                       type="button"
                       className={styles.ghostBtn}
                       disabled={busyScene === scene.id || !scene.stillPath}
-                      onClick={() => void generateSceneVideo(scene)}
+                      onClick={() => useStillMotion(scene)}
                     >
-                      {busyScene === scene.id && busyKind === 'video' ? t('projects.generating') : t('projects.generate_video')}
+                      {t('projects.use_still_motion')}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.ghostBtn}
+                      disabled={busyScene === scene.id}
+                      onClick={() => void importClip(scene)}
+                    >
+                      {t('projects.import_clip')}
                     </button>
                     <button
                       type="button"
@@ -452,16 +488,16 @@ export function ProjectWorkspace(): ReactNode {
                     </button>
                     <button
                       type="button"
-                      className={styles.ghostBtn}
-                      disabled={busyScene === scene.id}
-                      onClick={() => void importClip(scene)}
+                      className={styles.textBtn}
+                      disabled={busyScene === scene.id || !scene.stillPath}
+                      onClick={() => void generateSceneVideo(scene)}
                     >
-                      {t('projects.import_clip')}
+                      {busyScene === scene.id && busyKind === 'video' ? t('projects.generating') : t('projects.animate_optional')}
                     </button>
                     {scene.clipPath ? (
-                      <span className={styles.ok}>{t('projects.has_clip')}</span>
+                      <span className={styles.ok}>{t(`projects.motion_${scene.motion ?? 'import'}`)}</span>
                     ) : scene.stillPath ? (
-                      <span className={styles.ok}>{t('projects.has_still')}</span>
+                      <span className={styles.ok}>{t('projects.motion_still_motion')}</span>
                     ) : null}
                   </div>
                 </div>

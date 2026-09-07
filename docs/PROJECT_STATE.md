@@ -8,7 +8,7 @@
 | Branch | Role |
 |--------|------|
 | `feat/projects-workspace` | Last shipped work: filesystem projects, H3/Runway video gen paths, engine monitor |
-| `feat/film-phase-1` | **Next:** unify Projects + Video into one **Film** production workflow |
+| `feat/film-phase-1` | **Current:** Film UX — marketplace preset, shot UI, still-motion default, Studio advanced grouping |
 
 ## Product (now)
 
@@ -56,7 +56,7 @@ Full architecture: [FILM_ARCHITECTURE.md](architecture/FILM_ARCHITECTURE.md).
 
 | Phase | Goal |
 |-------|------|
-| **1** | UX + domain: Film route, marketplace preset, shot UI, still-motion default, Studio by capability, one nav path |
+| **1** | **Shipped:** UX + domain: Film labels, marketplace preset, shot UI, still-motion default, Studio by capability |
 | **2** | Persistence: Film JSON, analysis on disk, stop relying on localStorage for the film |
 | **3** | Analysis → script quality; regenerate one narration segment |
 | **4** | Disk job queue + unload after heavy jobs |

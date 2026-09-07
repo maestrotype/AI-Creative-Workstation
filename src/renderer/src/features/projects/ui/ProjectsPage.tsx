@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { toAssetUrl } from '../../video/model/directorMedia';
@@ -50,7 +50,10 @@ export function ProjectsPage(): ReactNode {
     setCreating(true);
     setError(null);
     try {
-      const doc = await window.api.createProject({ name: t('projects.untitled') });
+      const doc = await window.api.createProject({
+        name: t('projects.untitled'),
+        preset: 'marketplace',
+      });
       writeLastProjectId(doc.id);
       navigate(`/projects/${doc.id}`);
     } catch (err) {
@@ -78,9 +81,14 @@ export function ProjectsPage(): ReactNode {
           <h1 className={styles.title}>{t('projects.title')}</h1>
           <p className={styles.lead}>{t('projects.lead')}</p>
         </div>
-        <button type="button" className={styles.newButton} onClick={() => void create()} disabled={creating}>
-          {creating ? t('projects.creating') : t('projects.new_project')}
-        </button>
+        <div className={styles.headerActions}>
+          <Link className={styles.ghostBtn} to="/video">
+            {t('projects.dub_existing')}
+          </Link>
+          <button type="button" className={styles.newButton} onClick={() => void create()} disabled={creating}>
+            {creating ? t('projects.creating') : t('projects.new_project')}
+          </button>
+        </div>
       </header>
 
       {lastItem ? (

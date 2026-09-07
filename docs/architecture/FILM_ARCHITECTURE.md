@@ -1,6 +1,6 @@
 # Film architecture
 
-**Status of this document:** Phase 1 **PLANNED / in progress** on `feat/film-phase-1`.  
+**Status of this document:** Phase 1 **shipped on `feat/film-phase-1`** (routes stay `/projects` and `/video`; nav labels are Films / Dub).  
 What already runs: see [IMPLEMENTED_VS_PLANNED.md](IMPLEMENTED_VS_PLANNED.md).
 
 ## Why Film exists
@@ -116,7 +116,7 @@ Do not merge 3D into this graph.
 
 ## Phases
 
-1. UX + shot UI + preset + still-motion default + Studio capability grouping  
+1. **Shipped:** UX + shot UI + preset + still-motion default + Studio capability grouping  
 2. Disk persistence for analysis/session  
 3. Analysis-grounded script + per-segment regen  
 4. Jobs + unload  

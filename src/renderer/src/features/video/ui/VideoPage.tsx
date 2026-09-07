@@ -88,7 +88,14 @@ function VideoStudioShell(): ReactNode {
             {t('video.finishing_project', { name: d.projectScope.name || t('projects.untitled') })}
           </span>
         </div>
-      ) : null}
+      ) : (
+        <div className={styles.projectBanner}>
+          <Link className={styles.projectBannerBack} to="/projects">
+            {t('video.open_films')}
+          </Link>
+          <span>{t('video.dub_existing_lead')}</span>
+        </div>
+      )}
       <VideoMenuBar state={dock} onState={setDock} onOpenVoiceover={openVoiceover} />
       <div className={styles.studioBody}>
         <div className={styles.studioLayer} hidden={dock.mode !== 'pipeline'}>
