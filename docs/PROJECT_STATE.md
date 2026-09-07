@@ -1,84 +1,71 @@
 # Project State & Handoff
-> **Purpose:** This document is the single source of truth for the current development state, recent changes, and immediate next steps. It is designed to be read by AI agents to quickly gain context without traversing Git logs.
 
-## Current Focus
-**Branch (implementation):** `feat/video-voiceover` — V1 MVP shipped  
-**Branch (planning):** `docs/voiceover-v2-vision` — V2 UX + intelligence spec
+> Source of truth for **what the code does today** and what we are building next.  
+> Trust this file and the source tree over older vision docs. Those often describe planned systems as if they shipped.
 
-- Video content voiceover V1 — [VIDEO_VOICEOVER_PLAN.md](product/VIDEO_VOICEOVER_PLAN.md) (Phases 1–3 MVP)
-- Video content voiceover V2 — [VIDEO_VOICEOVER_V2_VISION.md](product/VIDEO_VOICEOVER_V2_VISION.md) (**next**)
-- Layout modes spec — [VIDEO_STUDIO_LAYOUT_MODES.md](ux/VIDEO_STUDIO_LAYOUT_MODES.md)
-- Pronunciation / TTS quality — [VOICE_PRONUNCIATION_PLAN.md](product/VOICE_PRONUNCIATION_PLAN.md)
-- Video + local TTS baseline — [VIDEO_STUDIO_PLAN.md](product/VIDEO_STUDIO_PLAN.md)
+## Current branch / next branch
 
-**Goal (V2):** Pipeline-first UX, video-aware script (VLM), continuous A1 voiceover, project context prompts.
+| Branch | Role |
+|--------|------|
+| `feat/projects-workspace` | Last shipped work: filesystem projects, H3/Runway video gen paths, engine monitor |
+| `feat/film-phase-1` | **Next:** unify Projects + Video into one **Film** production workflow |
 
-## V1 voiceover status (`feat/video-voiceover`)
+## Product (now)
 
-### Phase 1 — Analyze ✅
-- [x] `scene_detect.py` + `transcribe.py` + `video_analyze.py`
-- [x] `POST /api/video/analyze` + progress + cache + `from_cache` flag
-- [x] `VoiceoverSection` in Sources (uses V1/bin video via `voiceoverSession.ts`)
-- [x] Analyze cache UX: show ready state, separate re-analyze
-- [ ] Whisper install path in Studio (optional)
+AI Creative Workstation is an Electron + React desktop app with a Python FastAPI sidecar.
 
-### Phase 2 — Script ✅ (quality weak)
-- [x] `POST /api/script/generate` (Ollama + scene fallback)
-- [x] `VoiceoverScriptEditor` — prompt + editable segment table
-- [x] Scene alignment: one segment per scene (`_align_segments_to_scenes`)
-- [x] Studio → **Сценарий**: install/start/delete `qwen2.5:7b` via Ollama
-- [ ] Cloud LLM provider in Settings (optional)
-- [ ] **V2:** visual_notes + project context in script prompt
+**Immediate product:** local-first **commercial product video** (marketplace / ecommerce), not a general AI OS.
 
-### Phase 3 — Voice ✅ (raw MVP)
-- [x] Per-segment XTTS → A1 via `applyScriptVoiceover()` in `DirectorBoard.tsx`
-- [x] Inline voice sample: `VoiceSampleSetup.tsx` (record / file / library)
-- [x] 3-step stepper: `VoiceoverSteps.tsx`
-- [x] Hide bottom voice strip when voiceover expanded
-- [ ] **V2:** single continuous A1 clip (concat + pad)
-- [ ] **V2:** pronunciation fix per segment in script table
+**Priority:** quality → zero cost → product identity → ease of use → speed.
 
-### UX (V1 limitations — see V2 vision)
-- Grid/Free dock only — panels scattered (timeline bottom, preview top-right)
-- Script often generic placeholders without video content description
-- A1 has multiple short clips with gaps between segments
+**Hardware target:** MacBook Pro M4 Max, 64 GB unified memory. One heavy model in RAM at a time.
 
-## Recently Completed
-- [x] Voiceover MVP commit `dae5d8a`: analyze → script → inline voice → A1 → export path
-- [x] Ollama engine management in main process + Studio tab
-- [x] Initial React + Vite architecture setup with CSS modules.
-- [x] Application routing layout (`Shell`, `SideNavigation`).
-- [x] `HomePage` baseline (Hero section, `IntentInput` for Quick Create).
-- [x] `RecentAssets` component and `homeStore` Zustand integration.
-- [x] Basic mock API (`assetApi.ts`) for assets.
-- [x] **Data Separation:** Split the mock API and Zustand store state into `Projects` and `Assets`.
-- [x] **Continue Working Component:** Build the UI to display recent projects.
-- [x] **Inspiration Component:** Build a gallery of curated generation examples.
-- [x] **Integrate into HomePage:** Update `HomePage.tsx` to render all sections in the correct order.
-- [x] **CreatePage Implementation:** Built the core generation flow with Zustand state machine.
-- [x] **Мультиязычность (i18n):** `i18next`, EN/RU, Settings language switcher.
-- [x] **Базовые заглушки экранов:** `ProjectsPage`, `AssetsPage`, `StudioPage`, `SettingsPage`.
-- [x] **Electron Shell:** Electron + Vite via `electron-vite`.
-- [x] **Python Sidecar:** FastAPI, MLX, mock generation endpoint.
-- [x] **Video Studio:** Director timeline, screencast clean, XTTS timeline mix, Ken Burns assemble.
-- [x] **Docs 2026-09-01:** VOICE_PRONUNCIATION_PLAN + VIDEO_VOICEOVER_PLAN; roadmap and UX flows updated.
-- [x] **Docs 2026-09-02:** VIDEO_VOICEOVER_V2_VISION + VIDEO_STUDIO_LAYOUT_MODES
+**3D** (TripoSR / Hunyuan3D, Three.js preview) is an **independent** module. Do not wire GLB → video.
 
-## Immediate Next Steps (V2 — start on `docs/voiceover-v2-vision` or new feat branch)
+## What is actually implemented
 
-| Priority | Task | Doc |
-|----------|------|-----|
-| P0 | Pipeline layout mode (`pipeline` / Grid / Free) | [VIDEO_STUDIO_LAYOUT_MODES.md](ux/VIDEO_STUDIO_LAYOUT_MODES.md) |
-| P0 | Single A1 voiceover track (concat segments) | [VIDEO_VOICEOVER_V2_VISION.md](product/VIDEO_VOICEOVER_V2_VISION.md) §G3 |
-| P1 | Keyframe + VLM captions → `visual_notes` | §G2 |
-| P1 | Project context brief (persist per project) | §G4 |
-| P2 | Script row click → preview seek | §Stage 4 |
-| P2 | Pronunciation fix in script table | [VOICE_PRONUNCIATION_PLAN.md](product/VOICE_PRONUNCIATION_PLAN.md) |
+See [IMPLEMENTED_VS_PLANNED.md](architecture/IMPLEMENTED_VS_PLANNED.md).
 
-## Known Issues / Technical Debt
-- Voiceover UI scattered in Grid mode — use Pipeline mode in V2.
-- Script quality: Ollama returns placeholders without visual context.
-- A1 fragmented clips — not continuous narration.
-- `IntentInput` attach button not fully functional.
-- Preview may show black frame when playhead at end of timeline.
-- Typecheck: pre-existing errors in `MeshProgress.tsx` (unrelated).
+Short version:
+
+| Area | Status |
+|------|--------|
+| Projects on disk (`~/Documents/Canvas/Projects/{id}/project.json`) | **IMPLEMENTED** |
+| Scene: still, clip, prompt, overlay, Ken Burns stitch | **IMPLEMENTED** |
+| Image gen: FLUX / SDXL via Diffusers + PyTorch (MPS), not MLX | **IMPLEMENTED** |
+| Generate video: MiniMax H3 (CUDA or SGLang URL) or Runway API | **IMPLEMENTED** (not practical as Mac default) |
+| Wan / SVD in catalog | **PARTIAL** (downloadable; not the ad path) |
+| Video director + analyze → script → XTTS → export | **IMPLEMENTED** (session mostly **localStorage**) |
+| 3D image → mesh | **IMPLEMENTED** (separate from video) |
+| MLX, fal.ai, SQLite job queue, Creative Asset Graph | **NOT IMPLEMENTED** (docs only) |
+
+## Conceptual problem (why Phase 1)
+
+Users currently choose between:
+
+- **Projects** = generate product clips  
+- **Video** = narrate an existing file  
+
+Those are one production. Phase 1 makes **Film** the single path.
+
+Voiceover analyze → script → TTS must be **preserved** and attached to Film, not deleted.
+
+## Phase plan
+
+Full architecture: [FILM_ARCHITECTURE.md](architecture/FILM_ARCHITECTURE.md).
+
+| Phase | Goal |
+|-------|------|
+| **1** | UX + domain: Film route, marketplace preset, shot UI, still-motion default, Studio by capability, one nav path |
+| **2** | Persistence: Film JSON, analysis on disk, stop relying on localStorage for the film |
+| **3** | Analysis → script quality; regenerate one narration segment |
+| **4** | Disk job queue + unload after heavy jobs |
+| **5** | Docs/tests aligned with code |
+
+## Known issues
+
+- H3 cannot run on M4 GPU; default Generate Video must not assume H3.
+- Runway is paid optional fallback, not the architecture.
+- Two sources of truth: `project.json` vs `acw-director-session-*` localStorage.
+- SQLite `projects` / `assets` tables exist and are unused.
+- Docs/roadmap still claim MLX FLUX, fal.ai, character graph — **false**.
