@@ -1517,6 +1517,14 @@
   text-decoration: underline;
 }
 
+button.voStudioLink {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
 .voAnalyzeReady {
   font-size: var(--text-body-sm);
   color: var(--color-accent);

@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 
 import { runGeneration, type GenerationProgress } from '../../create/api/generationApi';
 import { filePathFromAssetUrl } from '../../studio/store/workspaceBridgeStore';
+import { studioHref } from '../../studio/model/studioReturn';
 import {
   estimateStoryboard,
   planYoutubeVideo,
@@ -289,7 +290,7 @@ export function FromIdeaPanel({
       {hasImageEngine === false ? (
         <section className={styles.card}>
           <p className={styles.error}>{t('video.need_image_engine')}</p>
-          <Link className={styles.link} to="/studio?family=image">{t('video.open_image_studio')}</Link>
+          <Link className={styles.link} to={studioHref('image', '/video')}>{t('video.open_image_studio')}</Link>
         </section>
       ) : null}
 

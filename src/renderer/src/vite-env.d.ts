@@ -189,6 +189,7 @@ interface Window {
     getOllamaEngineStatus: () => Promise<{
       binary_found: boolean;
       server_running: boolean;
+      model_on_disk: boolean;
       model_ready: boolean;
       installing: boolean;
       stage: string;
@@ -200,6 +201,7 @@ interface Window {
     onOllamaEngineUpdated: (callback: (data: {
       binary_found: boolean;
       server_running: boolean;
+      model_on_disk: boolean;
       model_ready: boolean;
       installing: boolean;
       stage: string;

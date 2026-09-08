@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { WorkspaceFlow } from '../../studio/ui/WorkspaceFlow';
+import { studioHref } from '../../studio/model/studioReturn';
 import { useMediaLibraryStore } from '../store/mediaLibraryStore';
 import { mediaMime } from '../../video/model/directorMedia';
 import ui from '../../video/ui/VideoPage.module.css';
@@ -594,7 +595,7 @@ export function AssetsPage(): ReactNode {
         {ttsEngine !== 'xtts' ? (
           <p className={ui.hint}>
             {t('assets.voice_install_studio')}{' '}
-            <Link to="/studio?family=voice">{t('assets.voice_install_studio_link')}</Link>
+            <Link to={studioHref('voice', '/assets')}>{t('assets.voice_install_studio_link')}</Link>
           </p>
         ) : null}
 

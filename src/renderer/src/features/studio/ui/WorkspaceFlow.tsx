@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 
+import { studioHref } from '../model/studioReturn';
 import styles from './WorkspaceFlow.module.css';
 
 type FlowKind = 'create' | 'video' | 'threed' | 'assets' | 'projects';
@@ -27,17 +28,25 @@ export function WorkspaceFlow({ kind }: WorkspaceFlowProps): ReactNode {
     return window.api?.onModelsUpdated(() => { void load(); }) ?? (() => {});
   }, []);
 
+  const fromPath = {
+    create: '/create',
+    video: '/video',
+    threed: '/threed',
+    assets: '/assets',
+    projects: '/projects',
+  }[kind];
+
   const links: { to: string; label: string }[] = {
     create: [
-      { to: '/studio?family=image', label: t('flow.to_studio_image') },
+      { to: studioHref('image', fromPath), label: t('flow.to_studio_image') },
       { to: '/video', label: t('flow.to_video') },
       { to: '/threed', label: t('flow.to_threed') },
       { to: '/assets', label: t('flow.to_assets') },
     ],
     video: [
       { to: '/projects', label: t('flow.to_projects') },
-      { to: '/studio?family=image', label: t('flow.to_studio_image') },
-      { to: '/studio?family=video', label: t('flow.to_studio_video') },
+      { to: studioHref('image', fromPath), label: t('flow.to_studio_image') },
+      { to: studioHref('video', fromPath), label: t('flow.to_studio_video') },
       { to: '/create', label: t('flow.to_create') },
       { to: '/assets', label: t('flow.to_assets') },
       { to: '/threed', label: t('flow.to_threed') },
@@ -45,10 +54,10 @@ export function WorkspaceFlow({ kind }: WorkspaceFlowProps): ReactNode {
     projects: [
       { to: '/create', label: t('flow.to_create') },
       { to: '/assets', label: t('flow.to_assets') },
-      { to: '/studio?family=image', label: t('flow.to_studio_image') },
+      { to: studioHref('image', fromPath), label: t('flow.to_studio_image') },
     ],
     threed: [
-      { to: '/studio?family=3d', label: t('flow.to_studio_3d') },
+      { to: studioHref('3d', fromPath), label: t('flow.to_studio_3d') },
       { to: '/create', label: t('flow.to_create') },
       { to: '/assets', label: t('flow.to_assets') },
       { to: '/video', label: t('flow.to_video') },
@@ -57,7 +66,7 @@ export function WorkspaceFlow({ kind }: WorkspaceFlowProps): ReactNode {
       { to: '/create', label: t('flow.to_create') },
       { to: '/threed', label: t('flow.to_threed') },
       { to: '/video', label: t('flow.to_video') },
-      { to: '/studio', label: t('flow.to_studio') },
+      { to: studioHref('image', fromPath), label: t('flow.to_studio') },
     ],
   }[kind];
 

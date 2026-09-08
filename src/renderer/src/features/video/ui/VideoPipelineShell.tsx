@@ -2,9 +2,11 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import type { DragEvent, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
+import { studioHref } from '../../studio/model/studioReturn';
 import { useDirector } from './DirectorBoard';
 import { DirectorPreview } from './DirectorPreview';
 import { DirectorResultPane, DirectorTimelinePane } from './DirectorPanes';
+import { LlmEngineNotice } from './LlmEngineNotice';
 import { VoiceSampleSetup } from './VoiceSampleSetup';
 import { formatTimecode, narrationHealth } from '../model/videoAnalysis';
 import { toAssetUrl } from '../model/directorMedia';
@@ -366,27 +368,11 @@ function StageBrief(): ReactNode {
   const d = useDirector();
   const busy = d.scriptBusy;
   const hasScript = Boolean(d.voiceover.script?.segments.length);
-  const [ollamaReady, setOllamaReady] = useState<boolean | null>(null);
   const [ctxOpen, setCtxOpen] = useState(true);
-
-  useEffect(() => {
-    void window.api?.getOllamaEngineStatus?.().then((status) => {
-      setOllamaReady(Boolean(status?.model_ready && status?.server_running));
-    }).catch(() => setOllamaReady(null));
-    const cleanup = window.api?.onOllamaEngineUpdated?.((status) => {
-      setOllamaReady(Boolean(status.model_ready && status.server_running));
-    });
-    return () => { cleanup?.(); };
-  }, []);
 
   return (
     <div className={s.stageBody}>
-      {ollamaReady === false ? (
-        <p className={vp.voScriptNotice}>
-          {d.t('video.vo_script_fallback_note')}{' '}
-          <Link className={vp.voStudioLink} to="/studio?family=llm">{d.t('video.vo_script_open_studio')}</Link>
-        </p>
-      ) : null}
+      <LlmEngineNotice />
       <label className={vp.voPromptLabel}>
         <span>{d.t('video.vo_script_prompt')}</span>
         <textarea
@@ -592,7 +578,7 @@ function StageScript({ active }: { active: boolean }): ReactNode {
         {script.meta.provider === 'fallback' ? (
           <p className={vp.voScriptNotice}>
             {d.t('video.vo_script_fallback_note')}{' '}
-            <Link className={vp.voStudioLink} to="/studio?family=llm">{d.t('video.vo_script_open_studio')}</Link>
+            <Link className={vp.voStudioLink} to={studioHref('llm', '/video')}>{d.t('video.vo_script_open_studio')}</Link>
           </p>
         ) : null}
         <p className={vp.hintTight}>{d.t('video.pipe_script_seek_hint')}</p>
@@ -679,7 +665,7 @@ function StageScript({ active }: { active: boolean }): ReactNode {
                           onChange={(e) => d.updateScriptSegment(index, { text: e.target.value })}
                           disabled={busy}
                         />
-                        {seg.purpose ? (
+                        {seg.purpose && !/[\u3400-\u9fff]/.test(seg.purpose) ? (
                           <p className={s.onScreen}>{seg.purpose}</p>
                         ) : null}
                         {(seg.visual_summary || note && ('visual_summary' in note ? note.visual_summary : note.caption)) ? (
