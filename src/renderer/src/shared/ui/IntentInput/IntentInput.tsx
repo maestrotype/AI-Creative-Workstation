@@ -12,6 +12,8 @@ import styles from './IntentInput.module.css';
 export interface ReferenceImage {
   dataUrl: string;
   name: string;
+  kind?: 'image' | 'video';
+  sourcePath?: string;
 }
 
 export interface IntentInputProps {
@@ -27,6 +29,7 @@ export interface IntentInputProps {
 }
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/bmp']);
+const VIDEO_EXT = /\.(mp4|mov|m4v|webm|mkv)$/i;
 const MAX_EDGE = 1280;
 const DEFAULT_MAX_PHOTOS = 4;
 
@@ -34,9 +37,17 @@ function isImageFile(file: File): boolean {
   return file.type.startsWith('image/') || IMAGE_TYPES.has(file.type);
 }
 
+function isVideoFile(file: File): boolean {
+  return file.type.startsWith('video/') || VIDEO_EXT.test(file.name);
+}
+
+function isMediaFile(file: File): boolean {
+  return isImageFile(file) || isVideoFile(file);
+}
+
 function filesFromList(list: FileList | File[] | null | undefined): File[] {
   if (!list) return [];
-  return Array.from(list).filter(isImageFile);
+  return Array.from(list).filter(isMediaFile);
 }
 
 function filesFromClipboard(event: ClipboardEvent): File[] {
@@ -48,13 +59,68 @@ function filesFromClipboard(event: ClipboardEvent): File[] {
   for (const item of Array.from(dt.items)) {
     if (item.kind === 'file') {
       const file = item.getAsFile();
-      if (file && isImageFile(file)) fromItems.push(file);
+      if (file && isMediaFile(file)) fromItems.push(file);
     }
   }
   return fromItems;
 }
 
+function diskPathOf(file: File): string | undefined {
+  const path = (file as File & { path?: string }).path;
+  return path && path.length > 1 ? path : undefined;
+}
+
+async function videoToFrame(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    const frame = await new Promise<string>((resolve, reject) => {
+      video.onerror = () => reject(new Error('Could not read video'));
+      video.onloadeddata = () => {
+        const t = Number.isFinite(video.duration) && video.duration > 0
+          ? Math.min(1.2, video.duration * 0.12)
+          : 0;
+        video.currentTime = t;
+      };
+      video.onseeked = () => {
+        const w = Math.max(1, video.videoWidth || 1280);
+        const h = Math.max(1, video.videoHeight || 720);
+        const scale = Math.min(1, MAX_EDGE / Math.max(w, h));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(w * scale));
+        canvas.height = Math.max(1, Math.round(h * scale));
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Could not read video frame'));
+          return;
+        }
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.88));
+      };
+      video.src = url;
+    });
+    return frame;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 async function fileToReference(file: File): Promise<ReferenceImage> {
+  const sourcePath = diskPathOf(file);
+  if (sourcePath) {
+    await window.api?.rememberDroppedMedia?.(sourcePath);
+  }
+  if (isVideoFile(file)) {
+    return {
+      dataUrl: await videoToFrame(file),
+      name: file.name || 'video-frame.jpg',
+      kind: 'video',
+      sourcePath,
+    };
+  }
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
   const width = Math.max(1, Math.round(bitmap.width * scale));
@@ -72,6 +138,8 @@ async function fileToReference(file: File): Promise<ReferenceImage> {
   return {
     dataUrl: canvas.toDataURL('image/jpeg', 0.88),
     name: file.name || 'pasted-image.jpg',
+    kind: 'image',
+    sourcePath,
   };
 }
 
@@ -182,7 +250,7 @@ export function IntentInput({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
+            accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime,video/webm"
             multiple
             className={styles.srOnly}
             tabIndex={-1}
@@ -197,7 +265,7 @@ export function IntentInput({
             onClick={() => fileInputRef.current?.click()}
             disabled={!canAttach}
             aria-label="Attach reference photos"
-            title="Attach photos or paste with Ctrl/Cmd+V"
+            title="Attach a photo or a video (we take a frame)"
           >
             <PaperclipIcon size={17} />
           </button>

@@ -19,6 +19,8 @@ export interface RecentAssetsProps {
   readonly status: 'idle' | 'loading' | 'ready' | 'error';
   /** Assets to render, newest first. Ignored unless status is 'ready'. */
   readonly assets: readonly Asset[];
+  readonly hrefFor: (asset: Asset) => string;
+  readonly onDownload?: (asset: Asset) => void;
   /** Retry action for the error state. */
   readonly onRetry?: () => void;
 }
@@ -32,6 +34,8 @@ const SKELETON_COUNT = 6;
 export function RecentAssets({
   status,
   assets,
+  hrefFor,
+  onDownload,
   onRetry,
 }: RecentAssetsProps): ReactNode {
   const { t } = useTranslation();
@@ -106,7 +110,7 @@ export function RecentAssets({
       <ul className={styles.grid}>
         {assets.map((asset) => (
           <li key={asset.id} className={styles.gridItem}>
-            <AssetCard asset={asset} />
+            <AssetCard asset={asset} href={hrefFor(asset)} onDownload={onDownload} />
           </li>
         ))}
       </ul>

@@ -33,6 +33,7 @@ const api = {
     prompt: string;
     format: string;
     style: string;
+    job?: string;
     model_id?: string;
     image_base64?: string;
     images_base64?: string[];
@@ -178,6 +179,12 @@ const api = {
     ipcRenderer.invoke('ensure-video-preview', sourcePath, force) as Promise<{ path: string; transcoded: boolean }>,
   discardMeshDraft: (sourcePath: string) => ipcRenderer.invoke('discard-mesh-draft', sourcePath),
   saveVideoAs: (sourcePath: string) => ipcRenderer.invoke('save-video-as', sourcePath),
+  saveMediaAs: (sourcePath: string) => ipcRenderer.invoke('save-media-as', sourcePath),
+  gradeVideo: (payload: {
+    video_path: string;
+    prompt?: string;
+    overlay_path?: string | null;
+  }) => ipcRenderer.invoke('grade-video', payload) as Promise<{ file_path: string | null }>,
   discardVideoDraft: (sourcePath: string) => ipcRenderer.invoke('discard-video-draft', sourcePath),
   openPath: (filePath: string) => ipcRenderer.invoke('open-path', filePath),
   getSetting: (key: string) => ipcRenderer.invoke('get-setting', key),

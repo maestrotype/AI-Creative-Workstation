@@ -8,6 +8,16 @@
   animation: fadeSlideUp var(--duration-moderate) var(--ease-out) both;
 }
 
+.jobTag {
+  margin: 0;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
 .imageArea {
   width: 100%;
   aspect-ratio: 16 / 9; /* Adjusted dynamically in a real app based on format */
@@ -44,6 +54,13 @@
   border-radius: var(--radius-lg);
   font-size: var(--text-body);
   font-style: italic;
+  text-align: center;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger, #e07a7a);
+  font-size: var(--text-body-sm);
   text-align: center;
 }
 

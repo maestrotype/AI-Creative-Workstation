@@ -7,14 +7,17 @@
 
 | Branch | Role |
 |--------|------|
-| `feat/projects-workspace` | Last shipped work: filesystem projects, H3/Runway video gen paths, engine monitor |
-| `feat/film-phase-1` | **Current:** Film UX for **template demos** (you record the theme; app chapters, stitches, voices) |
+| `feat/film-phase-1` | Film UX for template demos (record the theme; app chapters, stitches, voices) |
+| `fix/studio-llm-status-nav` | Ollama on-disk vs running server; Studio Script chips |
+| `fix/create-intent-and-compose-ux` | **Current:** Create jobs, still compose (intro/PiP/hide), real Home covers, reference = variation, download photo/video |
 
 ## Product (now)
 
 AI Creative Workstation is an Electron + React desktop app with a Python FastAPI sidecar.
 
-**Immediate product:** local-first workstation for **videos of a store template** (design, catalog, admin, builder, payments). You record the real UI; the app cuts, titles, stitches, and voices. Not a general AI OS. Not a photoshoot of a SKU.
+**Immediate product:** local-first workstation for **videos of a store template** (design, catalog, admin, builder, payments). You record the real UI; the app cuts, titles, stitches, and voices.
+
+**Create** draws stills (FLUX): title card, storyboard frame, or catalog product. A reference photo or video frame is a **starting picture** — the prompt is the change (black leather bag → grey silk bag). It does not “undress” a character. A video reference can later be downloaded with a grade and the new still overlaid.
 
 **Priority:** quality → zero cost → product identity → ease of use → speed.
 

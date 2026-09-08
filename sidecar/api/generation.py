@@ -36,6 +36,7 @@ class GenerationRequest(BaseModel):
     prompt: str
     format: str = "square"
     style: str = "subtle"
+    job: str = "title"
     model_id: str = "OFA-Sys/small-stable-diffusion-v0"
     image_base64: Optional[str] = None
     images_base64: Optional[List[str]] = None
@@ -531,15 +532,20 @@ def _effective_format(request: GenerationRequest) -> str:
     return request.format
 
 
+def _norm_job(job: str) -> str:
+    value = (job or "title").strip().lower()
+    return value if value in ("title", "frame", "product") else "title"
+
+
 def _pick_strength(request: GenerationRequest, n_refs: int) -> float:
-    """Collage+0.72 locks the layout to 'photos side by side'. Scene prompts need high strength."""
+    """One reference is a starting picture: keep structure, follow the prompt."""
     if n_refs <= 0:
         return 1.0
     if n_refs >= 2:
         return 1.0
     if _wants_new_scene(request.prompt):
         return 0.82
-    return 0.58
+    return 0.7
 
 
 _STYLE_HINTS = {
@@ -598,12 +604,32 @@ def _latin_product_names(text: str) -> str:
     return ", ".join(dict.fromkeys(cleaned))
 
 
-def _english_clip_prompt(text: str) -> str:
+def _english_clip_prompt(text: str, job: str = "title") -> str:
     """Short English CLIP subject. CLIP is ~77 tokens and ignores Russian."""
+    job = _norm_job(job)
     parts: list[str] = []
     names = _latin_product_names(text)
     if names:
         parts.append(names)
+    if job == "product":
+        gloss = _glossary_en(text)
+        if gloss:
+            parts.append(gloss)
+        parts.extend([
+            "studio catalog product photograph",
+            "product on a clean background",
+        ])
+        return _dedupe_parts(parts)
+    if job == "frame":
+        parts.append("cinematic video still frame")
+        if _UI_RX.search(text):
+            parts.append("photorealistic software user interface")
+        elif re.search(r"(?i)тёмн|темн|dark", text):
+            parts.append("dark cinematic lighting")
+        gloss = _glossary_en(text)
+        if gloss:
+            parts.append(gloss)
+        return _dedupe_parts(parts)
     if re.search(r"(?i)титр|title\s*card", text):
         parts.append("cinematic title card")
     if _UI_RX.search(text):
@@ -618,6 +644,10 @@ def _english_clip_prompt(text: str) -> str:
         gloss = _glossary_en(text)
         if gloss:
             parts.append(gloss)
+    return _dedupe_parts(parts)
+
+
+def _dedupe_parts(parts: list[str]) -> str:
     seen: set[str] = set()
     out: list[str] = []
     for part in parts:
@@ -627,7 +657,15 @@ def _english_clip_prompt(text: str) -> str:
     return ", ".join(out)
 
 
-def _t5_constraints(text: str) -> str:
+def _t5_constraints(text: str, job: str = "title") -> str:
+    job = _norm_job(job)
+    if job == "product":
+        return (
+            "Photorealistic product photo matching the prompt. "
+            "Not a title card, not a website screenshot."
+        )
+    if job == "frame":
+        return "Cinematic still for a video storyboard. Grounded, not a cute isometric toy."
     if not _UI_RX.search(text):
         return ""
     return (
@@ -636,14 +674,15 @@ def _t5_constraints(text: str) -> str:
     )
 
 
-def _flux_prompt_pair(prompt: str, n_refs: int, style: str) -> tuple[str, str]:
+def _flux_prompt_pair(prompt: str, n_refs: int, style: str, job: str = "title") -> tuple[str, str]:
     """CLIP prompt (English) + T5 prompt (user language + English subject)."""
+    job = _norm_job(job)
     text = _normalize_prompt(prompt)
-    steer = _english_clip_prompt(text)
+    steer = _english_clip_prompt(text, job)
     gloss = _glossary_en(text)
     style_hint = _STYLE_HINTS.get(style, "")
     has_cyrillic = bool(re.search(r"[а-яА-ЯёЁ]", text))
-    constraints = _t5_constraints(text)
+    constraints = _t5_constraints(text, job)
     if has_cyrillic:
         clip = steer or gloss or "photorealistic photograph of the described subject"
         t5 = text
@@ -653,7 +692,13 @@ def _flux_prompt_pair(prompt: str, n_refs: int, style: str) -> tuple[str, str]:
     else:
         clip = steer or text or "photorealistic photograph"
         t5 = f"{text}. {constraints}".strip(" .") if constraints else text
-    if n_refs >= 2:
+    if n_refs == 1:
+        clip = f"{clip}, same composition and subject as the reference"
+        t5 = (
+            f"{t5}. Keep the same object, pose, and framing as the reference. "
+            "Change only what the prompt asks: color, material, extra details, or look."
+        )
+    elif n_refs >= 2:
         clip = f"{clip}, two people in one scene, full bodies"
         t5 = f"{t5}. One coherent scene, not a collage."
     if style_hint:
@@ -661,9 +706,9 @@ def _flux_prompt_pair(prompt: str, n_refs: int, style: str) -> tuple[str, str]:
     return clip.strip(" ,"), t5.strip(" ,")
 
 
-def _enrich_prompt(prompt: str, n_refs: int, style: str) -> str:
+def _enrich_prompt(prompt: str, n_refs: int, style: str, job: str = "title") -> str:
     """Non-FLUX path: keep the user subject first, do not bury it in style tags."""
-    clip, t5 = _flux_prompt_pair(prompt, n_refs, style)
+    clip, t5 = _flux_prompt_pair(prompt, n_refs, style, job)
     if clip == t5:
         return clip
     return f"{t5}. {clip}"
@@ -825,8 +870,8 @@ def _run_inference(pipe, request: GenerationRequest, job_id: str) -> str:
     if len(payloads) >= 2:
         init_image = None
         strength = 1.0
-    prompt = _enrich_prompt(request.prompt, len(payloads), request.style)
-    clip_prompt, t5_prompt = _flux_prompt_pair(request.prompt, len(payloads), request.style)
+    prompt = _enrich_prompt(request.prompt, len(payloads), request.style, request.job)
+    clip_prompt, t5_prompt = _flux_prompt_pair(request.prompt, len(payloads), request.style, request.job)
     cache_key = _to_cache_key(request.model_id)
     if _is_flux(request.model_id):
         _pin_flux_t5(pipe)

@@ -7,13 +7,12 @@ import type { ReactNode } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import type { InspirationItem } from '../../api/assetApi';
-import { ImageIcon } from '../../../../shared/ui/icons';
 import styles from './Inspiration.module.css';
 
 export interface InspirationProps {
   readonly status: 'idle' | 'loading' | 'ready' | 'error';
   readonly items: readonly InspirationItem[];
-  readonly onSelect: (prompt: string) => void;
+  readonly onSelect: (item: InspirationItem) => void;
 }
 
 const SKELETON_COUNT = 4;
@@ -59,8 +58,8 @@ export function Inspiration({
             <button
               type="button"
               className={styles.gridItem}
-              onClick={() => onSelect(item.prompt)}
-              aria-label={`Use prompt: ${item.prompt}`}
+              onClick={() => onSelect(item)}
+              aria-label={item.prompt}
             >
               {item.thumbnailUrl ? (
                 <img
@@ -70,8 +69,8 @@ export function Inspiration({
                   loading="lazy"
                 />
               ) : (
-                <div className={styles.placeholder} aria-hidden="true">
-                  <ImageIcon size={32} />
+                <div className={styles.placeholder}>
+                  <span className={styles.job}>{t(`create.job_${item.job}`)}</span>
                 </div>
               )}
               <p className={styles.caption}>{item.prompt}</p>

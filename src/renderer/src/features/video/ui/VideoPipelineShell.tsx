@@ -801,8 +801,29 @@ function StageVoice(): ReactNode {
 
 function StageExport({ active }: { active: boolean }): ReactNode {
   const d = useDirector();
+  const hasStill = d.bins.some((bin) => bin.kind === 'image');
+  const modes = ['intro', 'pip', 'off'] as const;
   return (
     <div className={s.stageBody}>
+      {hasStill ? (
+        <div className={s.composeBox}>
+          <p className={s.composeLabel}>{d.t('video.still_compose_label')}</p>
+          <div className={s.composeModes}>
+            {modes.map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className={s.composeMode}
+                data-checked={d.stillCompose === mode}
+                onClick={() => d.setStillCompose(mode)}
+              >
+                {d.t(`video.still_compose_${mode}`)}
+              </button>
+            ))}
+          </div>
+          <p className={s.composeHint}>{d.t(`video.still_compose_hint_${d.stillCompose}`)}</p>
+        </div>
+      ) : null}
       <div className={s.exportPreview}>
         <DirectorResultPane previewActive={active} />
       </div>

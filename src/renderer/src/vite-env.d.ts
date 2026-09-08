@@ -55,6 +55,7 @@ interface Window {
       prompt: string;
       format: string;
       style: string;
+      job?: string;
       model_id?: string;
       image_base64?: string;
       images_base64?: string[];
@@ -412,6 +413,12 @@ interface Window {
     ensureVideoPreview: (sourcePath: string, force?: boolean) => Promise<{ path: string; transcoded: boolean }>;
     discardMeshDraft: (sourcePath: string) => Promise<boolean>;
     saveVideoAs: (sourcePath: string) => Promise<string | null>;
+    saveMediaAs: (sourcePath: string) => Promise<string | null>;
+    gradeVideo: (payload: {
+      video_path: string;
+      prompt?: string;
+      overlay_path?: string | null;
+    }) => Promise<{ file_path: string | null }>;
     discardVideoDraft: (sourcePath: string) => Promise<boolean>;
     openPath: (filePath: string) => Promise<boolean>;
     getSetting: (key: string) => Promise<string | null>;

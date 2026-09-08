@@ -39,7 +39,7 @@ Older files (`SYSTEM_ARCHITECTURE.md`, `ROADMAP.md`, `PRODUCT_VISION.md`) descri
 
 | Nav | Status | Role today |
 |-----|--------|------------|
-| Home / Create | PARTIAL | Image-oriented; not Film |
+| Home / Create | PARTIAL | Stills with job (title / frame / product); reference = variation; download photo/video |
 | 3D | IMPLEMENTED | Independent experiment |
 | Video | IMPLEMENTED | Voiceover + timeline; separate from Projects |
 | Projects | IMPLEMENTED | Scenes + generate/import + stitch |

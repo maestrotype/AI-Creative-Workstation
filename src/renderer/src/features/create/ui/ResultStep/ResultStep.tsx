@@ -1,20 +1,27 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useCreateStore } from '../../store/createStore';
 import { filePathFromAssetUrl, useWorkspaceBridgeStore } from '../../../studio/store/workspaceBridgeStore';
-import { ImageIcon, RefreshIcon, UserIcon, DownloadIcon } from '../../../../shared/ui/icons';
+import { DownloadIcon, ImageIcon, RefreshIcon } from '../../../../shared/ui/icons';
 import styles from './ResultStep.module.css';
 import { cx } from '../../../../shared/lib/cx';
 
 export function ResultStep(): ReactNode {
   const { t } = useTranslation();
   const result = useCreateStore((s) => s.result);
+  const job = useCreateStore((s) => s.job);
+  const prompt = useCreateStore((s) => s.prompt);
+  const referenceImages = useCreateStore((s) => s.referenceImages);
   const tryVariation = useCreateStore((s) => s.tryVariation);
   const setLastImagePath = useWorkspaceBridgeStore((s) => s.setLastImagePath);
   const setPendingTitleCard = useWorkspaceBridgeStore((s) => s.setPendingTitleCard);
   const navigate = useNavigate();
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [gradeBusy, setGradeBusy] = useState(false);
+
+  const videoRef = referenceImages.find((ref) => ref.kind === 'video' && ref.sourcePath);
 
   useEffect(() => {
     const path = filePathFromAssetUrl(result?.thumbnailUrl);
@@ -23,15 +30,57 @@ export function ResultStep(): ReactNode {
 
   if (!result) return null;
 
+  const sendToVideo = () => {
+    const path = filePathFromAssetUrl(result.thumbnailUrl);
+    if (path) {
+      setLastImagePath(path);
+      setPendingTitleCard(path);
+    }
+    navigate('/video');
+  };
+
+  const downloadStill = async () => {
+    const path = filePathFromAssetUrl(result.thumbnailUrl);
+    if (!path || !window.api?.saveMediaAs) return;
+    setDownloadError(null);
+    try {
+      await window.api.saveMediaAs(path);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const downloadGradedVideo = async () => {
+    const videoPath = videoRef?.sourcePath;
+    if (!videoPath || !window.api?.gradeVideo) return;
+    setGradeBusy(true);
+    setDownloadError(null);
+    try {
+      await window.api.rememberDroppedMedia?.(videoPath);
+      const still = filePathFromAssetUrl(result.thumbnailUrl);
+      const out = await window.api.gradeVideo({
+        video_path: videoPath,
+        prompt,
+        overlay_path: still,
+      });
+      if (out.file_path) await window.api.saveMediaAs(out.file_path);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGradeBusy(false);
+    }
+  };
+
   return (
     <div className={styles.container}>
+      <p className={styles.jobTag}>{t(`create.job_${job}`)}</p>
       <div className={styles.imageArea}>
         {result.thumbnailUrl ? (
-          <img 
+          <img
             key={result.id}
-            src={result.thumbnailUrl} 
-            alt={result.prompt} 
-            className={styles.generatedImage} 
+            src={result.thumbnailUrl}
+            alt={result.prompt}
+            className={styles.generatedImage}
           />
         ) : (
           <div className={styles.placeholderContent}>
@@ -44,6 +93,7 @@ export function ResultStep(): ReactNode {
       <p className={styles.prompt}>
         "{result.prompt}"
       </p>
+      {downloadError ? <p className={styles.error}>{downloadError}</p> : null}
 
       <div className={styles.actions}>
         <button
@@ -54,38 +104,49 @@ export function ResultStep(): ReactNode {
           <RefreshIcon size={18} />
           {t('create.btn_try_variations')}
         </button>
-        
-        <button type="button" className={styles.actionButton}>
-          {t('create.btn_edit_this')}
-        </button>
 
-        <Link to="/threed" className={styles.actionButton}>
-          {t('create.btn_send_3d')}
-        </Link>
-        <button
-          type="button"
-          className={styles.actionButton}
-          onClick={() => {
-            const path = filePathFromAssetUrl(result.thumbnailUrl);
-            if (path) {
-              setLastImagePath(path);
-              setPendingTitleCard(path);
-            }
-            navigate('/video');
-          }}
-        >
-          {t('create.btn_send_video')}
-        </button>
-
-        <button type="button" className={styles.actionButton}>
-          <UserIcon size={18} />
-          {t('create.btn_save_character')}
-        </button>
-
-        <button type="button" className={styles.actionButton}>
+        <button type="button" className={styles.actionButton} onClick={() => { void downloadStill(); }}>
           <DownloadIcon size={18} />
-          {t('create.btn_export')}
+          {t('create.btn_download_image')}
         </button>
+
+        {videoRef ? (
+          <button
+            type="button"
+            className={styles.actionButton}
+            disabled={gradeBusy}
+            onClick={() => { void downloadGradedVideo(); }}
+          >
+            <DownloadIcon size={18} />
+            {gradeBusy ? t('create.btn_grading_video') : t('create.btn_download_video')}
+          </button>
+        ) : null}
+
+        {job === 'product' ? (
+          <>
+            <Link to="/threed" className={styles.actionButton}>
+              {t('create.btn_send_3d')}
+            </Link>
+            <Link to="/assets" className={styles.actionButton}>
+              {t('create.btn_open_assets')}
+            </Link>
+            <button type="button" className={styles.actionButton} onClick={sendToVideo}>
+              {t('create.btn_send_video_insert')}
+            </button>
+          </>
+        ) : (
+          <>
+            <button type="button" className={styles.actionButton} onClick={sendToVideo}>
+              {job === 'frame' ? t('create.btn_send_video_frame') : t('create.btn_send_video')}
+            </button>
+            <Link to="/threed" className={styles.actionButton}>
+              {t('create.btn_send_3d')}
+            </Link>
+            <Link to="/assets" className={styles.actionButton}>
+              {t('create.btn_open_assets')}
+            </Link>
+          </>
+        )}
       </div>
     </div>
   );

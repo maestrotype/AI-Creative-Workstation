@@ -50,11 +50,20 @@
 
 .placeholder {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 16 / 10;
   background-image: linear-gradient(135deg, var(--color-bg-hover), var(--color-accent-subtle));
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: var(--space-3);
+}
+
+.job {
+  color: var(--color-text-primary);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
 }
 
 .caption {

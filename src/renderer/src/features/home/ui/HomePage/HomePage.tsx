@@ -9,12 +9,13 @@
  * This is the first screen the user sees. It must feel cinematic and inviting,
  * encouraging creation from the moment of arrival.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { IntentInput } from '../../../../shared/ui/IntentInput/IntentInput';
+import { filePathFromAssetUrl } from '../../../studio/store/workspaceBridgeStore';
 import { useHomeStore } from '../../store/homeStore';
 import { ContinueWorking } from '../ContinueWorking/ContinueWorking';
 import { RecentAssets } from '../RecentAssets/RecentAssets';
@@ -31,17 +32,9 @@ export function HomePage(): ReactNode {
   const intentDraft = useHomeStore((s) => s.intentDraft);
   const isCreating = useHomeStore((s) => s.isCreating);
   const setIntentDraft = useHomeStore((s) => s.setIntentDraft);
+  const setIntentJob = useHomeStore((s) => s.setIntentJob);
   const referenceDrafts = useHomeStore((s) => s.referenceDrafts);
   const setReferenceDrafts = useHomeStore((s) => s.setReferenceDrafts);
-
-  const seededIntent = useRef(false);
-  useEffect(() => {
-    if (seededIntent.current) return;
-    seededIntent.current = true;
-    if (!useHomeStore.getState().intentDraft.trim()) {
-      setIntentDraft(t('home.intent_placeholder'));
-    }
-  }, [setIntentDraft, t]);
 
   const projectsStatus = useHomeStore((s) => s.projectsStatus);
   const recentProjects = useHomeStore((s) => s.recentProjects);
@@ -68,11 +61,16 @@ export function HomePage(): ReactNode {
     }
   };
 
-  const handleInspirationSelect = (prompt: string) => {
-    setIntentDraft(prompt);
-    // Since setIntentDraft updates the store and we immediately navigate, 
-    // CreatePage will pick it up on mount.
+  const handleInspirationSelect = (item: { prompt: string; job: 'title' | 'frame' | 'product' }) => {
+    setIntentDraft(item.prompt);
+    setIntentJob(item.job);
     navigate('/create');
+  };
+
+  const downloadAsset = (asset: { thumbnailUrl: string | null }) => {
+    const path = filePathFromAssetUrl(asset.thumbnailUrl);
+    if (!path || !window.api?.saveMediaAs) return;
+    void window.api.saveMediaAs(path).catch(() => undefined);
   };
 
   /* Suggestion chips are an idle-state affordance: they disappear
@@ -108,7 +106,10 @@ export function HomePage(): ReactNode {
                 key={key}
                 type="button"
                 className={styles.chip}
-                onClick={() => setIntentDraft(t(`home.${key}`))}
+                onClick={() => {
+                  setIntentDraft(t(`home.${key}`));
+                  setIntentJob(key === 'suggest_1' ? 'title' : 'product');
+                }}
               >
                 {t(`home.${key}`)}
               </button>
@@ -122,6 +123,8 @@ export function HomePage(): ReactNode {
         <ContinueWorking
           status={projectsStatus}
           projects={recentProjects}
+          hrefFor={(asset) => `/projects/${asset.id}`}
+          onDownload={downloadAsset}
           onRetry={loadRecentProjects}
         />
       </div>
@@ -131,6 +134,8 @@ export function HomePage(): ReactNode {
         <RecentAssets
           status={assetsStatus}
           assets={recentAssets}
+          hrefFor={() => '/assets'}
+          onDownload={downloadAsset}
           onRetry={loadRecentAssets}
         />
       </div>

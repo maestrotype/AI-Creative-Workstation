@@ -10,12 +10,14 @@ import type { GenerationResult } from '../../../core/types';
 
 export type GenerationFormat = 'square' | 'portrait' | 'wide';
 export type GenerationStyle = 'subtle' | 'cinematic' | 'bold';
+export type CreateJob = 'title' | 'frame' | 'product';
 export type GenerationErrorKind = 'sidecar_unavailable' | 'generation_failed' | 'no_model' | 'gpu_memory';
 
 export interface GenerationOptions {
   readonly prompt: string;
   readonly format: GenerationFormat;
   readonly style: GenerationStyle;
+  readonly job?: CreateJob;
   readonly modelId?: string;
   readonly imageDataUrl?: string;
   readonly imageDataUrls?: string[];
@@ -89,6 +91,7 @@ export function runGeneration(
         prompt: options.prompt,
         format: options.format,
         style: options.style,
+        job: options.job,
         model_id: options.modelId,
         image_base64: options.imageDataUrl,
         images_base64: options.imageDataUrls,

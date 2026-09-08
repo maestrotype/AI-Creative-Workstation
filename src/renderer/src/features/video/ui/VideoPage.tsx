@@ -77,7 +77,7 @@ function VideoStudioShell(): ReactNode {
   useEffect(() => {
     const path = takePendingTitleCard();
     if (!path) return;
-    d.addSources([{ kind: 'image', path, name: t('video.title_card_name'), durationSec: 5, track: 'v2' }], true);
+    d.addSources([{ kind: 'image', path, name: t('video.title_card_name'), durationSec: 5 }], true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -108,7 +108,7 @@ function VideoStudioShell(): ReactNode {
       )}
       {titleCardOnTimeline ? (
         <div className={styles.projectBanner}>
-          <span>{t('video.title_card_on_v2')}</span>
+          <span>{t(`video.still_compose_banner_${d.stillCompose}`)}</span>
         </div>
       ) : null}
       <VideoMenuBar state={dock} onState={setDock} onOpenVoiceover={openVoiceover} />

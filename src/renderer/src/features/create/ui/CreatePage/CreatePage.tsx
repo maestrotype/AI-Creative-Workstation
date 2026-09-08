@@ -24,15 +24,21 @@ export function CreatePage(): ReactNode {
   
   const step = useCreateStore((s) => s.step);
   const setPrompt = useCreateStore((s) => s.setPrompt);
+  const setJob = useCreateStore((s) => s.setJob);
   const setReferenceImages = useCreateStore((s) => s.setReferenceImages);
   const setOnResultReady = useCreateStore((s) => s.setOnResultReady);
   const addGeneratedAsset = useHomeStore((s) => s.addGeneratedAsset);
   const setIntentDraft = useHomeStore((s) => s.setIntentDraft);
+  const setIntentJob = useHomeStore((s) => s.setIntentJob);
   const setReferenceDrafts = useHomeStore((s) => s.setReferenceDrafts);
 
   useEffect(() => {
     setOnResultReady(addGeneratedAsset);
-    const { intentDraft, referenceDrafts } = useHomeStore.getState();
+    const { intentDraft, referenceDrafts, intentJob } = useHomeStore.getState();
+    if (intentJob) {
+      setJob(intentJob);
+      setIntentJob(null);
+    }
     if (intentDraft) {
       setPrompt(intentDraft);
       setIntentDraft('');
@@ -43,7 +49,7 @@ export function CreatePage(): ReactNode {
     } else if (intentDraft) {
       setReferenceImages([]);
     }
-  }, [setOnResultReady, addGeneratedAsset, setPrompt, setIntentDraft, setReferenceImages, setReferenceDrafts]);
+  }, [setOnResultReady, addGeneratedAsset, setPrompt, setJob, setIntentDraft, setIntentJob, setReferenceImages, setReferenceDrafts]);
 
   return (
     <div className={styles.page}>

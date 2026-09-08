@@ -16,6 +16,7 @@ import type { GenerationResult } from '../../../core/types';
 import {
   runGeneration,
   GenerationError,
+  type CreateJob,
   type GenerationFormat,
   type GenerationStyle,
   type GenerationProgress,
@@ -38,10 +39,12 @@ interface CreateState {
 
   /* ── Intent step ──────────────────────────────────────────────── */
   prompt: string;
+  job: CreateJob;
   format: GenerationFormat;
   style: GenerationStyle;
   referenceImages: ReferenceImage[];
   setPrompt: (prompt: string) => void;
+  setJob: (job: CreateJob) => void;
   setFormat: (format: GenerationFormat) => void;
   setStyle: (style: GenerationStyle) => void;
   setReferenceImages: (images: ReferenceImage[]) => void;
@@ -71,11 +74,12 @@ interface CreateState {
 
 const INITIAL: Pick<
   CreateState,
-  'step' | 'prompt' | 'format' | 'style' | 'referenceImages' | 'generationProgress' | 'cancel' | 'result' | 'error'
+  'step' | 'prompt' | 'job' | 'format' | 'style' | 'referenceImages' | 'generationProgress' | 'cancel' | 'result' | 'error'
 > = {
   step: 'intent',
   prompt: '',
-  format: 'square',
+  job: 'title',
+  format: 'wide',
   style: 'subtle',
   referenceImages: [],
   generationProgress: null,
@@ -92,17 +96,21 @@ export const useCreateStore = create<CreateState>()((set, get) => ({
 
   /* ── Intent actions ─────────────────────────────────────────── */
   setPrompt: (prompt) => set({ prompt }),
+  setJob: (job) => set({
+    job,
+    format: job === 'product' ? 'square' : 'wide',
+  }),
   setFormat: (format) => set({ format }),
   setStyle: (style) => set({ style }),
   setReferenceImages: (images) => set({ referenceImages: images }),
 
   /* ── Generation ─────────────────────────────────────────────── */
   startGeneration: () => {
-    const { prompt, format, style, referenceImages, onResultReady } = get();
+    const { prompt, format, style, job, referenceImages, onResultReady } = get();
     if (!prompt.trim()) return;
 
     const { promise, cancel } = runGeneration(
-      { prompt, format, style, imageDataUrls: referenceImages.map((img) => img.dataUrl) },
+      { prompt, format, style, job, imageDataUrls: referenceImages.map((img) => img.dataUrl) },
       (generationProgress) => set({ generationProgress }),
     );
 

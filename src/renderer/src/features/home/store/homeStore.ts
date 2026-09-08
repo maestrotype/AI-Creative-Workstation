@@ -42,9 +42,11 @@ interface HomeState {
 
   /* Intent bar */
   intentDraft: string;
+  intentJob: 'title' | 'frame' | 'product' | null;
   referenceDrafts: ReferenceImage[];
   isCreating: boolean;
   setIntentDraft: (draft: string) => void;
+  setIntentJob: (job: 'title' | 'frame' | 'product' | null) => void;
   setReferenceDrafts: (images: ReferenceImage[]) => void;
   submitIntent: () => void;
 }
@@ -63,8 +65,7 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
   recentProjects: [],
 
   loadRecentProjects: async () => {
-    const { projectsStatus } = get();
-    if (projectsStatus === 'loading' || projectsStatus === 'ready') return;
+    if (get().projectsStatus === 'loading') return;
 
     set({ projectsStatus: 'loading' });
     try {
@@ -82,8 +83,7 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
   recentAssets: [],
 
   loadRecentAssets: async () => {
-    const { assetsStatus } = get();
-    if (assetsStatus === 'loading' || assetsStatus === 'ready') return;
+    if (get().assetsStatus === 'loading') return;
 
     set({ assetsStatus: 'loading' });
     try {
@@ -118,8 +118,7 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
   inspirationItems: [],
 
   loadInspirationItems: async () => {
-    const { inspirationStatus } = get();
-    if (inspirationStatus === 'loading' || inspirationStatus === 'ready') return;
+    if (get().inspirationStatus === 'loading') return;
 
     set({ inspirationStatus: 'loading' });
     try {
@@ -134,10 +133,12 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
 
   /* ── Intent bar ────────────────────────────────────────────────── */
   intentDraft: '',
+  intentJob: null,
   referenceDrafts: [],
   isCreating: false,
 
   setIntentDraft: (draft) => set({ intentDraft: draft }),
+  setIntentJob: (job) => set({ intentJob: job }),
   setReferenceDrafts: (images) => set({ referenceDrafts: images }),
 
   submitIntent: () => {

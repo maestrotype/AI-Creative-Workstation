@@ -1110,6 +1110,7 @@ function setupIpc() {
     prompt: string;
     format: string;
     style: string;
+    job?: string;
     model_id?: string;
     image_base64?: string;
     images_base64?: string[];
@@ -1131,6 +1132,7 @@ function setupIpc() {
         prompt: payload.prompt,
         format: payload.format,
         style: payload.style,
+        job: payload.job || 'title',
         model_id: modelId,
         image_base64: payload.image_base64 || null,
         images_base64: payload.images_base64 || null,
@@ -1852,6 +1854,53 @@ function setupIpc() {
     if (result.canceled || !result.filePath) return null;
     copyFileSync(resolved, result.filePath);
     return result.filePath;
+  });
+
+  ipcMain.handle('save-media-as', async (_, sourcePath: string) => {
+    const resolved = resolveAllowedMediaFile(sourcePath);
+    if (!resolved) {
+      throw new Error('File is not available to save');
+    }
+    const ext = extname(resolved).replace('.', '').toLowerCase() || 'bin';
+    const image = ['png', 'jpg', 'jpeg', 'webp'].includes(ext);
+    const video = ['mp4', 'mov', 'm4v', 'webm', 'mkv'].includes(ext);
+    const result = await dialog.showSaveDialog({
+      title: image ? 'Save image' : video ? 'Save video' : 'Save file',
+      defaultPath: basename(resolved),
+      filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    copyFileSync(resolved, result.filePath);
+    return result.filePath;
+  });
+
+  ipcMain.handle('grade-video', async (_, payload: {
+    video_path: string;
+    prompt?: string;
+    overlay_path?: string | null;
+  }) => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) {
+      throw new Error(ready.error || 'Sidecar unavailable');
+    }
+    const remembered = rememberPickedMedia(payload.video_path) || payload.video_path;
+    const res = await net.fetch(`${SIDECAR_URL}/api/video/grade`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        video_path: remembered,
+        prompt: payload.prompt || '',
+        overlay_path: payload.overlay_path || null,
+      }),
+      signal: AbortSignal.timeout(10 * 60 * 1000),
+    });
+    const body = (await res.json().catch(() => ({}))) as { detail?: unknown; file_path?: string };
+    if (!res.ok) {
+      const detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail || '');
+      throw new Error(detail || 'Could not grade video');
+    }
+    if (body.file_path) rememberPickedMedia(body.file_path);
+    return { file_path: body.file_path ?? null };
   });
 
   ipcMain.handle('discard-video-draft', async (_, sourcePath: string) => {
