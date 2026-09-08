@@ -14,6 +14,7 @@ import { VideoDock, VideoMenuBar, useDockLayout } from './VideoDock';
 import { VideoPipelineShell } from './VideoPipelineShell';
 import type { DockState } from '../model/videoDockLayout';
 import { peekProjectHandoff } from '../../projects/model/handoff';
+import { useWorkspaceBridgeStore } from '../../studio/store/workspaceBridgeStore';
 import styles from './VideoPage.module.css';
 
 function maxZ(state: DockState): number {
@@ -53,6 +54,8 @@ function VideoStudioShell(): ReactNode {
   const { t } = useTranslation();
   const [dock, setDock] = useDockLayout();
   const d = useDirector();
+  const takePendingTitleCard = useWorkspaceBridgeStore((s) => s.takePendingTitleCard);
+  const titleCardOnTimeline = d.bins.some((bin) => bin.kind === 'image');
 
   const openVoiceover = () => {
     d.openVoiceover();
@@ -70,6 +73,13 @@ function VideoStudioShell(): ReactNode {
       },
     });
   };
+
+  useEffect(() => {
+    const path = takePendingTitleCard();
+    if (!path) return;
+    d.addSources([{ kind: 'image', path, name: t('video.title_card_name'), durationSec: 5, track: 'v2' }], true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!d.projectScope) return;
@@ -96,6 +106,11 @@ function VideoStudioShell(): ReactNode {
           <span>{t('video.dub_existing_lead')}</span>
         </div>
       )}
+      {titleCardOnTimeline ? (
+        <div className={styles.projectBanner}>
+          <span>{t('video.title_card_on_v2')}</span>
+        </div>
+      ) : null}
       <VideoMenuBar state={dock} onState={setDock} onOpenVoiceover={openVoiceover} />
       <div className={styles.studioBody}>
         <div className={styles.studioLayer} hidden={dock.mode !== 'pipeline'}>

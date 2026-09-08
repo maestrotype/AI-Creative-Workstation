@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { toAssetUrl } from '../../video/model/directorMedia';
 import { writeLastProjectId, writeProjectHandoff } from '../model/handoff';
-import { composeClips, formatForPreset, newScene, normalizePreset, normalizeShotMotion, projectDuration, sceneHasMedia, type FilmPreset, type ProjectDoc, type ProjectScene } from '../model/project';
+import { composeClips, formatForPreset, newScene, normalizePreset, normalizeShotMotion, projectDuration, sceneHasMedia, templateChapters, type FilmPreset, type ProjectDoc, type ProjectScene } from '../model/project';
 import styles from './ProjectsPage.module.css';
 
 function ipcMessage(err: unknown): string {
@@ -13,11 +13,11 @@ function ipcMessage(err: unknown): string {
   return raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '').trim();
 }
 
-function productStillPrompt(brief: string, scenePrompt: string): string {
+function insertStillPrompt(brief: string, scenePrompt: string): string {
   return [
-    'Photoreal e-commerce product photography, campaign hero still.',
-    'Single product filling the frame, materials and silhouette readable.',
-    'No people, no faces, no hands, no offices, no laptops, no code on screens, no lifestyle models.',
+    'Title card or motion-graphic insert for a software template demo video.',
+    'Abstract UI glow, typography, product-name card. Do not invent fake screenshots of the admin or store.',
+    'The real footage is a screencast the author recorded.',
     brief.trim(),
     scenePrompt.trim(),
   ].filter(Boolean).join('\n\n');
@@ -89,18 +89,26 @@ export function ProjectWorkspace(): ReactNode {
         setError(t('projects.missing'));
         return;
       }
-      setDoc({
+      const next = {
         ...loaded,
         preset: normalizePreset(loaded.preset),
+        brief: loaded.brief.trim() || t('projects.brief_default'),
         scenes: loaded.scenes.map((scene) => ({
           ...newScene(scene.title),
           ...scene,
-          motion: normalizeShotMotion(scene.motion) || (scene.clipPath ? 'import' : 'still_motion'),
+          motion: normalizeShotMotion(scene.motion) || (scene.clipPath ? 'import' : scene.stillPath ? 'still_motion' : 'import'),
+          prompt: scene.prompt.trim() ? scene.prompt : scene.title,
+          effectPrompt: scene.effectPrompt.trim() ? scene.effectPrompt : t('projects.effect_default'),
         })),
-      });
+      };
       writeLastProjectId(loaded.id);
+      if (!loaded.brief.trim()) {
+        void persist(next);
+      } else {
+        setDoc(next);
+      }
     }).catch((err) => setError(ipcMessage(err)));
-  }, [projectId, t]);
+  }, [projectId, t, persist]);
 
   if (!doc) {
     return (
@@ -129,6 +137,14 @@ export function ProjectWorkspace(): ReactNode {
     });
   };
 
+  const seedTemplateChapters = () => {
+    void persist({
+      ...doc,
+      brief: doc.brief.trim() || t('projects.brief_default'),
+      scenes: templateChapters(t),
+    });
+  };
+
   const removeScene = (id: string) => {
     void persist({ ...doc, scenes: doc.scenes.filter((scene) => scene.id !== id) });
   };
@@ -138,7 +154,7 @@ export function ProjectWorkspace(): ReactNode {
       throw new Error(t('projects.generate_fail'));
     }
     const result = await window.api.generateImage({
-      prompt: productStillPrompt(doc.brief, scene.prompt),
+      prompt: insertStillPrompt(doc.brief, scene.prompt),
       format: doc.format === 'shorts' ? 'portrait' : 'wide',
       style: 'cinematic',
     });
@@ -378,6 +394,11 @@ export function ProjectWorkspace(): ReactNode {
           {t('projects.shots')}
           <span className={styles.count}>{doc.scenes.length} · {formatClock(projectDuration(doc))}</span>
         </h2>
+        {doc.scenes.length === 0 ? (
+          <button type="button" className={styles.newButton} onClick={seedTemplateChapters}>
+            {t('projects.seed_chapters')}
+          </button>
+        ) : null}
         <button type="button" className={styles.ghostBtn} onClick={addScene}>
           {t('projects.add_shot')}
         </button>
@@ -458,25 +479,17 @@ export function ProjectWorkspace(): ReactNode {
                       type="button"
                       className={styles.newButton}
                       disabled={busyScene === scene.id}
-                      onClick={() => void importStill(scene)}
+                      onClick={() => void importClip(scene)}
                     >
-                      {t('projects.import_still')}
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.ghostBtn}
-                      disabled={busyScene === scene.id || !scene.stillPath}
-                      onClick={() => useStillMotion(scene)}
-                    >
-                      {t('projects.use_still_motion')}
+                      {t('projects.import_clip')}
                     </button>
                     <button
                       type="button"
                       className={styles.ghostBtn}
                       disabled={busyScene === scene.id}
-                      onClick={() => void importClip(scene)}
+                      onClick={() => void importStill(scene)}
                     >
-                      {t('projects.import_clip')}
+                      {t('projects.import_still')}
                     </button>
                     <button
                       type="button"
@@ -485,6 +498,14 @@ export function ProjectWorkspace(): ReactNode {
                       onClick={() => void generateScene(scene)}
                     >
                       {busyScene === scene.id && busyKind === 'still' ? t('projects.generating') : t('projects.generate_still')}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.ghostBtn}
+                      disabled={busyScene === scene.id || !scene.stillPath}
+                      onClick={() => useStillMotion(scene)}
+                    >
+                      {t('projects.use_still_motion')}
                     </button>
                     <button
                       type="button"

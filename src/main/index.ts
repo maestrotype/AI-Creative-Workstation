@@ -1376,6 +1376,18 @@ function setupIpc() {
     return sidecarJson('/api/script/generate', payload, 5 * 60 * 1000);
   });
 
+  ipcMain.handle('shorten-script', async (_, payload: {
+    text: string;
+    target_sec: number;
+    language?: string;
+    target_wpm?: number;
+    visual_summary?: string;
+    purpose?: string;
+  }) => {
+    await prepareOllamaForScript(broadcast);
+    return sidecarJson('/api/script/shorten', payload, 3 * 60 * 1000);
+  });
+
   ipcMain.handle('pick-audio', async () => {
     const result = await dialog.showOpenDialog({
       title: 'Choose an audio file',

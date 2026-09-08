@@ -22,6 +22,7 @@ import {
   placementStart,
   avoidOverlap,
   packAllGaps,
+  packTrack,
   snapStart,
   trackHasGap,
   maxDurationBeforeNext,
@@ -41,7 +42,11 @@ import { DEFAULT_TRACK_LAYOUT } from '../model/directorTimeline';
 import { handoffPathsOf, takeProjectHandoff, type ProjectHandoff } from '../../projects/model/handoff';
 import { loadDirectorSession, saveDirectorSession, type DirectorSession } from '../model/directorSessionStore';
 import {
+  applyTemplateVoiceoverDefaults,
+  binMediaDuration,
+  demoteShortClipsFromV1,
   emptyVoiceoverSession,
+  pickLongestVideoBin,
   resolveVoiceoverSource,
   type VoiceoverSession,
   type VoiceoverSource,
@@ -200,6 +205,7 @@ export interface SourceInput {
   path: string;
   name?: string;
   durationSec?: number;
+  track?: TrackId;
 }
 
 function sessionMatchesHandoff(session: DirectorSession | null, handoff: ProjectHandoff): boolean {
@@ -227,7 +233,7 @@ function sessionFromHandoff(handoff: ProjectHandoff): DirectorSession {
       durationSec: dur,
       inSec: 0,
       outSec: dur,
-      durationKnown: src.kind === 'image' || src.durationSec != null,
+      durationKnown: src.kind === 'image',
     });
     clips.push({
       id: newId('clip'),
@@ -241,17 +247,17 @@ function sessionFromHandoff(handoff: ProjectHandoff): DirectorSession {
     });
     t += dur;
   }
-  const firstVideo = bins.find((b) => b.kind === 'video');
+  const firstVideo = pickLongestVideoBin(bins) ?? bins.find((b) => b.kind === 'video');
   return {
     savedAt: Date.now(),
     bins,
-    clips,
+    clips: demoteShortClipsFromV1(bins, clips),
     playhead: 0,
-    selectedBin: bins[0]?.id ?? null,
+    selectedBin: firstVideo?.id ?? bins[0]?.id ?? null,
     selectedClip: null,
     captionDraft: '',
     pxPerSec: 16,
-    trackLayout: DEFAULT_TRACK_LAYOUT,
+    trackLayout: ensureTrackVisible(DEFAULT_TRACK_LAYOUT, 'v2'),
     overlayPos: {},
     projectName: handoff.projectName,
     voiceover: {
@@ -364,6 +370,15 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       ...(boot?.voiceover ?? {}),
     }),
   );
+
+  useEffect(() => {
+    setVoiceover((prev) => applyTemplateVoiceoverDefaults(prev, {
+      scriptPrompt: t('video.vo_script_prompt_placeholder'),
+      projectContext: t('video.pipe_context_placeholder'),
+    }));
+    setVoiceLine((prev) => (prev.trim() ? prev : t('video.dir_voice_ph')));
+    setVoiceFixPrompt((prev) => (prev.trim() ? prev : t('video.dir_voice_fix_ph')));
+  }, [t]);
   const sessionSnapRef = useRef({
     bins,
     clips,
@@ -447,10 +462,45 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   );
 
   useEffect(() => {
+    const path = voiceoverSource?.path;
+    if (!path) return;
+    setVoiceover((prev) => {
+      const analysisPath = prev.analysis?.source_path;
+      if (prev.sourcePath === path && (!analysisPath || analysisPath === path)) return prev;
+      const keep = analysisPath === path;
+      return {
+        ...prev,
+        sourcePath: path,
+        sourceBinId: voiceoverSource.binId,
+        analysis: keep ? prev.analysis : null,
+        script: keep ? prev.script : null,
+        status: keep ? prev.status : 'idle',
+      };
+    });
+  }, [voiceoverSource?.path, voiceoverSource?.binId]);
+
+  useEffect(() => {
+    const longest = pickLongestVideoBin(bins);
+    if (!longest || binMediaDuration(longest) < 8) return;
+    setClips((prev) => {
+      const next = demoteShortClipsFromV1(bins, prev);
+      const same = prev.length === next.length && prev.every((clip, i) => (
+        clip.id === next[i].id
+        && clip.track === next[i].track
+        && Math.abs(clip.startSec - next[i].startSec) < 0.02
+      ));
+      return same ? prev : next;
+    });
+  }, [bins]);
+
+  useEffect(() => {
     const path = voiceoverSource?.path ?? voiceover.sourcePath;
     if (!path || voiceover.analysis || !window.api?.getVideoAnalyzeCache) return;
     void window.api.getVideoAnalyzeCache(path).then((cached) => {
       if (cached.status !== 'hit' || !cached.context) return;
+      const cachedDur = Number(cached.context.duration_sec) || 0;
+      const fileDur = voiceoverSource?.durationSec ?? 0;
+      if (fileDur >= 20 && cachedDur > 0 && cachedDur < fileDur * 0.4) return;
       setVoiceover((prev) => ({
         ...prev,
         sourcePath: path,
@@ -543,42 +593,44 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   useEffect(() => {
     setClips((prev) => {
       let changed = false;
-      const next = prev.map((clip) => {
+      const synced = prev.map((clip) => {
         const bin = bins.find((b) => b.id === clip.binId);
         if (!bin) return clip;
-        const synced = syncClipDuration(clip, bin);
-        if (synced.durationSec !== clip.durationSec || synced.sourceInSec !== clip.sourceInSec) changed = true;
-        return synced;
+        const nextClip = syncClipDuration(clip, bin);
+        if (nextClip.durationSec !== clip.durationSec || nextClip.sourceInSec !== clip.sourceInSec) changed = true;
+        return nextClip;
       });
-      return changed ? next : prev;
+      const packed = packTrack(changed ? synced : prev, 'v1');
+      const packChanged = packed.some((clip, i) => Math.abs(clip.startSec - (changed ? synced : prev)[i].startSec) > 0.02);
+      if (!changed && !packChanged) return prev;
+      return packed;
     });
   }, [bins]);
 
   useEffect(() => {
     for (const bin of bins) {
-      if (bin.kind === 'image' || bin.durationKnown || bin.proxying) continue;
+      if (bin.kind === 'image' || bin.proxying) continue;
       const url = blobs[bin.path];
       if (!url) continue;
       const kind = bin.kind === 'audio' ? 'audio' : 'video';
       void probeMediaDuration(url, kind).then((durationSec) => {
+        if (!(durationSec > 0)) return;
         setBins((prev) => {
-          const nextBins = prev.map((item) => {
-            if (item.id !== bin.id || item.durationKnown) return item;
-            const keepOut = item.outSec !== item.durationSec;
-            return {
-              ...item,
-              durationSec,
-              outSec: keepOut ? Math.min(item.outSec, durationSec) : durationSec,
-              durationKnown: true,
-            };
-          });
-          const updated = nextBins.find((item) => item.id === bin.id);
-          if (updated) {
-            setClips((clipList) => clipList.map((clip) => (
-              clip.binId === bin.id ? syncClipDuration(clip, updated) : clip
-            )));
-          }
-          return nextBins;
+          const current = prev.find((item) => item.id === bin.id);
+          if (!current) return prev;
+          if (current.durationKnown && durationSec <= current.durationSec + 0.35) return prev;
+          const updated = {
+            ...current,
+            durationSec,
+            outSec: durationSec,
+            inSec: 0,
+            durationKnown: true,
+          };
+          setClips((clipList) => packTrack(
+            clipList.map((clip) => (clip.binId === bin.id ? syncClipDuration(clip, updated) : clip)),
+            'v1',
+          ));
+          return prev.map((item) => (item.id === bin.id ? updated : item));
         });
       });
     }
@@ -738,14 +790,23 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     });
     if (newBins.length === 0) return;
     setBins((prev) => [...prev, ...newBins]);
-    setSelectedBin(newBins[0].id);
+    setSelectedBin((prev) => {
+      const video = newBins.find((bin) => bin.kind === 'video');
+      if (video) return video.id;
+      return prev ?? newBins[0].id;
+    });
     if (autoPlace) {
+      if (items.some((it) => it.track && it.track.startsWith('v') && it.track !== 'v1')) {
+        setTrackLayout((layout) => ensureTrackVisible(layout, 'v2'));
+      }
       setClips((prev) => {
         let vCursor = endOfTrack(prev, 'v1');
         let aCursor = endOfTrack(prev, 'a1');
         const added: TimelineClip[] = [];
-        for (const bin of newBins) {
-          if (bin.kind === 'audio') {
+        for (let i = 0; i < newBins.length; i += 1) {
+          const bin = newBins[i];
+          const wantTrack = items[i]?.track ?? (bin.kind === 'audio' ? 'a1' : 'v1');
+          if (bin.kind === 'audio' || wantTrack.startsWith('a')) {
             added.push({
               id: newId('clip'),
               binId: bin.id,
@@ -759,17 +820,18 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
             aCursor += clipSpan(bin);
             continue;
           }
+          const start = wantTrack === 'v1' ? vCursor : 0;
           added.push({
             id: newId('clip'),
             binId: bin.id,
-            track: 'v1',
-            startSec: vCursor,
+            track: wantTrack,
+            startSec: start,
             durationSec: clipSpan(bin),
             sourceInSec: 0,
             label: bin.name,
             autoLength: true,
           });
-          vCursor += clipSpan(bin);
+          if (wantTrack === 'v1') vCursor += clipSpan(bin);
         }
         return [...prev, ...added];
       });
@@ -1214,14 +1276,18 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   };
 
   const openVoiceover = () => {
+    const longest = pickLongestVideoBin(binsRef.current);
+    setClips((prev) => demoteShortClipsFromV1(binsRef.current, prev));
+    if (longest) setSelectedBin(longest.id);
+    setTrackLayout((layout) => ensureTrackVisible(layout, 'v2'));
     setVoiceover((prev) => {
-      const path = voiceoverSource?.path ?? prev.sourcePath;
-      const samePath = path === prev.sourcePath;
+      const path = longest?.path ?? voiceoverSource?.path ?? prev.sourcePath;
+      const samePath = path === prev.sourcePath && prev.analysis?.source_path === path;
       return {
         ...prev,
         expanded: true,
         sourcePath: path,
-        sourceBinId: voiceoverSource?.binId ?? prev.sourceBinId,
+        sourceBinId: longest?.id ?? voiceoverSource?.binId ?? prev.sourceBinId,
         analysis: samePath ? prev.analysis : null,
         script: samePath ? prev.script : null,
         status: samePath ? prev.status : 'idle',
@@ -1230,7 +1296,12 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   };
 
   const analyzeVoiceover = async (force = false) => {
-    const src = voiceoverSource;
+    setClips((prev) => demoteShortClipsFromV1(binsRef.current, prev));
+    const longest = pickLongestVideoBin(binsRef.current);
+    if (longest) setSelectedBin(longest.id);
+    const src = longest
+      ? { path: longest.path, binId: longest.id, name: longest.name }
+      : voiceoverSource;
     if (!src?.path || !window.api?.analyzeVideo) {
       setVoiceoverError(t('video.vo_no_video'));
       return;
@@ -1325,8 +1396,12 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         script,
         status: 'scripted',
       }));
+      setClips((prev) => prev.filter((clip) => clip.track !== 'a1'));
     } catch (err) {
-      setScriptError(ipcMessage(err, t('video.vo_script_fail')));
+      const msg = ipcMessage(err, t('video.vo_script_fail'));
+      setScriptError(
+        /OLLAMA_SCRIPT_FAILED/i.test(msg) ? t('video.vo_script_ollama_fail') : msg,
+      );
     } finally {
       setScriptBusy(false);
     }
@@ -1404,6 +1479,10 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     }, 600);
 
     try {
+      const hostClip = clipsRef.current
+        .filter((clip) => clip.track === 'v1' && (!voiceover.sourceBinId || clip.binId === voiceover.sourceBinId))
+        .sort((a, b) => a.startSec - b.startSec)[0];
+      const timelineOffset = hostClip ? Math.max(0, hostClip.startSec - hostClip.sourceInSec) : 0;
       const parts: Array<{ file_path: string; start_sec: number; max_duration_sec?: number }> = [];
       const partScriptIndexes: number[] = [];
 
@@ -1426,7 +1505,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           partScriptIndexes.push(entry.scriptIndex);
           parts.push({
             file_path: row.file_path,
-            start_sec: entry.seg.start_sec,
+            start_sec: entry.seg.start_sec + timelineOffset,
             max_duration_sec: Math.max(0.5, entry.seg.end_sec - entry.seg.start_sec),
           });
         }
@@ -1450,55 +1529,76 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           partScriptIndexes.push(scriptIndex);
           parts.push({
             file_path: result.file_path,
-            start_sec: seg.start_sec,
+            start_sec: seg.start_sec + timelineOffset,
             max_duration_sec: Math.max(0.5, seg.end_sec - seg.start_sec),
           });
         }
       }
-      if (window.api.mixVoiceoverTrack) {
-        // One continuous A1 clip: segments padded with silence to their
-        // timecodes, track stretched to the full video duration.
-        setVoiceoverApplyProgress({
-          current: voicedSegments.length,
-          total: voicedSegments.length,
-          detail: t('video.vo_voice_mixing'),
-        });
-        const totalSec = Math.max(
-          voiceover.analysis?.duration_sec ?? 0,
-          ...voicedSegments.map(({ seg }) => seg.end_sec),
-        );
-        const mixed = await window.api.mixVoiceoverTrack({
-          parts,
-          total_sec: totalSec > 0 ? totalSec : undefined,
-          output_name: 'voiceover',
-        });
-        if (mixed.fit?.length) {
-          const fitByPart = new Map(mixed.fit.map((row) => [row.index, row]));
-          setVoiceover((prev) => {
-            if (!prev.script) return prev;
-            const nextSegments = prev.script.segments.map((seg, i) => {
-              const partIdx = partScriptIndexes.indexOf(i);
-              if (partIdx < 0) return seg;
-              const row = fitByPart.get(partIdx);
-              if (!row) return seg;
-              return {
-                ...seg,
-                speech_sec: row.output_sec,
-                speech_tempo: row.tempo,
-              };
-            });
-            return { ...prev, script: { ...prev.script, segments: nextSegments } };
+      const speechUpdates: Array<{
+        scriptIndex: number;
+        speech_sec: number;
+        text: string;
+        audio_path: string;
+      }> = [];
+
+      for (let i = 0; i < parts.length; i += 1) {
+        const part = parts[i];
+        const scriptIndex = partScriptIndexes[i];
+        const entry = voicedSegments.find((item) => item.scriptIndex === scriptIndex);
+        if (!entry) continue;
+        const windowSec = Math.max(0.8, entry.seg.end_sec - entry.seg.start_sec);
+        let filePath = part.file_path;
+        let spoken = entry.seg.text.trim();
+        let probed = await probeDuration(filePath, 'audio');
+        if (probed.dur > windowSec * 1.12 && window.api.shortenScript && window.api.synthesizeVoice) {
+          setVoiceoverApplyProgress({
+            current: i + 1,
+            total: parts.length,
+            detail: t('video.vo_voice_shorten', { n: i + 1 }),
           });
+          const shorter = await window.api.shortenScript({
+            text: spoken,
+            target_sec: Math.max(1, windowSec * 0.85),
+            language: 'ru',
+            target_wpm: script.meta.words_per_min || 130,
+            visual_summary: entry.seg.visual_summary || '',
+            purpose: entry.seg.purpose || '',
+          });
+          if (shorter.text.trim()) {
+            spoken = shorter.text.trim();
+            const redone = await window.api.synthesizeVoice({ text: spoken });
+            filePath = redone.file_path;
+            probed = await probeDuration(filePath, 'audio');
+          }
         }
-        await ingestAudioPathAt(mixed.file_path, 0, t('video.vo_voice_track_label'));
-      } else {
-        for (let i = 0; i < parts.length; i += 1) {
-          await ingestAudioPathAt(
-            parts[i].file_path,
-            parts[i].start_sec,
-            t('video.vo_voice_clip_label', { n: i + 1 }),
-          );
-        }
+        speechUpdates.push({
+          scriptIndex,
+          speech_sec: probed.dur,
+          text: spoken,
+          audio_path: filePath,
+        });
+        await ingestAudioPathAt(
+          filePath,
+          part.start_sec,
+          t('video.vo_voice_clip_label', { n: i + 1 }),
+        );
+      }
+      if (speechUpdates.length) {
+        setVoiceover((prev) => {
+          if (!prev.script) return prev;
+          const nextSegments = prev.script.segments.map((seg, idx) => {
+            const row = speechUpdates.find((item) => item.scriptIndex === idx);
+            if (!row) return seg;
+            return {
+              ...seg,
+              text: row.text,
+              speech_sec: row.speech_sec,
+              speech_tempo: 1,
+              audio_path: row.audio_path,
+            };
+          });
+          return { ...prev, script: { ...prev.script, segments: nextSegments } };
+        });
       }
       setVoiceover((prev) => ({ ...prev, status: 'voiced' }));
       setVoiceoverApplyProgress({

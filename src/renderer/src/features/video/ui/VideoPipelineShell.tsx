@@ -6,7 +6,8 @@ import { useDirector } from './DirectorBoard';
 import { DirectorPreview } from './DirectorPreview';
 import { DirectorResultPane, DirectorTimelinePane } from './DirectorPanes';
 import { VoiceSampleSetup } from './VoiceSampleSetup';
-import { formatTimecode } from '../model/videoAnalysis';
+import { formatTimecode, narrationHealth } from '../model/videoAnalysis';
+import { toAssetUrl } from '../model/directorMedia';
 import vp from './VideoPage.module.css';
 import s from './VideoPipelineShell.module.css';
 
@@ -92,6 +93,15 @@ export function VideoPipelineShell({ active = true }: { active?: boolean }): Rea
     prevSource.current = has;
     if (!had && has) setStage((cur) => (cur === 'material' ? 'analyze' : cur));
   }, [d.voiceoverSource]);
+
+  const analyzeStartedFor = useRef<string | null>(null);
+  useEffect(() => {
+    const path = d.voiceoverSource?.path;
+    if (!path || d.voiceover.analysis || d.voiceoverBusy) return;
+    if (analyzeStartedFor.current === path) return;
+    analyzeStartedFor.current = path;
+    d.analyzeVoiceover();
+  }, [d.voiceoverSource?.path, d.voiceover.analysis, d.voiceoverBusy, d.analyzeVoiceover]);
 
   const doneFlags: Record<PipelineStage, boolean> = {
     material: Boolean(d.voiceoverSource),
@@ -181,11 +191,19 @@ function SourceRow(): ReactNode {
   const d = useDirector();
   const source = d.voiceoverSource;
   if (!source) return null;
+  const analysisSec = d.voiceover.analysis?.duration_sec ?? 0;
+  const sourceSec = source.durationSec || analysisSec;
   return (
     <div className={vp.voSource}>
       <span className={vp.voSourceLabel}>{d.t('video.vo_source')}</span>
       <strong>{source.name}</strong>
+      {sourceSec > 0 ? (
+        <span className={vp.voSourceFrom}>{formatTimecode(sourceSec)}</span>
+      ) : null}
       <span className={vp.voSourceFrom}>{d.t(`video.vo_source_${source.from}`)}</span>
+      {analysisSec > 0 && sourceSec > 15 && analysisSec < sourceSec * 0.4 ? (
+        <span className={vp.voSourceFrom}>{d.t('video.vo_source_stale_analysis')}</span>
+      ) : null}
     </div>
   );
 }
@@ -233,6 +251,8 @@ function StageAnalyze(): ReactNode {
 
   return (
     <div className={s.stageBody}>
+      <p className={vp.hintTight}>{d.t('video.pipe_analyze_howto')}</p>
+      <p className={vp.hintTight}>{d.t('video.pipe_v1_screencast_hint')}</p>
       <SourceRow />
       <div className={vp.toolRow}>
         {ctx ? (
@@ -274,33 +294,55 @@ function StageAnalyze(): ReactNode {
           {ctx.warnings?.includes('WHISPER_NOT_INSTALLED') ? (
             <p className={vp.hintTight}>{d.t('video.vo_whisper_missing')}</p>
           ) : null}
-          <details className={vp.voDetails}>
-            <summary>{d.t('video.vo_scenes')}</summary>
+          <details className={vp.voDetails} open>
+            <summary>{d.t('video.pipe_scene_analysis')}</summary>
             <ul className={vp.scenes}>
-              {ctx.scenes.map((scene) => (
-                <li key={scene.index}>
-                  {formatTimecode(scene.start)} – {formatTimecode(scene.end)}
+              {(ctx.scene_analysis?.length ? ctx.scene_analysis : ctx.scenes.map((scene) => ({
+                ...scene,
+                visual_summary: ctx.visual_notes?.find((item) => (
+                  item.time >= scene.start - 0.2 && item.time < scene.end + 0.05
+                ))?.caption || '',
+                narration_recommended: true,
+                user_doing: '',
+                frame_path: ctx.visual_notes?.find((item) => (
+                  item.time >= scene.start - 0.2 && item.time < scene.end + 0.05
+                ))?.frame_path,
+              }))).map((beat, i) => (
+                <li key={`${beat.start}-${i}`} className={vp.scene}>
+                  {beat.frame_path ? (
+                    <img className={vp.thumb} src={toAssetUrl(beat.frame_path)} alt="" />
+                  ) : (
+                    <div className={vp.thumbEmpty} />
+                  )}
+                  <div className={vp.sceneBody}>
+                    <strong>
+                      {formatTimecode(beat.start)} – {formatTimecode(beat.end)}
+                      {beat.narration_recommended === false ? ` · ${d.t('video.pipe_beat_pause')}` : ` · ${d.t('video.pipe_beat_speak')}`}
+                    </strong>
+                    <span>{beat.visual_summary || beat.user_doing || '—'}</span>
+                  </div>
                 </li>
               ))}
             </ul>
           </details>
           {ctx.visual_notes?.length ? (
-            <details className={vp.voDetails}>
+            <details className={vp.voDetails} open>
               <summary>{d.t('video.pipe_visual_notes')}</summary>
               <ul className={vp.transcriptList}>
                 {ctx.visual_notes.map((note, i) => (
                   <li key={`${note.time}-${i}`}>
                     <span className={vp.ts}>{formatTimecode(note.time)}</span>
-                    {note.caption}
+                    {note.caption || '—'}
                   </li>
                 ))}
               </ul>
             </details>
-          ) : ctx.warnings?.includes('VISION_MODEL_MISSING') ? (
-            <p className={vp.hintTight}>{d.t('video.pipe_vision_missing')}</p>
           ) : (
             <p className={vp.hintTight}>{d.t('video.pipe_visual_empty')}</p>
           )}
+          {ctx.warnings?.includes('VISION_MODEL_MISSING') ? (
+            <p className={vp.hintTight}>{d.t('video.pipe_vision_missing')}</p>
+          ) : null}
           {ctx.transcript.segments.length > 0 ? (
             <details className={vp.voDetails}>
               <summary>{d.t('video.vo_show_transcript')}</summary>
@@ -325,7 +367,7 @@ function StageBrief(): ReactNode {
   const busy = d.scriptBusy;
   const hasScript = Boolean(d.voiceover.script?.segments.length);
   const [ollamaReady, setOllamaReady] = useState<boolean | null>(null);
-  const [ctxOpen, setCtxOpen] = useState(() => Boolean(d.voiceover.projectContext.trim()));
+  const [ctxOpen, setCtxOpen] = useState(true);
 
   useEffect(() => {
     void window.api?.getOllamaEngineStatus?.().then((status) => {
@@ -398,7 +440,7 @@ function SegmentFixPanel({ index, text }: { index: number; text: string }): Reac
   const d = useDirector();
   const [preview, setPreview] = useState<string | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState(() => d.t('video.dir_voice_fix_ph'));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -470,6 +512,48 @@ function SegmentFixPanel({ index, text }: { index: number; text: string }): Reac
   );
 }
 
+function HealthStrip(): ReactNode {
+  const d = useDirector();
+  const analysis = d.voiceover.analysis;
+  const script = d.voiceover.script;
+  if (!analysis) return null;
+  const issues = narrationHealth(
+    analysis.duration_sec,
+    analysis.scene_analysis,
+    script?.segments ?? [],
+  );
+  const problems = issues.filter((item) => item.kind !== 'ok_pause');
+  const pauses = issues.filter((item) => item.kind === 'ok_pause');
+  if (!script?.segments.length) {
+    return <p className={vp.hintTight}>{d.t('video.health_need_script')}</p>;
+  }
+  if (problems.length === 0) {
+    return (
+      <p className={vp.voAnalyzeReady}>
+        {d.t('video.health_ok')}
+        {pauses.length ? ` · ${d.t('video.health_pauses', { count: pauses.length })}` : ''}
+      </p>
+    );
+  }
+  return (
+    <ul className={vp.transcriptList}>
+      {problems.map((issue, i) => (
+        <li key={`${issue.kind}-${issue.start}-${i}`}>
+          {issue.kind === 'overrun'
+            ? d.t('video.health_overrun', {
+              start: formatTimecode(issue.start),
+              sec: issue.seconds,
+            })
+            : d.t('video.health_gap', {
+              start: formatTimecode(issue.start),
+              end: formatTimecode(issue.end),
+            })}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function StageScript({ active }: { active: boolean }): ReactNode {
   const d = useDirector();
   const script = d.voiceover.script;
@@ -512,6 +596,7 @@ function StageScript({ active }: { active: boolean }): ReactNode {
           </p>
         ) : null}
         <p className={vp.hintTight}>{d.t('video.pipe_script_seek_hint')}</p>
+        <HealthStrip />
         <div className={`${vp.voScriptTableWrap} ${s.tableScroll}`}>
           <table className={vp.voScriptTable}>
             <thead>
@@ -522,6 +607,11 @@ function StageScript({ active }: { active: boolean }): ReactNode {
             </thead>
             <tbody>
               {script.segments.map((seg, index) => {
+                const note = analysis?.scene_analysis?.find((item) => (
+                  Math.min(seg.end_sec, item.end) - Math.max(seg.start_sec, item.start) > 0.25
+                )) ?? analysis?.visual_notes?.find((item) => (
+                  item.time >= seg.start_sec - 0.2 && item.time < seg.end_sec + 0.05
+                ));
                 const live = d.playhead >= seg.start_sec && d.playhead < seg.end_sec;
                 const words = seg.text.split(/\s+/).filter(Boolean).length;
                 const windowSec = Math.max(0, seg.end_sec - seg.start_sec);
@@ -534,6 +624,13 @@ function StageScript({ active }: { active: boolean }): ReactNode {
                   <Fragment key={`${seg.start_sec}-${index}`}>
                     <tr data-live={live} className={s.scriptRow}>
                       <td className={vp.voScriptTime}>
+                        {note?.frame_path ? (
+                          <img
+                            className={s.sceneThumb}
+                            src={toAssetUrl(note.frame_path)}
+                            alt=""
+                          />
+                        ) : null}
                         <button
                           type="button"
                           className={s.timeBtn}
@@ -577,11 +674,19 @@ function StageScript({ active }: { active: boolean }): ReactNode {
                       <td>
                         <textarea
                           className={vp.voScriptText}
-                          rows={2}
+                          rows={4}
                           value={seg.text}
                           onChange={(e) => d.updateScriptSegment(index, { text: e.target.value })}
                           disabled={busy}
                         />
+                        {seg.purpose ? (
+                          <p className={s.onScreen}>{seg.purpose}</p>
+                        ) : null}
+                        {(seg.visual_summary || note && ('visual_summary' in note ? note.visual_summary : note.caption)) ? (
+                          <p className={s.onScreen}>
+                            {d.t('video.pipe_on_screen')}: {seg.visual_summary || ('visual_summary' in note! ? note.visual_summary : note?.caption)}
+                          </p>
+                        ) : null}
                       </td>
                     </tr>
                     {fixIndex === index ? (
@@ -715,6 +820,7 @@ function StageExport({ active }: { active: boolean }): ReactNode {
       <div className={s.exportPreview}>
         <DirectorResultPane previewActive={active} />
       </div>
+      <HealthStrip />
       <details className={s.timelineDetails}>
         <summary>{d.t('video.pipe_timeline_toggle')}</summary>
         <div className={s.timelineBox}>

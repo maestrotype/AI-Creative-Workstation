@@ -44,7 +44,7 @@ export function FromIdeaPanel({
   embedded?: boolean;
 }): ReactNode {
   const { t } = useTranslation();
-  const [topic, setTopic] = useState('');
+  const [topic, setTopic] = useState(() => t('video.topic_placeholder'));
   const [format, setFormat] = useState<YoutubeFormat>('landscape');
   const [durationSec, setDurationSec] = useState(60);
   const [plan, setPlan] = useState<YoutubePlan | null>(null);

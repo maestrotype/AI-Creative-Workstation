@@ -50,6 +50,14 @@ export function IntentStep(): ReactNode {
     return window.api?.onModelsUpdated(() => { void refreshModels(); }) ?? (() => {});
   }, []);
 
+  useEffect(() => {
+    if (!useCreateStore.getState().prompt.trim()) {
+      setPrompt(t('create.intent_placeholder'));
+    }
+    // Seed once so testers are not blocked by an empty field.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleModelChange = async (modelId: string) => {
     setActiveModelId(modelId);
     await window.api?.setActiveModel(modelId);

@@ -814,13 +814,14 @@ def _fit_speech_duration(
     dest: str,
     target_sec: float,
     *,
-    min_tempo: float = 0.92,
-    max_tempo: float = 1.20,
+    min_tempo: float = 0.94,
+    max_tempo: float = 1.08,
 ) -> Dict[str, Any]:
-    """Speed up speech slightly so it fits a scene window (atempo > 1 shortens)."""
+    """Mild squeeze only when speech slightly overruns the visual window."""
     source_sec = audio_duration_sec(src)
     window_sec = max(0.1, float(target_sec))
-    if source_sec <= window_sec + 0.08:
+    ratio = source_sec / window_sec if window_sec else 1.0
+    if ratio <= 1.05:
         shutil.copy2(src, dest)
         return {
             "source_sec": round(source_sec, 3),
@@ -828,9 +829,20 @@ def _fit_speech_duration(
             "window_sec": round(window_sec, 3),
             "tempo": 1.0,
             "fitted": False,
+            "needs_shorten": False,
+        }
+    if ratio > 1.12:
+        shutil.copy2(src, dest)
+        return {
+            "source_sec": round(source_sec, 3),
+            "output_sec": round(source_sec, 3),
+            "window_sec": round(window_sec, 3),
+            "tempo": 1.0,
+            "fitted": False,
+            "needs_shorten": True,
         }
 
-    tempo = min(max_tempo, max(min_tempo, source_sec / window_sec))
+    tempo = min(max_tempo, max(min_tempo, ratio))
     cmd = [
         _ffmpeg_bin(), "-y", "-i", src,
         "-filter:a", f"atempo={tempo:.4f}",

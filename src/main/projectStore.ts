@@ -96,10 +96,10 @@ export function emptyScene(title = ''): ProjectScene {
     prompt: '',
     effectPrompt: '',
     textOverlay: '',
-    durationSec: 5,
+    durationSec: 12,
     stillPath: null,
     clipPath: null,
-    motion: 'still_motion',
+    motion: 'import',
   };
 }
 
@@ -112,7 +112,7 @@ function parseDoc(raw: string): ProjectDoc | null {
     const scenes = (Array.isArray(parsed.scenes) ? parsed.scenes : []).map((scene) => ({
       ...emptyScene(scene.title),
       ...scene,
-      motion: normalizeMotion(scene.motion) || (scene.clipPath ? 'import' : 'still_motion'),
+          motion: normalizeMotion(scene.motion) || (scene.clipPath ? 'import' : scene.stillPath ? 'still_motion' : 'import'),
     }));
     return {
       ...emptyProject(parsed.name, format, preset),

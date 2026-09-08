@@ -58,6 +58,11 @@ _runtime_job: dict = {
     "cancel": False,
 }
 
+# Drop the image pipeline shortly after the last job so FLUX does not sit
+# in unified memory while the user moves to script / TTS / 3D.
+IDLE_RELEASE_SEC = 50.0
+_idle_release_task: asyncio.Task | None = None
+
 # MPS is not safe for concurrent inference on one pipeline.
 _generation_lock = asyncio.Lock()
 
@@ -161,6 +166,36 @@ def _memory_snapshot() -> dict:
     }
 
 
+def _owned_loaded_keys() -> list[str]:
+    """What this process currently owns — not OS RSS."""
+    keys = list(pipeline_cache.keys())
+    try:
+        from api.threed import TRIPOSR_CACHE_KEY, _model_cache
+
+        if TRIPOSR_CACHE_KEY in _model_cache:
+            keys.append(TRIPOSR_CACHE_KEY)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from api.hunyuan3d import HUNYUAN_CACHE_KEY
+        from api.hunyuan3d import hunyuan_loaded
+
+        if hunyuan_loaded() and HUNYUAN_CACHE_KEY not in keys:
+            keys.append(HUNYUAN_CACHE_KEY)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from ollama_rt import loaded_models
+
+        for name in loaded_models():
+            tag = f"ollama:{name}"
+            if tag not in keys:
+                keys.append(tag)
+    except Exception:  # noqa: BLE001
+        pass
+    return keys
+
+
 def runtime_status_payload() -> dict:
     started = float(_runtime_job.get("started_at") or 0)
     elapsed = max(0.0, time.time() - started) if started else 0.0
@@ -175,7 +210,7 @@ def runtime_status_payload() -> dict:
             "elapsed_sec": round(elapsed, 1),
             "error": _runtime_job.get("error"),
         },
-        "loaded": list(pipeline_cache.keys()),
+        "loaded": _owned_loaded_keys(),
         "memory": _memory_snapshot(),
         "busy": _generation_lock.locked(),
     }
@@ -188,6 +223,90 @@ async def run_on_gpu(fn, *args):
     _ensure_gpu_thread()
     _gpu_queue.put((fn, args, future, loop))
     return await future
+
+
+def run_on_gpu_blocking(fn, *args, timeout: float = 180.0):
+    """GPU call from a sync FastAPI route. Metal stays on the worker thread."""
+    box: dict = {}
+    done = threading.Event()
+
+    def wrapped():
+        try:
+            box["r"] = fn(*args)
+        except Exception as e:  # noqa: BLE001
+            box["e"] = e
+        finally:
+            done.set()
+        return box.get("r")
+
+    class _Loop:
+        def call_soon_threadsafe(self, cb, *a):
+            try:
+                cb(*a)
+            except Exception:  # noqa: BLE001
+                pass
+
+    dummy = type("F", (), {
+        "set_result": lambda self, r: None,
+        "set_exception": lambda self, e: None,
+    })()
+    _ensure_gpu_thread()
+    _gpu_queue.put((wrapped, (), dummy, _Loop()))
+    if not done.wait(timeout):
+        raise TimeoutError("GPU worker timed out")
+    if "e" in box:
+        raise box["e"]
+    return box.get("r")
+
+
+def cancel_idle_release() -> None:
+    global _idle_release_task
+    task = _idle_release_task
+    _idle_release_task = None
+    if task and not task.done():
+        task.cancel()
+
+
+async def _idle_release_after() -> None:
+    try:
+        await asyncio.sleep(IDLE_RELEASE_SEC)
+        if _runtime_job.get("active"):
+            return
+        if not pipeline_cache:
+            set_runtime_job(active=False, stage="released", percent=100, detail="idle")
+            return
+        set_runtime_job(active=False, kind="image", stage="releasing", percent=0, detail="idle_release")
+        async with _generation_lock:
+            if _runtime_job.get("active"):
+                return
+            count = await run_on_gpu(_unload_all_image_pipelines)
+        set_runtime_job(
+            active=False,
+            kind="image",
+            stage="released",
+            percent=100,
+            detail=f"unloaded {count}",
+        )
+        print(f"[idle-release] dropped {count} image pipeline(s)", flush=True)
+    except asyncio.CancelledError:
+        raise
+
+
+def schedule_idle_release() -> None:
+    global _idle_release_task
+    cancel_idle_release()
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    _idle_release_task = loop.create_task(_idle_release_after())
+
+
+def release_heavy_for_other_work() -> int:
+    """Drop image + 3D so Ollama / TTS can use unified memory. GPU thread or blocking."""
+    count = _unload_all_image_pipelines()
+    _release_3d_models()
+    return count
 
 
 def _pick_dtype(model_id: str):
@@ -424,7 +543,7 @@ def _pick_strength(request: GenerationRequest, n_refs: int) -> float:
 
 
 _STYLE_HINTS = {
-    "cinematic": "cinematic",
+    "cinematic": "cinematic lighting",
     "bold": "vivid, sharp",
     "subtle": "",
 }
@@ -434,8 +553,21 @@ _DRAW_VERB = re.compile(
     r"draw|generate|create)\s+",
 )
 
-# CLIP is English-only. Russian-only prompts are ignored and English style tags win.
+_UI_RX = re.compile(
+    r"(?i)титр|title\s*card|\bui\b|шаблон|template|ecommerce|интернет-?магазин|"
+    r"админк|dashboard|конструктор|page builder|витрин|storefront|каталог|"
+    r"angular|react|next\.?js|website|веб-?сайт|интерфейс|web app|saas",
+)
+
+# CLIP is English-only. Russian-only prompts are ignored unless we translate intent.
 _GLOSSARY = (
+    (re.compile(r"(?i)титр|title\s*card"), "cinematic title card"),
+    (re.compile(r"(?i)шаблон|template"), "software website template"),
+    (re.compile(r"(?i)админк"), "admin dashboard UI"),
+    (re.compile(r"(?i)конструктор|page builder"), "page builder UI"),
+    (re.compile(r"(?i)ecommerce|интернет-?магазин"), "ecommerce website"),
+    (re.compile(r"(?i)тёмн\w*\s*ui|темн\w*\s*ui|dark\s*ui"), "dark user interface"),
+    (re.compile(r"(?i)3d[- ]?товар"), "3D product viewer on a webpage"),
     (re.compile(r"(?i)пекар[ьяюе]?"), "a baker in a bakery, bread, flour, white apron, oven"),
     (re.compile(r"(?i)повар[а-я]*"), "a chef cooking in a kitchen"),
     (re.compile(r"(?i)боксер[а-я]*|boxer"), "a boxer in a boxing ring"),
@@ -456,18 +588,71 @@ def _glossary_en(text: str) -> str:
     return ", ".join(hits)
 
 
+def _latin_product_names(text: str) -> str:
+    names = re.findall(
+        r"\b[A-Z][A-Za-z0-9.+#]*(?:[ \-][A-Z0-9][A-Za-z0-9.+#]*)*",
+        text or "",
+    )
+    skip = {"UI", "UX", "API", "3D", "SKU", "GLB", "OBJ", "TTS"}
+    cleaned = [name.strip(" —–-") for name in names if name.strip() and name.strip() not in skip]
+    return ", ".join(dict.fromkeys(cleaned))
+
+
+def _english_clip_prompt(text: str) -> str:
+    """Short English CLIP subject. CLIP is ~77 tokens and ignores Russian."""
+    parts: list[str] = []
+    names = _latin_product_names(text)
+    if names:
+        parts.append(names)
+    if re.search(r"(?i)титр|title\s*card", text):
+        parts.append("cinematic title card")
+    if _UI_RX.search(text):
+        parts.extend([
+            "dark ecommerce website user interface",
+            "admin dashboard and 3D product viewer",
+            "photorealistic software UI screenshot",
+        ])
+    if re.search(r"(?i)тёмн|темн|dark", text):
+        parts.append("dark charcoal theme")
+    if not _UI_RX.search(text):
+        gloss = _glossary_en(text)
+        if gloss:
+            parts.append(gloss)
+    seen: set[str] = set()
+    out: list[str] = []
+    for part in parts:
+        if part and part not in seen:
+            seen.add(part)
+            out.append(part)
+    return ", ".join(out)
+
+
+def _t5_constraints(text: str) -> str:
+    if not _UI_RX.search(text):
+        return ""
+    return (
+        "Dark-themed software UI title card of a real website template. "
+        "Not a physical shop interior, not pastel, not cute isometric, not a toy store."
+    )
+
+
 def _flux_prompt_pair(prompt: str, n_refs: int, style: str) -> tuple[str, str]:
     """CLIP prompt (English) + T5 prompt (user language + English subject)."""
     text = _normalize_prompt(prompt)
+    steer = _english_clip_prompt(text)
     gloss = _glossary_en(text)
     style_hint = _STYLE_HINTS.get(style, "")
     has_cyrillic = bool(re.search(r"[а-яА-ЯёЁ]", text))
+    constraints = _t5_constraints(text)
     if has_cyrillic:
-        clip = gloss or "photorealistic photograph of the described subject"
-        t5 = text if not gloss else f"{text}, {gloss}"
-    else:
-        clip = text or "photorealistic photograph"
+        clip = steer or gloss or "photorealistic photograph of the described subject"
         t5 = text
+        extra = " ".join(p for p in (steer, constraints) if p)
+        if extra:
+            t5 = f"{text}. {extra}"
+    else:
+        clip = steer or text or "photorealistic photograph"
+        t5 = f"{text}. {constraints}".strip(" .") if constraints else text
     if n_refs >= 2:
         clip = f"{clip}, two people in one scene, full bodies"
         t5 = f"{t5}. One coherent scene, not a collage."
@@ -713,6 +898,11 @@ def _run_inference(pipe, request: GenerationRequest, job_id: str) -> str:
 
     filepath = os.path.join(output_dir, f"{job_id}.png")
     image.save(filepath)
+    try:
+        image.close()
+    except Exception:  # noqa: BLE001
+        pass
+    del image
     set_runtime_job(active=False, stage="idle", percent=100, detail="done")
     print(f"[{job_id}] DONE! Image saved to {filepath}", flush=True)
     return filepath
@@ -733,7 +923,11 @@ async def generate_image(request: GenerationRequest):
         ) from None
 
     async with _generation_lock:
+        cancel_idle_release()
         try:
+            # One heavy MPS model at a time: release any resident 3D mesh model
+            # before loading the image pipeline (symmetric with the 3D route).
+            await run_on_gpu(_release_3d_models)
             # Load + infer on the GPU thread so FastAPI's loop stays free.
             _, pipe = await run_on_gpu(_get_pipeline, request.model_id)
             file_path = await run_on_gpu(_run_inference, pipe, request, job_id)
@@ -749,6 +943,7 @@ async def generate_image(request: GenerationRequest):
                     print(f"[{job_id}] auto-unload after MPS error failed: {unload_err}", flush=True)
             raise HTTPException(status_code=500, detail=str(e))
 
+    schedule_idle_release()
     return {"job_id": job_id, "status": "completed", "file_path": file_path}
 
 
@@ -803,10 +998,18 @@ def _mps_collect() -> None:
 
 def _unload_model(cache_key: str) -> bool:
     """Drop a pipeline from RAM and free MPS buffers. GPU worker thread only."""
-    pipe = pipeline_cache.pop(cache_key, None)
+    key = (cache_key or "").strip()
+    if key.startswith("ollama:"):
+        from ollama_rt import unload_model as unload_ollama
+
+        return unload_ollama(key.split(":", 1)[1])
+    if "triposr" in key.lower() or "hunyuan" in key.lower():
+        _release_3d_models()
+        return True
+    pipe = pipeline_cache.pop(key, None)
     if pipe is None:
         _mps_collect()
-        print(f"[unload] {cache_key} not-cached cache_size={len(pipeline_cache)}", flush=True)
+        print(f"[unload] {key} not-cached cache_size={len(pipeline_cache)}", flush=True)
         return False
     try:
         _release_pipeline(pipe)
@@ -814,17 +1017,54 @@ def _unload_model(cache_key: str) -> bool:
         print(f"[unload] release failed: {e}", flush=True)
     del pipe
     _mps_collect()
-    print(f"[unload] {cache_key} dropped cache_size={len(pipeline_cache)}", flush=True)
+    print(f"[unload] {key} dropped cache_size={len(pipeline_cache)}", flush=True)
     return True
 
 
-def _unload_all_models() -> int:
-    """Drop every cached pipeline. GPU worker thread only."""
+def _unload_all_image_pipelines() -> int:
+    """Drop every cached image pipeline. GPU worker thread only."""
     keys = list(pipeline_cache.keys())
     count = 0
     for key in keys:
         if _unload_model(key):
             count += 1
+    return count
+
+
+def _release_3d_models() -> None:
+    """One heavy MPS model at a time: drop any resident 3D mesh model.
+    GPU thread only."""
+    try:
+        from api.threed import _unload_triposr
+
+        _unload_triposr()
+    except Exception as e:  # noqa: BLE001
+        print(f"[unload] triposr release failed: {e}", flush=True)
+    try:
+        from api import hunyuan3d as hunyuan3d_api
+
+        hunyuan3d_api.unload_hunyuan()
+    except Exception as e:  # noqa: BLE001
+        print(f"[unload] hunyuan release failed: {e}", flush=True)
+
+
+def _unload_ollama_all() -> int:
+    try:
+        from ollama_rt import loaded_models, unload_model as unload_ollama
+    except Exception:  # noqa: BLE001
+        return 0
+    count = 0
+    for name in loaded_models():
+        if unload_ollama(name):
+            count += 1
+    return count
+
+
+def _unload_all_models() -> int:
+    """Drop image + 3D + Ollama. GPU worker thread only for MPS parts."""
+    count = _unload_all_image_pipelines()
+    _release_3d_models()
+    count += _unload_ollama_all()
     return count
 
 
@@ -848,15 +1088,17 @@ async def runtime_cancel():
 async def unload_all_models():
     if _runtime_job.get("active"):
         raise HTTPException(status_code=409, detail="BUSY")
+    cancel_idle_release()
     async with _generation_lock:
         count = await run_on_gpu(_unload_all_models)
-    return {"unloaded": count, "loaded": list(pipeline_cache.keys())}
+    set_runtime_job(active=False, stage="released", percent=100, detail=f"unloaded {count}")
+    return {"unloaded": count, "loaded": _owned_loaded_keys()}
 
 
 @router.get("/models/loaded")
 async def list_loaded_models():
-    """Pipelines currently held in sidecar RAM."""
-    return {"loaded": list(pipeline_cache.keys())}
+    """Resources currently owned by the sidecar."""
+    return {"loaded": _owned_loaded_keys()}
 
 
 @router.post("/models/unload")
@@ -867,15 +1109,17 @@ async def unload_model_body(request: UnloadRequest):
         key = _to_cache_key(request.model_id)
     if not key:
         raise HTTPException(status_code=400, detail="cache_key or model_id required")
+    cancel_idle_release()
     async with _generation_lock:
         unloaded = await run_on_gpu(_unload_model, key)
-    return {"unloaded": unloaded, "cache_size": len(pipeline_cache), "loaded": list(pipeline_cache.keys())}
+    return {"unloaded": unloaded, "cache_size": len(pipeline_cache), "loaded": _owned_loaded_keys()}
 
 
 @router.post("/models/{cache_key}/unload")
 @router.delete("/models/{cache_key}")
 async def unload_model(cache_key: str):
     """Unload from RAM without deleting files. DELETE kept for older IPC."""
+    cancel_idle_release()
     async with _generation_lock:
         unloaded = await run_on_gpu(_unload_model, cache_key)
-    return {"unloaded": unloaded, "cache_size": len(pipeline_cache), "loaded": list(pipeline_cache.keys())}
+    return {"unloaded": unloaded, "cache_size": len(pipeline_cache), "loaded": _owned_loaded_keys()}

@@ -1411,6 +1411,7 @@
   color: var(--color-text-secondary);
   font-variant-numeric: tabular-nums;
   min-width: 6.5rem;
+  vertical-align: top;
 }
 
 .voScriptRole {

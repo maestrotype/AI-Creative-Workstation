@@ -23,7 +23,7 @@ export function ThreeDPage(): ReactNode {
   const setLastImagePath = useWorkspaceBridgeStore((s) => s.setLastImagePath);
 
   const [mode, setMode] = useState<MeshMode>('photo');
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState(() => t('threed.prompt_placeholder'));
   const [referencePath, setReferencePath] = useState<string | null>(lastImagePath);
   const [photoPaths, setPhotoPaths] = useState<string[]>([]);
   const [outputFormat, setOutputFormat] = useState<'glb' | 'obj'>('glb');

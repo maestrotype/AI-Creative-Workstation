@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { toAssetUrl } from '../../video/model/directorMedia';
-import type { ProjectSummary } from '../model/project';
+import { templateChapters, type ProjectSummary } from '../model/project';
 import { clearLastProjectId, readLastProjectId, writeLastProjectId } from '../model/handoff';
 import styles from './ProjectsPage.module.css';
 
@@ -54,6 +54,12 @@ export function ProjectsPage(): ReactNode {
         name: t('projects.untitled'),
         preset: 'marketplace',
       });
+      const seeded = {
+        ...doc,
+        brief: t('projects.brief_default'),
+        scenes: templateChapters(t),
+      };
+      await window.api.saveProject(seeded);
       writeLastProjectId(doc.id);
       navigate(`/projects/${doc.id}`);
     } catch (err) {

@@ -364,3 +364,20 @@
     grid-template-columns: 1fr;
   }
 }
+
+.sceneThumb {
+  display: block;
+  width: 88px;
+  height: 50px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-1);
+  background: var(--color-bg-elevated);
+}
+
+.onScreen {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-micro);
+  line-height: 1.35;
+}

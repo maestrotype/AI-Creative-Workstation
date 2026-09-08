@@ -15,9 +15,7 @@ export function FromRecordingPanel({
   const { t } = useTranslation();
 
   const [screencastPath, setScreencastPath] = useState<string | null>(null);
-  const [cleanPrompt, setCleanPrompt] = useState(
-    'Remove browser chrome, playback controls, and the stop-recording UI at the end',
-  );
+  const [cleanPrompt, setCleanPrompt] = useState(() => t('video.clean_prompt_placeholder'));
   const [cleanBusy, setCleanBusy] = useState(false);
   const [cleanError, setCleanError] = useState<string | null>(null);
   const [cleanNotes, setCleanNotes] = useState<string[]>([]);

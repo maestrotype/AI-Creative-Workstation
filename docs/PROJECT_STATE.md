@@ -8,13 +8,13 @@
 | Branch | Role |
 |--------|------|
 | `feat/projects-workspace` | Last shipped work: filesystem projects, H3/Runway video gen paths, engine monitor |
-| `feat/film-phase-1` | **Current:** Film UX — marketplace preset, shot UI, still-motion default, Studio advanced grouping |
+| `feat/film-phase-1` | **Current:** Film UX for **template demos** (you record the theme; app chapters, stitches, voices) |
 
 ## Product (now)
 
 AI Creative Workstation is an Electron + React desktop app with a Python FastAPI sidecar.
 
-**Immediate product:** local-first **commercial product video** (marketplace / ecommerce), not a general AI OS.
+**Immediate product:** local-first workstation for **videos of a store template** (design, catalog, admin, builder, payments). You record the real UI; the app cuts, titles, stitches, and voices. Not a general AI OS. Not a photoshoot of a SKU.
 
 **Priority:** quality → zero cost → product identity → ease of use → speed.
 
@@ -46,7 +46,7 @@ Users currently choose between:
 - **Projects** = generate product clips  
 - **Video** = narrate an existing file  
 
-Those are one production. Phase 1 makes **Film** the single path.
+Those are one production. The film is a **template walkthrough**: recordings in chapters, then the existing analyze → script → TTS path.
 
 Voiceover analyze → script → TTS must be **preserved** and attached to Film, not deleted.
 
@@ -56,7 +56,7 @@ Full architecture: [FILM_ARCHITECTURE.md](architecture/FILM_ARCHITECTURE.md).
 
 | Phase | Goal |
 |-------|------|
-| **1** | **Shipped:** UX + domain: Film labels, marketplace preset, shot UI, still-motion default, Studio by capability |
+| **1** | **Corrected:** Film labels, template chapters, recording-first default, Studio advanced grouping |
 | **2** | Persistence: Film JSON, analysis on disk, stop relying on localStorage for the film |
 | **3** | Analysis → script quality; regenerate one narration segment |
 | **4** | Disk job queue + unload after heavy jobs |
@@ -64,7 +64,7 @@ Full architecture: [FILM_ARCHITECTURE.md](architecture/FILM_ARCHITECTURE.md).
 
 ## Known issues
 
-- H3 cannot run on M4 GPU; default Generate Video must not assume H3.
+- Default Generate Video must not assume H3; default Film shot is **your screencast**.
 - Runway is paid optional fallback, not the architecture.
 - Two sources of truth: `project.json` vs `acw-director-session-*` localStorage.
 - SQLite `projects` / `assets` tables exist and are unused.

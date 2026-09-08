@@ -68,7 +68,7 @@ class _Heartbeat:
         self._stop.set()
 
 # Reuse the dedicated GPU worker from image generation (one Metal context).
-from api.generation import _generation_lock, run_on_gpu  # noqa: E402
+from api.generation import cancel_idle_release, _generation_lock, run_on_gpu  # noqa: E402
 
 
 def _vendor_root() -> str:
@@ -510,6 +510,7 @@ async def generate_mesh(request: MeshRequest):
 
     _progress["started_at"] = time.time()
     _set_progress("queued", 3)
+    cancel_idle_release()
     async with _generation_lock:
         try:
             if not os.path.isfile(request.image_path):
@@ -535,6 +536,9 @@ async def generate_mesh(request: MeshRequest):
                     mc_resolution,
                     photo_size,
                 )
+            await run_on_gpu(_unload_triposr)
+            await run_on_gpu(hunyuan3d_api.unload_hunyuan)
+            _set_progress("done", 100, os.path.basename(file_path))
         except FileNotFoundError as exc:
             _set_progress("error", 0, str(exc)[:200])
             raise HTTPException(status_code=404, detail=str(exc)) from exc

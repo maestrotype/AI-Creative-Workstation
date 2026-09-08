@@ -351,9 +351,25 @@ interface Window {
       prefer_ollama?: boolean;
       ollama_model?: string;
     }) => Promise<{
-      segments: Array<{ start_sec: number; end_sec: number; text: string; role: string }>;
+      segments: Array<{
+        start_sec: number;
+        end_sec: number;
+        text: string;
+        role: string;
+        purpose?: string;
+        visual_summary?: string;
+        estimated_sec?: number;
+      }>;
       meta: { tone: string; language: string; words_per_min: number; provider: string; model?: string | null };
     }>;
+    shortenScript: (payload: {
+      text: string;
+      target_sec: number;
+      language?: string;
+      target_wpm?: number;
+      visual_summary?: string;
+      purpose?: string;
+    }) => Promise<{ text: string }>;
     get3dStatus: () => Promise<{
       ready: boolean;
       detail?: string | null;

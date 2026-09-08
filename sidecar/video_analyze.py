@@ -11,9 +11,10 @@ from typing import Any, Callable, Dict, List, Optional
 from media_probe import video_duration_sec
 from scene_detect import detect_scenes
 from transcribe import transcribe_video, whisper_available
-from visual_caption import caption_scenes
+from scene_understand import analyze_visual_scenes
 
 ANALYSIS_DIR = os.path.expanduser("~/Documents/Canvas/Generated/Video/analysis")
+CACHE_VERSION = 5
 
 _analyze_lock = threading.Lock()
 _analyze_job: Dict[str, Any] = {
@@ -48,7 +49,9 @@ def get_analyze_progress() -> Dict[str, Any]:
 def _cache_path(video_path: str) -> str:
     os.makedirs(ANALYSIS_DIR, exist_ok=True)
     stat = os.stat(video_path)
-    digest = hashlib.sha1(f"{video_path}:{stat.st_mtime_ns}:{stat.st_size}".encode()).hexdigest()[:16]
+    digest = hashlib.sha1(
+        f"{video_path}:{stat.st_mtime_ns}:{stat.st_size}:v{CACHE_VERSION}".encode()
+    ).hexdigest()[:16]
     base = os.path.splitext(os.path.basename(video_path))[0]
     safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in base)[:40] or "video"
     return os.path.join(ANALYSIS_DIR, f"{safe}-{digest}.json")
@@ -59,7 +62,11 @@ def load_cached_analysis(video_path: str) -> Optional[Dict[str, Any]]:
     try:
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
-        if isinstance(data, dict) and data.get("source_path") == video_path:
+        if (
+            isinstance(data, dict)
+            and data.get("source_path") == video_path
+            and int(data.get("cache_version") or 0) == CACHE_VERSION
+        ):
             return data
     except (OSError, json.JSONDecodeError, TypeError):
         pass
@@ -110,6 +117,14 @@ def analyze_video(
             error=None,
         )
 
+    try:
+        from api.generation import cancel_idle_release, release_heavy_for_other_work, run_on_gpu_blocking
+
+        cancel_idle_release()
+        run_on_gpu_blocking(release_heavy_for_other_work)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[analyze] heavy-model release skipped: {exc}", flush=True)
+
     warnings: List[str] = []
 
     try:
@@ -129,6 +144,7 @@ def analyze_video(
                 scenes = [{"index": 0, "start": 0.0, "end": round(duration_sec, 3)}]
 
         visual_notes: List[Dict[str, Any]] = []
+        scene_analysis: List[Dict[str, Any]] = []
         if visual_captions and scenes:
             try:
                 frames_dir = os.path.join(
@@ -137,10 +153,11 @@ def analyze_video(
                     os.path.splitext(os.path.basename(_cache_path(resolved)))[0],
                 )
                 caption_lang = language if language not in ("", "auto") else "ru"
-                visual_notes, visual_warnings = caption_scenes(
+                scene_analysis, visual_notes, visual_warnings = analyze_visual_scenes(
                     resolved,
                     scenes,
                     frames_dir,
+                    duration_sec=duration_sec,
                     language=caption_lang,
                     on_progress=_progress_cb,
                 )
@@ -171,10 +188,12 @@ def analyze_video(
                 "full_text": transcript.get("full_text") or "",
             },
             "scenes": scenes,
+            "scene_analysis": scene_analysis,
             "visual_notes": visual_notes,
             "warnings": warnings,
             "whisper_available": whisper_available(),
             "from_cache": False,
+            "cache_version": CACHE_VERSION,
         }
 
         save_cached_analysis(payload)

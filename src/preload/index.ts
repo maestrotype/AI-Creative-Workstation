@@ -153,6 +153,14 @@ const api = {
     prefer_ollama?: boolean;
     ollama_model?: string;
   }) => ipcRenderer.invoke('generate-script', payload),
+  shortenScript: (payload: {
+    text: string;
+    target_sec: number;
+    language?: string;
+    target_wpm?: number;
+    visual_summary?: string;
+    purpose?: string;
+  }) => ipcRenderer.invoke('shorten-script', payload),
   get3dStatus: () => ipcRenderer.invoke('get-3d-status'),
   get3dProgress: () => ipcRenderer.invoke('get-3d-progress'),
   generateMesh: (payload: {
