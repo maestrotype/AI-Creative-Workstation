@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, ipcMain, protocol, net, dialog, desktopCapturer, session } from 'electron';
-import { basename, extname, join, resolve, sep } from 'path';
+import { basename, dirname, extname, join, resolve, sep } from 'path';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 // import icon from '../../resources/icon.png?asset'
 
@@ -1268,6 +1268,22 @@ function setupIpc() {
       }
     }
     return rows.sort((a, b) => b.mtime - a.mtime).slice(0, 24);
+  });
+
+  ipcMain.handle('delete-generated-still', async (_, sourcePath: string) => {
+    const resolved = resolveAllowedMediaFile(sourcePath);
+    if (!resolved) {
+      throw new Error('File is not available to delete');
+    }
+    const generated = resolve(join(homedir(), 'Documents/Canvas/Generated'));
+    if (resolve(dirname(resolved)) !== generated) {
+      throw new Error('Only generated stills can be deleted');
+    }
+    if (!/\.(png|jpe?g|webp)$/i.test(resolved)) {
+      throw new Error('Only image stills can be deleted');
+    }
+    unlinkSync(resolved);
+    return true;
   });
 
   ipcMain.handle('pick-video', async () => {

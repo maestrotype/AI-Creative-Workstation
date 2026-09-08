@@ -3,8 +3,9 @@ import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useCreateStore } from '../../store/createStore';
+import { useHomeStore } from '../../../home/store/homeStore';
 import { filePathFromAssetUrl, useWorkspaceBridgeStore } from '../../../studio/store/workspaceBridgeStore';
-import { DownloadIcon, ImageIcon, RefreshIcon } from '../../../../shared/ui/icons';
+import { DownloadIcon, ImageIcon, RefreshIcon, TrashIcon } from '../../../../shared/ui/icons';
 import styles from './ResultStep.module.css';
 import { cx } from '../../../../shared/lib/cx';
 
@@ -15,11 +16,14 @@ export function ResultStep(): ReactNode {
   const prompt = useCreateStore((s) => s.prompt);
   const referenceImages = useCreateStore((s) => s.referenceImages);
   const tryVariation = useCreateStore((s) => s.tryVariation);
+  const startOver = useCreateStore((s) => s.startOver);
+  const removeAssetByUrl = useHomeStore((s) => s.removeAssetByUrl);
   const setLastImagePath = useWorkspaceBridgeStore((s) => s.setLastImagePath);
   const setPendingTitleCard = useWorkspaceBridgeStore((s) => s.setPendingTitleCard);
   const navigate = useNavigate();
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [gradeBusy, setGradeBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const videoRef = referenceImages.find((ref) => ref.kind === 'video' && ref.sourcePath);
 
@@ -68,6 +72,24 @@ export function ResultStep(): ReactNode {
       setDownloadError(err instanceof Error ? err.message : String(err));
     } finally {
       setGradeBusy(false);
+    }
+  };
+
+  const discardResult = async () => {
+    const path = filePathFromAssetUrl(result.thumbnailUrl);
+    setDeleteBusy(true);
+    setDownloadError(null);
+    try {
+      if (path && window.api?.deleteGeneratedStill) {
+        await window.api.deleteGeneratedStill(path);
+      }
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      removeAssetByUrl(result.thumbnailUrl);
+      if (path) setLastImagePath(null);
+      setDeleteBusy(false);
+      startOver();
     }
   };
 
@@ -147,6 +169,21 @@ export function ResultStep(): ReactNode {
             </Link>
           </>
         )}
+      </div>
+
+      <div className={styles.actions}>
+        <button type="button" className={styles.actionButton} onClick={startOver}>
+          {t('create.btn_start_over')}
+        </button>
+        <button
+          type="button"
+          className={cx(styles.actionButton, styles.dangerAction)}
+          disabled={deleteBusy}
+          onClick={() => { void discardResult(); }}
+        >
+          <TrashIcon size={18} />
+          {t('create.btn_delete_result')}
+        </button>
       </div>
     </div>
   );

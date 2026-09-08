@@ -150,6 +150,7 @@ interface Window {
     } | null>;
     saveVideoHistory: (payload: unknown) => Promise<boolean>;
     listGeneratedStills: () => Promise<{ path: string; mtime: number }[]>;
+    deleteGeneratedStill: (sourcePath: string) => Promise<boolean>;
     pickVideo: () => Promise<string | null>;
     probeMediaDuration: (filePath: string) => Promise<number>;
     rememberDroppedMedia: (filePath: string) => Promise<string | null>;

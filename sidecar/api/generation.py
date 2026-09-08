@@ -41,6 +41,8 @@ class GenerationRequest(BaseModel):
     image_base64: Optional[str] = None
     images_base64: Optional[List[str]] = None
     strength: float = 0.72
+    # Filled server-side: CLIP is English-only, so RU prompts are translated first.
+    english_prompt: Optional[str] = None
 
 
 # Reuse loaded weights across requests.
@@ -604,17 +606,21 @@ def _latin_product_names(text: str) -> str:
     return ", ".join(dict.fromkeys(cleaned))
 
 
-def _english_clip_prompt(text: str, job: str = "title") -> str:
+def _english_clip_prompt(text: str, job: str = "title", english: str | None = None) -> str:
     """Short English CLIP subject. CLIP is ~77 tokens and ignores Russian."""
     job = _norm_job(job)
     parts: list[str] = []
+    subject = (english or "").strip()
+    if subject:
+        parts.append(subject)
     names = _latin_product_names(text)
     if names:
         parts.append(names)
     if job == "product":
-        gloss = _glossary_en(text)
-        if gloss:
-            parts.append(gloss)
+        if not subject:
+            gloss = _glossary_en(text)
+            if gloss:
+                parts.append(gloss)
         parts.extend([
             "studio catalog product photograph",
             "product on a clean background",
@@ -626,9 +632,10 @@ def _english_clip_prompt(text: str, job: str = "title") -> str:
             parts.append("photorealistic software user interface")
         elif re.search(r"(?i)тёмн|темн|dark", text):
             parts.append("dark cinematic lighting")
-        gloss = _glossary_en(text)
-        if gloss:
-            parts.append(gloss)
+        if not subject:
+            gloss = _glossary_en(text)
+            if gloss:
+                parts.append(gloss)
         return _dedupe_parts(parts)
     if re.search(r"(?i)титр|title\s*card", text):
         parts.append("cinematic title card")
@@ -640,7 +647,7 @@ def _english_clip_prompt(text: str, job: str = "title") -> str:
         ])
     if re.search(r"(?i)тёмн|темн|dark", text):
         parts.append("dark charcoal theme")
-    if not _UI_RX.search(text):
+    if not subject and not _UI_RX.search(text):
         gloss = _glossary_en(text)
         if gloss:
             parts.append(gloss)
@@ -674,19 +681,33 @@ def _t5_constraints(text: str, job: str = "title") -> str:
     )
 
 
-def _flux_prompt_pair(prompt: str, n_refs: int, style: str, job: str = "title") -> tuple[str, str]:
+def _resolved_english(prompt: str, english: str | None) -> str:
+    if english and english.strip():
+        return english.strip()
+    from prompt_en import to_english
+    return to_english(prompt, allow_ollama=False).english
+
+
+def _flux_prompt_pair(
+    prompt: str,
+    n_refs: int,
+    style: str,
+    job: str = "title",
+    english: str | None = None,
+) -> tuple[str, str]:
     """CLIP prompt (English) + T5 prompt (user language + English subject)."""
     job = _norm_job(job)
     text = _normalize_prompt(prompt)
-    steer = _english_clip_prompt(text, job)
+    en = _resolved_english(text, english)
+    steer = _english_clip_prompt(text, job, english=en)
     gloss = _glossary_en(text)
     style_hint = _STYLE_HINTS.get(style, "")
     has_cyrillic = bool(re.search(r"[а-яА-ЯёЁ]", text))
     constraints = _t5_constraints(text, job)
     if has_cyrillic:
-        clip = steer or gloss or "photorealistic photograph of the described subject"
+        clip = steer or en or gloss or "photorealistic photograph of the described subject"
         t5 = text
-        extra = " ".join(p for p in (steer, constraints) if p)
+        extra = " ".join(p for p in (en, steer, constraints) if p)
         if extra:
             t5 = f"{text}. {extra}"
     else:
@@ -706,9 +727,15 @@ def _flux_prompt_pair(prompt: str, n_refs: int, style: str, job: str = "title") 
     return clip.strip(" ,"), t5.strip(" ,")
 
 
-def _enrich_prompt(prompt: str, n_refs: int, style: str, job: str = "title") -> str:
+def _enrich_prompt(
+    prompt: str,
+    n_refs: int,
+    style: str,
+    job: str = "title",
+    english: str | None = None,
+) -> str:
     """Non-FLUX path: keep the user subject first, do not bury it in style tags."""
-    clip, t5 = _flux_prompt_pair(prompt, n_refs, style, job)
+    clip, t5 = _flux_prompt_pair(prompt, n_refs, style, job, english=english)
     if clip == t5:
         return clip
     return f"{t5}. {clip}"
@@ -870,8 +897,11 @@ def _run_inference(pipe, request: GenerationRequest, job_id: str) -> str:
     if len(payloads) >= 2:
         init_image = None
         strength = 1.0
-    prompt = _enrich_prompt(request.prompt, len(payloads), request.style, request.job)
-    clip_prompt, t5_prompt = _flux_prompt_pair(request.prompt, len(payloads), request.style, request.job)
+    english = (request.english_prompt or "").strip() or None
+    prompt = _enrich_prompt(request.prompt, len(payloads), request.style, request.job, english=english)
+    clip_prompt, t5_prompt = _flux_prompt_pair(
+        request.prompt, len(payloads), request.style, request.job, english=english,
+    )
     cache_key = _to_cache_key(request.model_id)
     if _is_flux(request.model_id):
         _pin_flux_t5(pipe)
@@ -890,7 +920,7 @@ def _run_inference(pipe, request: GenerationRequest, job_id: str) -> str:
     print(
         f"[{job_id}] Generating on MPS ({width}x{height}) model={request.model_id} "
         f"steps={steps} guidance={guidance} refs={len(payloads)} strength={strength} "
-        f"prompt={prompt!r}",
+        f"clip={clip_prompt!r} t5={t5_prompt!r}",
         flush=True,
     )
     generator = torch.Generator(device="cpu").manual_seed(int(time.time()))
@@ -957,6 +987,29 @@ def _run_inference(pipe, request: GenerationRequest, job_id: str) -> str:
 async def generate_image(request: GenerationRequest):
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     print(f"[{job_id}] Starting generation for: {request.prompt}", flush=True)
+
+    # Translate before FLUX loads. CLIP ignores Russian; Ollama must not sit next to FLUX.
+    from prompt_en import to_english
+    set_runtime_job(
+        active=True,
+        kind="image",
+        stage="translate",
+        percent=3,
+        detail="RU→EN",
+        model_id=request.model_id,
+        started_at=time.time(),
+        error=None,
+        cancel=False,
+    )
+    prepared = await asyncio.to_thread(to_english, request.prompt, True)
+    request.english_prompt = prepared.english
+    print(
+        f"[{job_id}] prompt_en source={prepared.source} leftover={prepared.leftover_cyrillic} "
+        f"{prepared.english!r}",
+        flush=True,
+    )
+    from ollama_rt import unload_model as unload_ollama
+    await asyncio.to_thread(unload_ollama, prepared.model or "qwen2.5:7b")
 
     try:
         _ensure_ml()

@@ -117,6 +117,8 @@
     "btn_grading_video": "Grading video…",
     "btn_retry": "Try again",
     "btn_back": "Back",
+    "btn_start_over": "Start over",
+    "btn_delete_result": "Delete this",
     "error": {
       "title": "Generation failed",
       "sidecar_unavailable": "The local AI engine is not responding. Restart the app and wait until the sidebar says Engine online.",

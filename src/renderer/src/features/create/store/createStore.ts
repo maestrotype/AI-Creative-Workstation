@@ -65,6 +65,8 @@ interface CreateState {
   onResultReady: ((result: GenerationResult) => void) | null;
   setOnResultReady: (cb: (result: GenerationResult) => void) => void;
   tryVariation: () => void;
+  /** Back to intent with the same prompt / refs so the user can edit or drop the reference. */
+  startOver: () => void;
 
   /* ── Navigation ──────────────────────────────────────────────── */
   reset: () => void;
@@ -149,6 +151,17 @@ export const useCreateStore = create<CreateState>()((set, get) => ({
   tryVariation: () => {
     // Keep the prompt/format/style, just rerun generation
     get().startGeneration();
+  },
+
+  startOver: () => {
+    get().cancel?.();
+    set({
+      step: 'intent',
+      generationProgress: null,
+      cancel: null,
+      result: null,
+      error: null,
+    });
   },
 
   /* ── Navigation ─────────────────────────────────────────────── */

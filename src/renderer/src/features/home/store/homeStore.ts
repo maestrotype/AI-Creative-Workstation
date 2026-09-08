@@ -34,6 +34,7 @@ interface HomeState {
   recentAssets: readonly Asset[];
   loadRecentAssets: () => Promise<void>;
   addGeneratedAsset: (result: GenerationResult) => void;
+  removeAssetByUrl: (thumbnailUrl: string | null | undefined) => void;
 
   /* Inspiration */
   inspirationStatus: LoadingStatus;
@@ -111,6 +112,13 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
         recentAssets: [newAsset, ...state.recentAssets].slice(0, 6),
       };
     });
+  },
+
+  removeAssetByUrl: (thumbnailUrl) => {
+    if (!thumbnailUrl) return;
+    set((state) => ({
+      recentAssets: state.recentAssets.filter((asset) => asset.thumbnailUrl !== thumbnailUrl),
+    }));
   },
 
   /* ── Inspiration ───────────────────────────────────────────────── */

@@ -23,7 +23,7 @@ Older files (`SYSTEM_ARCHITECTURE.md`, `ROADMAP.md`, `PRODUCT_VISION.md`) descri
 
 | Capability | Status | What actually runs |
 |------------|--------|--------------------|
-| IMAGE_GENERATION | IMPLEMENTED | Diffusers + Torch MPS/CUDA/CPU: SDXL, FLUX |
+| IMAGE_GENERATION | IMPLEMENTED | Diffusers + Torch MPS: SDXL, FLUX. CLIP is English-only: `sidecar/prompt_en.py` translates RU (glossary, then Ollama qwen2.5:7b) **before** FLUX loads, then unloads the LLM |
 | IMAGE_TO_VIDEO (ads) | PARTIAL | H3 FL2VA (NVIDIA/SGLang) or Runway; **not** a Mac default |
 | TEXT_TO_VIDEO | PARTIAL | Wan code exists; disabled for product ads (noise/crash on Mac) |
 | STILL_MOTION | IMPLEMENTED | ffmpeg Ken Burns on stills at stitch |
@@ -39,7 +39,7 @@ Older files (`SYSTEM_ARCHITECTURE.md`, `ROADMAP.md`, `PRODUCT_VISION.md`) descri
 
 | Nav | Status | Role today |
 |-----|--------|------------|
-| Home / Create | PARTIAL | Stills with job (title / frame / product); reference = variation; download photo/video |
+| Home / Create | PARTIAL | Stills with job (title / frame / product); RU→EN for CLIP; reference = variation; download; **delete / start over** on the result step |
 | 3D | IMPLEMENTED | Independent experiment |
 | Video | IMPLEMENTED | Voiceover + timeline; separate from Projects |
 | Projects | IMPLEMENTED | Scenes + generate/import + stitch |

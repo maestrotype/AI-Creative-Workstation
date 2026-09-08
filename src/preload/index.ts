@@ -74,6 +74,7 @@ const api = {
   loadVideoHistory: () => ipcRenderer.invoke('load-video-history'),
   saveVideoHistory: (payload: unknown) => ipcRenderer.invoke('save-video-history', payload),
   listGeneratedStills: () => ipcRenderer.invoke('list-generated-stills') as Promise<{ path: string; mtime: number }[]>,
+  deleteGeneratedStill: (sourcePath: string) => ipcRenderer.invoke('delete-generated-still', sourcePath) as Promise<boolean>,
   pickVideo: () => ipcRenderer.invoke('pick-video'),
   probeMediaDuration: (filePath: string) => ipcRenderer.invoke('probe-media-duration', filePath) as Promise<number>,
   rememberDroppedMedia: (filePath: string) =>
