@@ -1176,8 +1176,16 @@ function setupIpc() {
 
   ipcMain.handle('list-projects', async () => listProjects());
 
-  ipcMain.handle('create-project', async (_, payload: { name?: string; format?: ProjectFormat } = {}) => {
-    return createProject(payload.name || 'Новый проект', payload.format === 'shorts' ? 'shorts' : 'landscape');
+  ipcMain.handle('create-project', async (_, payload: {
+    name?: string;
+    format?: ProjectFormat;
+    preset?: 'marketplace' | 'hero' | 'youtube' | 'shorts';
+  } = {}) => {
+    const preset = payload.preset === 'hero' || payload.preset === 'youtube' || payload.preset === 'shorts'
+      ? payload.preset
+      : 'marketplace';
+    const format = preset === 'shorts' || payload.format === 'shorts' ? 'shorts' : 'landscape';
+    return createProject(payload.name || 'Новый фильм', format, preset);
   });
 
   ipcMain.handle('load-project', async (_, id: string) => loadProject(id));
@@ -1366,6 +1374,18 @@ function setupIpc() {
   }) => {
     await prepareOllamaForScript(broadcast);
     return sidecarJson('/api/script/generate', payload, 5 * 60 * 1000);
+  });
+
+  ipcMain.handle('shorten-script', async (_, payload: {
+    text: string;
+    target_sec: number;
+    language?: string;
+    target_wpm?: number;
+    visual_summary?: string;
+    purpose?: string;
+  }) => {
+    await prepareOllamaForScript(broadcast);
+    return sidecarJson('/api/script/shorten', payload, 3 * 60 * 1000);
   });
 
   ipcMain.handle('pick-audio', async () => {

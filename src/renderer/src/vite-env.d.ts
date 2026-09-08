@@ -68,11 +68,16 @@ interface Window {
       coverPath: string | null;
       assembledPath: string | null;
     }>>;
-    createProject: (payload?: { name?: string; format?: 'landscape' | 'shorts' }) => Promise<{
+    createProject: (payload?: {
+      name?: string;
+      format?: 'landscape' | 'shorts';
+      preset?: 'marketplace' | 'hero' | 'youtube' | 'shorts';
+    }) => Promise<{
       id: string;
       name: string;
       kind: string;
       format: 'landscape' | 'shorts';
+      preset: 'marketplace' | 'hero' | 'youtube' | 'shorts';
       brief: string;
       scenes: Array<{
         id: string;
@@ -83,6 +88,7 @@ interface Window {
         durationSec: number;
         stillPath: string | null;
         clipPath: string | null;
+        motion: 'still_motion' | 'import' | 'i2v';
       }>;
       assembledPath: string | null;
       createdAt: number;
@@ -93,6 +99,7 @@ interface Window {
       name: string;
       kind: string;
       format: 'landscape' | 'shorts';
+      preset: 'marketplace' | 'hero' | 'youtube' | 'shorts';
       brief: string;
       scenes: Array<{
         id: string;
@@ -103,6 +110,7 @@ interface Window {
         durationSec: number;
         stillPath: string | null;
         clipPath: string | null;
+        motion: 'still_motion' | 'import' | 'i2v';
       }>;
       assembledPath: string | null;
       createdAt: number;
@@ -343,9 +351,25 @@ interface Window {
       prefer_ollama?: boolean;
       ollama_model?: string;
     }) => Promise<{
-      segments: Array<{ start_sec: number; end_sec: number; text: string; role: string }>;
+      segments: Array<{
+        start_sec: number;
+        end_sec: number;
+        text: string;
+        role: string;
+        purpose?: string;
+        visual_summary?: string;
+        estimated_sec?: number;
+      }>;
       meta: { tone: string; language: string; words_per_min: number; provider: string; model?: string | null };
     }>;
+    shortenScript: (payload: {
+      text: string;
+      target_sec: number;
+      language?: string;
+      target_wpm?: number;
+      visual_summary?: string;
+      purpose?: string;
+    }) => Promise<{ text: string }>;
     get3dStatus: () => Promise<{
       ready: boolean;
       detail?: string | null;

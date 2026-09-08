@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useCreateStore } from '../../store/createStore';
 import { filePathFromAssetUrl, useWorkspaceBridgeStore } from '../../../studio/store/workspaceBridgeStore';
@@ -13,6 +13,8 @@ export function ResultStep(): ReactNode {
   const result = useCreateStore((s) => s.result);
   const tryVariation = useCreateStore((s) => s.tryVariation);
   const setLastImagePath = useWorkspaceBridgeStore((s) => s.setLastImagePath);
+  const setPendingTitleCard = useWorkspaceBridgeStore((s) => s.setPendingTitleCard);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const path = filePathFromAssetUrl(result?.thumbnailUrl);
@@ -60,9 +62,20 @@ export function ResultStep(): ReactNode {
         <Link to="/threed" className={styles.actionButton}>
           {t('create.btn_send_3d')}
         </Link>
-        <Link to="/video" className={styles.actionButton}>
+        <button
+          type="button"
+          className={styles.actionButton}
+          onClick={() => {
+            const path = filePathFromAssetUrl(result.thumbnailUrl);
+            if (path) {
+              setLastImagePath(path);
+              setPendingTitleCard(path);
+            }
+            navigate('/video');
+          }}
+        >
           {t('create.btn_send_video')}
-        </Link>
+        </button>
 
         <button type="button" className={styles.actionButton}>
           <UserIcon size={18} />

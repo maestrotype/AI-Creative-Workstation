@@ -23,6 +23,29 @@
   line-height: 1.45;
 }
 
+.filmSteps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+}
+
+.filmSteps li {
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+}
+
+.filmSteps li[data-on='true'] {
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+  background: var(--color-bg-card);
+}
+
 .title {
   margin: 0;
   color: var(--color-text-primary);
@@ -30,6 +53,18 @@
   font-size: var(--text-heading-lg);
   font-weight: var(--weight-light);
   letter-spacing: var(--tracking-tight);
+}
+
+.headerActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.headerActions .ghostBtn {
+  text-decoration: none;
+  padding: var(--space-2) var(--space-4);
 }
 
 .newButton {

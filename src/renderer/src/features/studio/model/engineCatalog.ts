@@ -10,6 +10,8 @@ export interface CatalogEngine {
   downloadable: boolean;
   /** Cloud API — key in Settings, no local weights. */
   cloud?: boolean;
+  /** Primary Studio grouping. */
+  tier?: 'recommended' | 'optional' | 'advanced';
   noteKey: string;
 }
 
@@ -23,6 +25,7 @@ export const CATALOG_ENGINES: CatalogEngine[] = [
     gated: false,
     size: '~7 GB',
     downloadable: true,
+    tier: 'recommended',
     noteKey: 'studio.note_sdxl_turbo',
   },
   {
@@ -32,6 +35,7 @@ export const CATALOG_ENGINES: CatalogEngine[] = [
     gated: false,
     size: '~14 GB',
     downloadable: true,
+    tier: 'recommended',
     noteKey: 'studio.note_sdxl_base',
   },
   {
@@ -41,6 +45,7 @@ export const CATALOG_ENGINES: CatalogEngine[] = [
     gated: true,
     size: '~32 GB',
     downloadable: true,
+    tier: 'recommended',
     noteKey: 'studio.note_flux_schnell',
   },
   {
@@ -50,6 +55,7 @@ export const CATALOG_ENGINES: CatalogEngine[] = [
     gated: true,
     size: '~32 GB',
     downloadable: true,
+    tier: 'optional',
     noteKey: 'studio.note_flux_dev',
   },
   {
@@ -60,6 +66,7 @@ export const CATALOG_ENGINES: CatalogEngine[] = [
     size: 'Cloud API',
     downloadable: false,
     cloud: true,
+    tier: 'optional',
     noteKey: 'studio.note_runway',
   },
   {
@@ -69,6 +76,7 @@ export const CATALOG_ENGINES: CatalogEngine[] = [
     gated: true,
     size: '~9 GB',
     downloadable: true,
+    tier: 'advanced',
     noteKey: 'studio.note_svd',
   },
   {
@@ -78,6 +86,7 @@ export const CATALOG_ENGINES: CatalogEngine[] = [
     gated: false,
     size: '~8 GB+',
     downloadable: false,
+    tier: 'advanced',
     noteKey: 'studio.note_ltx',
   },
   {
@@ -87,6 +96,7 @@ export const CATALOG_ENGINES: CatalogEngine[] = [
     gated: false,
     size: '~6 GB',
     downloadable: true,
+    tier: 'advanced',
     noteKey: 'studio.note_wan',
   },
   {
@@ -96,6 +106,7 @@ export const CATALOG_ENGINES: CatalogEngine[] = [
     gated: false,
     size: '~80 GB+',
     downloadable: true,
+    tier: 'optional',
     noteKey: 'studio.note_minimax_h3',
   },
   {

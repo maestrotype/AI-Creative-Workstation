@@ -1,6 +1,8 @@
 # MVP, V1, V2, ROADMAP
 ## AI Creative Workstation — Development Roadmap
 
+> **Accuracy:** Checkboxes below mix shipped work with vision. For what the **code** does, use [PROJECT_STATE.md](../PROJECT_STATE.md) and [IMPLEMENTED_VS_PLANNED.md](../architecture/IMPLEMENTED_VS_PLANNED.md). Film work is [FILM_ARCHITECTURE.md](../architecture/FILM_ARCHITECTURE.md). MLX, fal.ai, Character Graph, and SQLite JobQueue are **not** implemented.
+
 ---
 
 ## Challenging the MVP Assumption

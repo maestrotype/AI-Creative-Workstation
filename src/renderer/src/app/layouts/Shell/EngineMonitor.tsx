@@ -17,8 +17,11 @@ function jobLabel(status: RuntimeStatus, t: (k: string, o?: Record<string, strin
   if (job.active) {
     if (job.kind === 'video') return t('monitor.job_video');
     if (job.kind === 'image') return t('monitor.job_image');
+    if (job.kind === 'script') return t('monitor.job_script');
     return t('monitor.job_busy');
   }
+  if (job.stage === 'releasing') return t('monitor.releasing');
+  if (job.stage === 'released' && status.loaded.length === 0) return t('monitor.released');
   if (status.loaded.length) return t('monitor.loaded_n', { count: status.loaded.length });
   return t('monitor.idle');
 }
@@ -48,6 +51,7 @@ export function EngineMonitor(): ReactNode {
 
   const used = Math.max(0, status.ram_total - status.ram_free);
   const usedPct = status.ram_total > 0 ? Math.round((used / status.ram_total) * 100) : 0;
+  const working = status.job.active || status.job.stage === 'releasing';
   const chipPct = status.job.active ? status.job.percent : usedPct;
 
   const unloadOne = async (key: string) => {
@@ -89,11 +93,11 @@ export function EngineMonitor(): ReactNode {
       <button
         type="button"
         className={styles.chip}
-        data-active={status.job.active ? 'true' : 'false'}
+        data-active={working ? 'true' : 'false'}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <span className={styles.dot} data-on={status.job.active ? 'true' : 'false'} />
+        <span className={styles.dot} data-on={working ? 'true' : 'false'} />
         <span className={styles.chipText}>
           {jobLabel(status, t as (k: string, o?: Record<string, string | number>) => string)}
           {status.job.active ? ` · ${chipPct}%` : ` · ${usedPct}%`}

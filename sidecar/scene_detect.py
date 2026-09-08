@@ -16,7 +16,7 @@ def _ffmpeg_bin() -> str:
     return path
 
 
-def detect_scene_cuts(video_path: str, threshold: float = 0.3) -> List[float]:
+def detect_scene_cuts(video_path: str, threshold: float = 0.22) -> List[float]:
     """Return cut timestamps in seconds (excluding 0 and end)."""
     cmd = [
         _ffmpeg_bin(),
@@ -79,13 +79,55 @@ def cuts_to_scenes(
 
     if not scenes:
         scenes.append({"index": 0, "start": 0.0, "end": round(duration_sec, 3)})
-    return scenes
+    return cover_timeline(scenes, duration_sec)
+
+
+def cover_timeline(
+    scenes: List[Dict[str, Any]],
+    duration_sec: float,
+) -> List[Dict[str, Any]]:
+    """Fill [0, duration] and merge tiny leftovers. Do not slice into speech windows."""
+    if duration_sec <= 0:
+        return scenes
+    filled: List[Dict[str, Any]] = []
+    if not scenes:
+        filled.append({"start": 0.0, "end": duration_sec})
+    else:
+        first_start = float(scenes[0].get("start", 0.0))
+        if first_start > 0.12:
+            filled.append({"start": 0.0, "end": first_start})
+        filled.extend(scenes)
+        last_end = float(filled[-1].get("end", 0.0))
+        if last_end < duration_sec - 0.12:
+            filled.append({"start": last_end, "end": duration_sec})
+
+    compact: List[Dict[str, Any]] = []
+    for scene in filled:
+        start = float(scene.get("start", 0.0))
+        end = float(scene.get("end", duration_sec))
+        if end - start < 0.8 and compact:
+            compact[-1]["end"] = round(end, 3)
+            continue
+        compact.append({"start": round(start, 3), "end": round(min(end, duration_sec), 3)})
+    out = []
+    for i, scene in enumerate(compact):
+        out.append({"index": i, "start": scene["start"], "end": scene["end"]})
+    return out or [{"index": 0, "start": 0.0, "end": round(duration_sec, 3)}]
+
+
+def split_for_narration(
+    scenes: List[Dict[str, Any]],
+    duration_sec: float,
+    max_scene_sec: float = 8.0,
+) -> List[Dict[str, Any]]:
+    """Deprecated: kept for older callers. Visual analysis uses analysis_windows instead."""
+    return cover_timeline(scenes, duration_sec)
 
 
 def detect_scenes(
     video_path: str,
     duration_sec: float,
-    threshold: float = 0.3,
+    threshold: float = 0.22,
     min_scene_sec: float = 2.0,
 ) -> List[Dict[str, Any]]:
     cuts = detect_scene_cuts(video_path, threshold=threshold)

@@ -45,8 +45,11 @@ const api = {
     output_name: string;
   }) => ipcRenderer.invoke('assemble-video', payload),
   listProjects: () => ipcRenderer.invoke('list-projects'),
-  createProject: (payload?: { name?: string; format?: 'landscape' | 'shorts' }) =>
-    ipcRenderer.invoke('create-project', payload),
+  createProject: (payload?: {
+    name?: string;
+    format?: 'landscape' | 'shorts';
+    preset?: 'marketplace' | 'hero' | 'youtube' | 'shorts';
+  }) => ipcRenderer.invoke('create-project', payload),
   loadProject: (id: string) => ipcRenderer.invoke('load-project', id),
   saveProject: (doc: unknown) => ipcRenderer.invoke('save-project', doc),
   deleteProject: (id: string) => ipcRenderer.invoke('delete-project', id),
@@ -150,6 +153,14 @@ const api = {
     prefer_ollama?: boolean;
     ollama_model?: string;
   }) => ipcRenderer.invoke('generate-script', payload),
+  shortenScript: (payload: {
+    text: string;
+    target_sec: number;
+    language?: string;
+    target_wpm?: number;
+    visual_summary?: string;
+    purpose?: string;
+  }) => ipcRenderer.invoke('shorten-script', payload),
   get3dStatus: () => ipcRenderer.invoke('get-3d-status'),
   get3dProgress: () => ipcRenderer.invoke('get-3d-progress'),
   generateMesh: (payload: {

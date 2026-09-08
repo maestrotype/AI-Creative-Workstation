@@ -1,4 +1,6 @@
 export type ProjectFormat = 'landscape' | 'shorts';
+export type FilmPreset = 'marketplace' | 'hero' | 'youtube' | 'shorts';
+export type ShotMotion = 'still_motion' | 'import' | 'i2v';
 
 export interface ProjectScene {
   id: string;
@@ -9,6 +11,7 @@ export interface ProjectScene {
   durationSec: number;
   stillPath: string | null;
   clipPath: string | null;
+  motion: ShotMotion;
 }
 
 export interface ProjectDoc {
@@ -16,6 +19,7 @@ export interface ProjectDoc {
   name: string;
   kind: string;
   format: ProjectFormat;
+  preset: FilmPreset;
   brief: string;
   scenes: ProjectScene[];
   assembledPath: string | null;
@@ -43,10 +47,48 @@ export function newScene(title = ''): ProjectScene {
     prompt: '',
     effectPrompt: '',
     textOverlay: '',
-    durationSec: 5,
+    durationSec: 12,
     stillPath: null,
     clipPath: null,
+    motion: 'import',
   };
+}
+
+/** Chapters for a store-template demo. You record the UI; the app cuts, titles, and voices. */
+export const TEMPLATE_CHAPTER_IDS = [
+  'intro',
+  'design',
+  'catalog',
+  'product',
+  'checkout',
+  'admin',
+  'builder',
+  'payments',
+] as const;
+
+export function templateChapters(label: (key: string) => string): ProjectScene[] {
+  return TEMPLATE_CHAPTER_IDS.map((id) => ({
+    ...newScene(label(`projects.chapter_${id}`)),
+    prompt: label(`projects.chapter_${id}_do`),
+    textOverlay: label(`projects.chapter_${id}`),
+    effectPrompt: label('projects.effect_default'),
+    durationSec: 12,
+    motion: 'import' as const,
+  }));
+}
+
+export function formatForPreset(preset: FilmPreset): ProjectFormat {
+  return preset === 'shorts' ? 'shorts' : 'landscape';
+}
+
+export function normalizeShotMotion(value: unknown): ShotMotion {
+  if (value === 'import' || value === 'i2v' || value === 'still_motion') return value;
+  return 'still_motion';
+}
+
+export function normalizePreset(value: unknown): FilmPreset {
+  if (value === 'hero' || value === 'youtube' || value === 'shorts' || value === 'marketplace') return value;
+  return 'marketplace';
 }
 
 export function sceneHasMedia(scene: ProjectScene): boolean {

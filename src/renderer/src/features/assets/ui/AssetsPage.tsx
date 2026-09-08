@@ -113,7 +113,7 @@ export function AssetsPage(): ReactNode {
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [ttsReady, setTtsReady] = useState(false);
   const [ttsEngine, setTtsEngine] = useState<string>('none');
-  const [voiceText, setVoiceText] = useState('');
+  const [voiceText, setVoiceText] = useState(() => t('assets.voice_prompt_placeholder'));
   const [skipPrepare, setSkipPrepare] = useState(false);
   const [prepareBusy, setPrepareBusy] = useState(false);
   const [prepareResult, setPrepareResult] = useState<{
@@ -123,7 +123,7 @@ export function AssetsPage(): ReactNode {
     warnings: string[];
     stress_available: boolean;
   } | null>(null);
-  const [fixPrompt, setFixPrompt] = useState('');
+  const [fixPrompt, setFixPrompt] = useState(() => t('assets.voice_fix_placeholder'));
   const [fixHint, setFixHint] = useState<string | null>(null);
   const [lexiconEntries, setLexiconEntries] = useState<Array<{
     word: string;

@@ -9,13 +9,12 @@
  * This is the first screen the user sees. It must feel cinematic and inviting,
  * encouraging creation from the moment of arrival.
  */
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { IntentInput } from '../../../../shared/ui/IntentInput/IntentInput';
-import { QUICK_SUGGESTIONS } from '../../api/assetApi';
 import { useHomeStore } from '../../store/homeStore';
 import { ContinueWorking } from '../ContinueWorking/ContinueWorking';
 import { RecentAssets } from '../RecentAssets/RecentAssets';
@@ -34,6 +33,15 @@ export function HomePage(): ReactNode {
   const setIntentDraft = useHomeStore((s) => s.setIntentDraft);
   const referenceDrafts = useHomeStore((s) => s.referenceDrafts);
   const setReferenceDrafts = useHomeStore((s) => s.setReferenceDrafts);
+
+  const seededIntent = useRef(false);
+  useEffect(() => {
+    if (seededIntent.current) return;
+    seededIntent.current = true;
+    if (!useHomeStore.getState().intentDraft.trim()) {
+      setIntentDraft(t('home.intent_placeholder'));
+    }
+  }, [setIntentDraft, t]);
 
   const projectsStatus = useHomeStore((s) => s.projectsStatus);
   const recentProjects = useHomeStore((s) => s.recentProjects);
@@ -95,14 +103,14 @@ export function HomePage(): ReactNode {
         {/* Quick-start suggestion chips */}
         {showSuggestions ? (
           <div className={styles.suggestions}>
-            {QUICK_SUGGESTIONS.map((suggestion) => (
+            {(['suggest_1', 'suggest_2', 'suggest_3'] as const).map((key) => (
               <button
-                key={suggestion}
+                key={key}
                 type="button"
                 className={styles.chip}
-                onClick={() => setIntentDraft(suggestion)}
+                onClick={() => setIntentDraft(t(`home.${key}`))}
               >
-                {suggestion}
+                {t(`home.${key}`)}
               </button>
             ))}
           </div>

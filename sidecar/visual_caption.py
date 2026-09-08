@@ -95,13 +95,17 @@ def _caption_one(model: str, image_path: str, language: str) -> Optional[str]:
         return None
     if language.startswith("ru"):
         ask = (
-            "Опиши одним-двумя короткими предложениями, что видно на этом кадре из видео: "
-            "интерфейс, действия, объекты, заметный текст. Без вступлений и без списков."
+            "Это кадр записи ecommerce-шаблона (витрина, каталог, карточка, корзина, "
+            "админка, конструктор, платежи). Одним-двумя предложениями: какой экран, "
+            "что делает пользователь, какой заметный текст в UI. Не выдумывай товар, "
+            "персонажа или сюжет. Без вступлений и без списков."
         )
     else:
         ask = (
-            "Describe in one or two short sentences what is visible in this video frame: "
-            "UI, actions, objects, visible text. No preamble, no lists."
+            "This is a frame from an ecommerce template screencast (storefront, catalog, "
+            "product, cart, admin, builder, payments). In one or two sentences: which "
+            "screen, what the user is doing, notable UI text. Do not invent a product, "
+            "character, or story. No preamble, no lists."
         )
     payload = json.dumps(
         {
@@ -134,35 +138,40 @@ def caption_scenes(
     on_progress: ProgressFn = None,
 ) -> tuple[List[Dict[str, Any]], List[str]]:
     """Return (visual_notes, warnings) for the given scenes."""
-    model = detect_vision_model()
-    if not model:
-        return [], ["VISION_MODEL_MISSING"]
-
     if on_progress:
         on_progress("visual", 25, "Extracting keyframes")
     frames = extract_scene_frames(video_path, scenes, out_dir)
     if not frames:
         return [], ["KEYFRAME_EXTRACT_FAILED"]
 
+    model = detect_vision_model()
     notes: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+    if not model:
+        warnings.append("VISION_MODEL_MISSING")
+
     total = len(frames)
     for n, frame in enumerate(frames):
-        if on_progress:
+        caption = ""
+        source = "keyframe"
+        if model:
+            if on_progress:
+                percent = 28 + int((n / max(total, 1)) * 22)
+                on_progress("visual", percent, f"Describing frame {n + 1}/{total} ({model})")
+            caption = _caption_one(model, frame["frame_path"], language) or ""
+            source = "vlm" if caption else "keyframe"
+        elif on_progress:
             percent = 28 + int((n / max(total, 1)) * 22)
-            on_progress("visual", percent, f"Describing frame {n + 1}/{total} ({model})")
-        caption = _caption_one(model, frame["frame_path"], language)
-        if not caption:
-            continue
+            on_progress("visual", percent, f"Keyframe {n + 1}/{total}")
         notes.append(
             {
                 "time": frame["time"],
                 "scene_index": frame["scene_index"],
                 "caption": caption,
-                "source": "vlm",
+                "source": source,
                 "frame_path": frame["frame_path"],
             }
         )
-    warnings: List[str] = []
-    if not notes:
+    if model and not any(str(note.get("caption") or "").strip() for note in notes):
         warnings.append("VISION_CAPTION_FAILED")
     return notes, warnings
