@@ -11,12 +11,13 @@ import { useTranslation } from 'react-i18next';
 import type { Asset, AssetKind } from '../../../../core/types';
 import { formatRelativeTime } from '../../../../core/utils/time';
 import type { IconProps } from '../../../../shared/ui/icons';
-import { DownloadIcon, FolderIcon, ImageIcon, TrashIcon, UserIcon } from '../../../../shared/ui/icons';
+import { DownloadIcon, FolderIcon, FilmIcon, ImageIcon, TrashIcon, UserIcon } from '../../../../shared/ui/icons';
 import styles from './AssetCard.module.css';
 
 const KIND_ICONS: Record<AssetKind, ComponentType<IconProps>> = {
   character: UserIcon,
   image: ImageIcon,
+  video: FilmIcon,
   project: FolderIcon,
 };
 
@@ -41,16 +42,20 @@ export function AssetCard({ asset, href, onDownload, onDelete, onOpen }: AssetCa
   const { t } = useTranslation();
   const KindIcon = KIND_ICONS[asset.kind];
   const kindLabel = t(`home.kind_${asset.kind}`);
+  const playClip = asset.kind === 'video' || isVideoThumb(asset.thumbnailUrl);
 
   const media = (
     <div className={styles.media}>
       {asset.thumbnailUrl ? (
-        isVideoThumb(asset.thumbnailUrl) ? (
+        playClip ? (
           <video
             className={styles.thumbnail}
             src={asset.thumbnailUrl}
+            poster={asset.posterUrl ?? undefined}
             muted
+            loop
             playsInline
+            autoPlay
             preload="metadata"
           />
         ) : (
@@ -66,6 +71,11 @@ export function AssetCard({ asset, href, onDownload, onDelete, onOpen }: AssetCa
           <KindIcon size={28} />
         </div>
       )}
+      {playClip ? (
+        <span className={styles.clipBadge} aria-hidden="true">
+          <FilmIcon size={14} />
+        </span>
+      ) : null}
       {onDelete && asset.thumbnailUrl ? (
         <button
           type="button"

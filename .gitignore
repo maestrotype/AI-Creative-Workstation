@@ -48,3 +48,9 @@ sidecar/vendor/TripoSR/
 sidecar/vendor/Hunyuan3D-2/
 # Coqui TTS local venv (install via Studio → Voice)
 sidecar/.venv-tts/
+
+# Python bytecode and sqlite CLI session junk
+__pycache__/
+*.py[cod]
+*.ses
+:memory:.ses

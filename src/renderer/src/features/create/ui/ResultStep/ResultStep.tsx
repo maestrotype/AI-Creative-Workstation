@@ -113,6 +113,7 @@ export function ResultStep(): ReactNode {
               key={result.id}
               src={result.thumbnailUrl}
               className={styles.generatedImage}
+              preload="auto"
               controls
               playsInline
               autoPlay
@@ -155,6 +156,9 @@ export function ResultStep(): ReactNode {
           </p>
           {result.quality?.identity_warning ? (
             <p className={styles.warn}>{t('create.quality_identity')}</p>
+          ) : null}
+          {(result.quality?.duration_sec ?? 0) > 0 && (result.quality?.duration_sec ?? 0) < 4 ? (
+            <p className={styles.hint}>{t('create.clip_short_local')}</p>
           ) : null}
           <details className={styles.details}>
             <summary>{t('create.quality_details')}</summary>

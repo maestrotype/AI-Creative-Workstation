@@ -24,6 +24,7 @@ import {
 } from '../api/generationApi';
 import type { ReferenceImage } from '../../../shared/ui/IntentInput/IntentInput';
 import { filePathFromAssetUrl } from '../../studio/store/workspaceBridgeStore';
+import { toAssetUrl } from '../../video/model/directorMedia';
 import { modeForMedium } from '../model/videoCapability';
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
@@ -238,15 +239,21 @@ export const useCreateStore = create<CreateState>()((set, get) => ({
   },
 
   openFromAsset: (asset) => {
+    const mediaPath = (asset.kind === 'video' && isVideoPath(asset.id))
+      ? asset.id
+      : filePathFromAssetUrl(asset.thumbnailUrl);
+    const video = asset.kind === 'video' || isVideoPath(mediaPath);
     set({
       step: 'result',
-      medium: 'image',
+      medium: video ? 'video' : 'image',
       result: {
         id: asset.id,
         prompt: asset.name,
-        thumbnailUrl: asset.thumbnailUrl,
+        thumbnailUrl: mediaPath
+          ? toAssetUrl(mediaPath)
+          : asset.thumbnailUrl,
         createdAt: asset.updatedAt,
-        kind: 'image',
+        kind: video ? 'video' : 'image',
       },
       error: null,
       generationProgress: null,

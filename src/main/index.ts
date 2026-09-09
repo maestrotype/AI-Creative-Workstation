@@ -1,10 +1,11 @@
 import { app, shell, BrowserWindow, ipcMain, protocol, net, dialog, desktopCapturer, session } from 'electron';
 import { basename, dirname, extname, join, resolve, sep } from 'path';
+import { pathToFileURL } from 'url';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 // import icon from '../../resources/icon.png?asset'
 
 import { spawn, spawnSync, ChildProcess, execFileSync } from 'child_process';
-import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, statfsSync, unlinkSync, writeFileSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, statfsSync, unlinkSync, writeFileSync } from 'fs';
 import { homedir, freemem, totalmem } from 'os';
 import { initDb, getDb } from './db';
 import { models, settings } from './db/schema';
@@ -235,6 +236,45 @@ function ffprobeBin(): string {
   } catch {
     return ffmpegBin().replace(/ffmpeg$/i, 'ffprobe');
   }
+}
+
+function clipPosterPath(videoPath: string): string {
+  return videoPath.replace(/\.[^.]+$/i, '.thumb.jpg');
+}
+
+function ensureClipPoster(videoPath: string): string | null {
+  if (!existsSync(videoPath)) return null;
+  const dest = clipPosterPath(videoPath);
+  try {
+    if (existsSync(dest) && statSync(dest).mtimeMs >= statSync(videoPath).mtimeMs && statSync(dest).size > 800) {
+      return dest;
+    }
+  } catch {
+    /* rebuild */
+  }
+  const duration = probeMediaDurationSec(videoPath) || 1.7;
+  const mid = Math.max(0, Math.min(duration * 0.45, duration - 0.05));
+  const result = spawnSync(
+    ffmpegBin(),
+    [
+      '-y',
+      '-ss', mid.toFixed(3),
+      '-i', videoPath,
+      '-frames:v', '1',
+      '-q:v', '3',
+      dest,
+    ],
+    { encoding: 'utf8', timeout: 20_000 },
+  );
+  if (result.status !== 0 || !existsSync(dest) || statSync(dest).size < 800) {
+    try {
+      if (existsSync(dest)) unlinkSync(dest);
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
+  return dest;
 }
 
 function probeMediaDurationSec(filePath: string): number {
@@ -819,8 +859,11 @@ function importAudioIntoLibrary(src: string): string | null {
   if (isInsideDir(resolved, dir) && !shouldWav) {
     return rememberPickedMedia(resolved);
   }
+  const tagged = /^(mic|system|capture|tts|vo|fit|voiceover|import)-/i.test(stem)
+    ? stem
+    : `import-${stem}`;
   if (shouldWav) {
-    const dest = uniqueLibraryDest(`${stem}.wav`);
+    const dest = uniqueLibraryDest(`${isInsideDir(resolved, dir) ? stem : tagged}.wav`);
     try {
       transcodeAudioToWav(resolved, dest);
       if (isInsideDir(resolved, dir) && dest !== resolved) {
@@ -834,12 +877,12 @@ function importAudioIntoLibrary(src: string): string | null {
       return rememberPickedMedia(dest);
     } catch {
       if (isInsideDir(resolved, dir)) return rememberPickedMedia(resolved);
-      const copied = uniqueLibraryDest(basename(resolved));
+      const copied = uniqueLibraryDest(`${tagged}.wav`);
       copyFileSync(resolved, copied);
       return rememberPickedMedia(copied);
     }
   }
-  const dest = uniqueLibraryDest(basename(resolved));
+  const dest = uniqueLibraryDest(`${tagged}${ext}`);
   copyFileSync(resolved, dest);
   return rememberPickedMedia(dest);
 }
@@ -1417,19 +1460,28 @@ function setupIpc() {
   });
 
   ipcMain.handle('list-generated-stills', async () => {
-    const dir = join(homedir(), 'Documents/Canvas/Generated');
-    if (!existsSync(dir)) return [];
+    const generated = join(homedir(), 'Documents/Canvas/Generated');
+    const videoDir = join(generated, 'Video');
     const rows: { path: string; mtime: number }[] = [];
-    for (const name of readdirSync(dir)) {
-      if (!/\.(png|jpe?g|webp)$/i.test(name)) continue;
-      const path = join(dir, name);
-      try {
-        rows.push({ path, mtime: statSync(path).mtimeMs });
-      } catch {
-        /* skip */
+    const pushIf = (dir: string, test: (name: string) => boolean) => {
+      if (!existsSync(dir)) return;
+      for (const name of readdirSync(dir)) {
+        if (!test(name)) continue;
+        const path = join(dir, name);
+        try {
+          rows.push({ path, mtime: statSync(path).mtimeMs });
+        } catch {
+          /* skip */
+        }
       }
-    }
-    return rows.sort((a, b) => b.mtime - a.mtime).slice(0, 24);
+    };
+    pushIf(generated, (name) => /\.(png|jpe?g|webp)$/i.test(name));
+    pushIf(videoDir, (name) => /^vid_.*\.(mp4|mov|m4v|webm|mkv)$/i.test(name));
+    const listed = rows.sort((a, b) => b.mtime - a.mtime).slice(0, 24);
+    return listed.map((row) => ({
+      ...row,
+      poster: /\.(mp4|mov|m4v|webm|mkv)$/i.test(row.path) ? ensureClipPoster(row.path) : null,
+    }));
   });
 
   ipcMain.handle('delete-generated-still', async (_, sourcePath: string) => {
@@ -1446,6 +1498,17 @@ function setupIpc() {
       throw new Error('Only generated stills and clips can be deleted');
     }
     unlinkSync(resolved);
+    if (clip) {
+      for (const extra of [clipPosterPath(resolved), resolved.replace(/\.[^.]+$/i, '.poster.jpg')]) {
+        if (existsSync(extra)) {
+          try {
+            unlinkSync(extra);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    }
     return true;
   });
 
@@ -1619,6 +1682,32 @@ function setupIpc() {
     pickedMediaPaths.delete(resolved);
     persistPickedMedia();
     return { deleted: true };
+  });
+
+  ipcMain.handle('delete-library-audio-many', async (_, filePaths: string[]) => {
+    const paths = Array.isArray(filePaths) ? filePaths.filter((p) => typeof p === 'string' && p.length > 0) : [];
+    let deleted = 0;
+    const skipped: string[] = [];
+    for (const filePath of paths) {
+      const resolved = resolve(filePath);
+      if (!isInsideDir(resolved, audioLibraryDir()) || !isAudioExtension(resolved)) {
+        skipped.push(filePath);
+        continue;
+      }
+      if (micOutPath && resolve(micOutPath) === resolved) {
+        skipped.push(filePath);
+        continue;
+      }
+      try {
+        if (existsSync(resolved)) unlinkSync(resolved);
+        pickedMediaPaths.delete(resolved);
+        deleted += 1;
+      } catch {
+        skipped.push(filePath);
+      }
+    }
+    persistPickedMedia();
+    return { deleted, skipped };
   });
 
   ipcMain.handle('list-media-library', async () => {
@@ -2311,83 +2400,19 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'asset', privileges: { bypassCSP: true, supportFetchAPI: true, secure: true, stream: true } },
 ]);
 
-const ASSET_MIME: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-  '.mp4': 'video/mp4',
-  '.mov': 'video/quicktime',
-  '.m4v': 'video/mp4',
-  '.webm': 'video/webm',
-  '.mkv': 'video/x-matroska',
-  '.wav': 'audio/wav',
-  '.mp3': 'audio/mpeg',
-  '.flac': 'audio/flac',
-  '.m4a': 'audio/mp4',
-  '.aac': 'audio/aac',
-  '.ogg': 'audio/ogg',
-  '.oga': 'audio/ogg',
-  '.opus': 'audio/opus',
-  '.wma': 'audio/x-ms-wma',
-  '.aiff': 'audio/aiff',
-  '.aif': 'audio/aiff',
-  '.caf': 'audio/x-caf',
-};
-
 function assetPathFromUrl(url: string): string {
   const stripped = url.replace(/^asset:\/\//, '').split('?')[0];
   const decoded = decodeURIComponent(stripped);
   return decoded.startsWith('/') ? decoded : `/${decoded}`;
 }
 
-function serveAssetFile(request: Request): Response {
+function serveAssetFile(request: Request): Response | Promise<Response> {
   const filePath = assetPathFromUrl(request.url);
   if (!existsSync(filePath)) {
     return new Response('Not found', { status: 404 });
   }
-
-  const stat = statSync(filePath);
-  const fileSize = stat.size;
-  const contentType = ASSET_MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
-  const range = request.headers.get('Range');
-
-  if (range) {
-    const match = /^bytes=(\d*)-(\d*)$/i.exec(range.trim());
-    if (!match) {
-      return new Response('Invalid range', { status: 416 });
-    }
-    const start = match[1] ? parseInt(match[1], 10) : 0;
-    const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
-    if (Number.isNaN(start) || Number.isNaN(end) || start >= fileSize || end >= fileSize || start > end) {
-      return new Response('Range not satisfiable', {
-        status: 416,
-        headers: { 'Content-Range': `bytes */${fileSize}` },
-      });
-    }
-    const chunkSize = end - start + 1;
-    const stream = createReadStream(filePath, { start, end });
-    return new Response(stream as unknown as BodyInit, {
-      status: 206,
-      headers: {
-        'Content-Type': contentType,
-        'Content-Length': String(chunkSize),
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-        'Accept-Ranges': 'bytes',
-      },
-    });
-  }
-
-  const stream = createReadStream(filePath);
-  return new Response(stream as unknown as BodyInit, {
-    status: 200,
-    headers: {
-      'Content-Type': contentType,
-      'Content-Length': String(fileSize),
-      'Accept-Ranges': 'bytes',
-    },
-  });
+  // file:// lets Chromium range-request MP4s (needed when moov is at the end).
+  return net.fetch(pathToFileURL(filePath).href);
 }
 
 function createWindow(): void {

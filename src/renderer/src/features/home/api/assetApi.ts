@@ -8,6 +8,10 @@ function fileName(path: string): string {
   return path.split('/').pop()?.replace(/\.[^.]+$/, '') || path;
 }
 
+function isVideoPath(path: string): boolean {
+  return /\.(mp4|mov|m4v|webm|mkv)$/i.test(path);
+}
+
 export interface InspirationItem {
   id: string;
   prompt: string;
@@ -34,13 +38,17 @@ export async function fetchRecentProjects(limit = 3): Promise<Asset[]> {
 export async function fetchRecentAssets(limit = 6): Promise<Asset[]> {
   if (!window.api?.listGeneratedStills) return [];
   const stills = await window.api.listGeneratedStills();
-  return stills.slice(0, limit).map((row) => ({
-    id: row.path,
-    name: fileName(row.path),
-    kind: 'image' as const,
-    thumbnailUrl: toAssetUrl(row.path),
-    updatedAt: new Date(row.mtime).toISOString(),
-  }));
+  return stills.slice(0, limit).map((row) => {
+    const video = isVideoPath(row.path);
+    return {
+      id: row.path,
+      name: fileName(row.path),
+      kind: (video ? 'video' : 'image') as Asset['kind'],
+      thumbnailUrl: toAssetUrl(row.path),
+      posterUrl: row.poster ? toAssetUrl(row.poster) : null,
+      updatedAt: new Date(row.mtime).toISOString(),
+    };
+  });
 }
 
 export async function fetchInspirationItems(): Promise<InspirationItem[]> {

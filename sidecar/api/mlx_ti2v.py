@@ -222,7 +222,39 @@ def run_ti2v(
         raise RuntimeError(f"TI2V_FAILED: MLX worker exited {proc.returncode}. {tail}")
     if not os.path.isfile(dest) or os.path.getsize(dest) < 1000:
         raise RuntimeError("TI2V_FAILED: Worker did not write a video file.")
+    remux_for_browser(dest)
     return dest
+
+
+def remux_for_browser(src: str) -> None:
+    """Put moov at the start so Electron <video> can play the file."""
+    from api.video import _ffmpeg_bin
+
+    ffmpeg = _ffmpeg_bin()
+    tmp = f"{src}.web.mp4"
+    copy = subprocess.run(
+        [ffmpeg, "-y", "-i", src, "-c", "copy", "-movflags", "+faststart", tmp],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if copy.returncode != 0 or not os.path.isfile(tmp) or os.path.getsize(tmp) < 1000:
+        copy = subprocess.run(
+            [
+                ffmpeg, "-y", "-i", src,
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart", "-an", tmp,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    if copy.returncode != 0 or not os.path.isfile(tmp) or os.path.getsize(tmp) < 1000:
+        if os.path.isfile(tmp):
+            os.remove(tmp)
+        print("[mlx_ti2v] remux skipped; Chromium may not preview this MP4", flush=True)
+        return
+    os.replace(tmp, src)
 
 
 def extract_frames(video_path: str) -> list:

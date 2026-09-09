@@ -179,7 +179,7 @@ interface Window {
       }>;
     } | null>;
     saveVideoHistory: (payload: unknown) => Promise<boolean>;
-    listGeneratedStills: () => Promise<{ path: string; mtime: number }[]>;
+    listGeneratedStills: () => Promise<{ path: string; mtime: number; poster?: string | null }[]>;
     deleteGeneratedStill: (sourcePath: string) => Promise<boolean>;
     pickVideo: () => Promise<string | null>;
     probeMediaDuration: (filePath: string) => Promise<number>;
@@ -194,6 +194,7 @@ interface Window {
     }>;
     importLibraryAudio: (paths?: string[]) => Promise<{ imported: string[] }>;
     deleteLibraryAudio: (filePath: string) => Promise<{ deleted: boolean }>;
+    deleteLibraryAudioMany: (filePaths: string[]) => Promise<{ deleted: number; skipped: string[] }>;
     prepareLibraryAudio: (filePath: string) => Promise<{ path: string; converted: boolean }>;
     installVoiceEngine: () => Promise<{ ok: boolean }>;
     deleteVoiceEngine: () => Promise<{ deleted: boolean }>;

@@ -104,7 +104,7 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
       const newAsset: Asset = {
         id: result.id,
         name: result.prompt.length > 48 ? `${result.prompt.slice(0, 45)}…` : result.prompt,
-        kind: 'image',
+        kind: result.kind === 'video' ? 'video' : 'image',
         thumbnailUrl: result.thumbnailUrl,
         updatedAt: result.createdAt,
       };
@@ -124,7 +124,9 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
   },
 
   deleteRecentAsset: async (asset) => {
-    const path = filePathFromAssetUrl(asset.thumbnailUrl);
+    const path = asset.kind === 'video' && asset.id.startsWith('/')
+      ? asset.id
+      : filePathFromAssetUrl(asset.thumbnailUrl);
     try {
       if (path && window.api?.deleteGeneratedStill) {
         await window.api.deleteGeneratedStill(path);

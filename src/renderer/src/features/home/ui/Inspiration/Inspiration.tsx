@@ -9,6 +9,11 @@ import { useTranslation } from 'react-i18next';
 import type { InspirationItem } from '../../api/assetApi';
 import styles from './Inspiration.module.css';
 
+import titlePreview from '../../../../assets/inspiration/title.png';
+import framePreview from '../../../../assets/inspiration/frame.png';
+import productPreview from '../../../../assets/inspiration/product.png';
+import varyPreview from '../../../../assets/inspiration/vary.png';
+
 export interface InspirationProps {
   readonly status: 'idle' | 'loading' | 'ready' | 'error';
   readonly items: readonly InspirationItem[];
@@ -16,6 +21,13 @@ export interface InspirationProps {
 }
 
 const SKELETON_COUNT = 4;
+
+const PREVIEWS: Record<string, string> = {
+  'insp-title': titlePreview,
+  'insp-frame': framePreview,
+  'insp-product': productPreview,
+  'insp-vary': varyPreview,
+};
 
 export function Inspiration({
   status,
@@ -53,30 +65,36 @@ export function Inspiration({
       </header>
 
       <ul className={styles.grid}>
-        {items.map((item) => (
-          <li key={item.id}>
-            <button
-              type="button"
-              className={styles.gridItem}
-              onClick={() => onSelect(item)}
-              aria-label={item.prompt}
-            >
-              {item.thumbnailUrl ? (
-                <img
-                  src={item.thumbnailUrl}
-                  alt=""
-                  className={styles.thumbnail}
-                  loading="lazy"
-                />
-              ) : (
-                <div className={styles.placeholder}>
-                  <span className={styles.job}>{t(`create.job_${item.job}`)}</span>
-                </div>
-              )}
-              <p className={styles.caption}>{item.prompt}</p>
-            </button>
-          </li>
-        ))}
+        {items.map((item) => {
+          const preview = item.thumbnailUrl ?? PREVIEWS[item.id];
+          return (
+            <li key={item.id}>
+              <button
+                type="button"
+                className={styles.gridItem}
+                onClick={() => onSelect(item)}
+                aria-label={item.prompt}
+              >
+                {preview ? (
+                  <div className={styles.media}>
+                    <img
+                      src={preview}
+                      alt=""
+                      className={styles.thumbnail}
+                      loading="lazy"
+                    />
+                    <span className={styles.job}>{t(`create.job_${item.job}`)}</span>
+                  </div>
+                ) : (
+                  <div className={styles.placeholder}>
+                    <span className={styles.job}>{t(`create.job_${item.job}`)}</span>
+                  </div>
+                )}
+                <p className={styles.caption}>{item.prompt}</p>
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

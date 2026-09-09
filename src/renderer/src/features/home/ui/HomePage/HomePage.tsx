@@ -76,8 +76,10 @@ export function HomePage(): ReactNode {
     navigate('/create');
   };
 
-  const downloadAsset = (asset: { thumbnailUrl: string | null }) => {
-    const path = filePathFromAssetUrl(asset.thumbnailUrl);
+  const downloadAsset = (asset: Asset) => {
+    const path = asset.kind === 'video' && asset.id.startsWith('/')
+      ? asset.id
+      : filePathFromAssetUrl(asset.thumbnailUrl);
     if (!path || !window.api?.saveMediaAs) return;
     void window.api.saveMediaAs(path).catch(() => undefined);
   };

@@ -33,10 +33,27 @@
   width: 100%;
   aspect-ratio: 16 / 10;
   object-fit: cover;
+  background: var(--color-bg-elevated);
 }
 
 .media {
   position: relative;
+}
+
+.clipBadge {
+  position: absolute;
+  bottom: var(--space-2);
+  left: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-bg-card) 82%, transparent);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-full);
+  pointer-events: none;
 }
 
 .remove {
