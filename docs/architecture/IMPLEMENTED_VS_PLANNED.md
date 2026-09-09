@@ -15,7 +15,7 @@ Older files (`SYSTEM_ARCHITECTURE.md`, `ROADMAP.md`, `PRODUCT_VISION.md`) descri
 | Filesystem projects | IMPLEMENTED | `~/Documents/Canvas/Projects/` |
 | Director session | PARTIAL | `localStorage`, not film JSON |
 | Persistent job queue | UNIMPLEMENTED | In-process `_runtime_job` + asyncio lock only |
-| MLX provider | UNIMPLEMENTED | |
+| MLX provider | PARTIAL | Wan 2.2 TI2V-5B q8 in a Python 3.11 subprocess only. Image gen stays PyTorch/MPS |
 | fal.ai / Replicate | UNIMPLEMENTED | |
 | Creative Asset Graph | UNIMPLEMENTED | |
 
@@ -24,7 +24,7 @@ Older files (`SYSTEM_ARCHITECTURE.md`, `ROADMAP.md`, `PRODUCT_VISION.md`) descri
 | Capability | Status | What actually runs |
 |------------|--------|--------------------|
 | IMAGE_GENERATION | IMPLEMENTED | Diffusers + Torch MPS: SDXL, FLUX. CLIP is English-only: `sidecar/prompt_en.py` translates RU (glossary, then Ollama qwen2.5:7b) **before** FLUX loads, then unloads the LLM |
-| IMAGE_TO_VIDEO (ads) | PARTIAL | H3 FL2VA (NVIDIA/SGLang) or Runway; **not** a Mac default |
+| IMAGE_TO_VIDEO (ads) | IMPLEMENTED | Local Wan 2.2 TI2V-5B MLX q8 (832×480, 41 frames, ~2 s). Fallback: H3 / Runway. SVD is not this path |
 | TEXT_TO_VIDEO | PARTIAL | Wan code exists; disabled for product ads (noise/crash on Mac) |
 | STILL_MOTION | IMPLEMENTED | ffmpeg Ken Burns on stills at stitch |
 | VIDEO_ANALYZE | IMPLEMENTED | scene_detect + optional Whisper + optional Ollama VLM |
@@ -39,7 +39,7 @@ Older files (`SYSTEM_ARCHITECTURE.md`, `ROADMAP.md`, `PRODUCT_VISION.md`) descri
 
 | Nav | Status | Role today |
 |-----|--------|------------|
-| Home / Create | PARTIAL | Stills with job (title / frame / product); RU→EN for CLIP; reference = variation; download; **delete / start over** on the result step |
+| Home / Create | PARTIAL | Stills + **clip** (img2vid); RU→EN for CLIP; delete/start over. Create «Видео» is not Voiceover |
 | 3D | IMPLEMENTED | Independent experiment |
 | Video | IMPLEMENTED | Voiceover + timeline; separate from Projects |
 | Projects | IMPLEMENTED | Scenes + generate/import + stitch |

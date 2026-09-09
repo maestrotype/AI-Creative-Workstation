@@ -399,21 +399,44 @@ function setEngineStatus(status: typeof engineStatus, detail = ''): void {
   broadcast('engine-status', { status, detail });
 }
 
-function killProcessOnSidecarPort(): void {
+function killProcessOnSidecarPort(force = false): void {
   const { execSync } = require('child_process') as typeof import('child_process');
+  const signal = force ? 'SIGKILL' : 'SIGTERM';
   try {
     const pids = execSync(`lsof -ti tcp:${SIDECAR_PORT}`, { encoding: 'utf8' }).trim();
     for (const pid of pids.split('\n').filter(Boolean)) {
       const n = Number(pid);
       if (!n || n === process.pid) continue;
       try {
-        process.kill(n, 'SIGTERM');
+        process.kill(n, signal);
       } catch {
         /* already gone */
       }
     }
   } catch {
     /* lsof exits 1 when nothing is listening */
+  }
+}
+
+async function waitForSidecarPortFree(maxMs = 3000): Promise<boolean> {
+  const { execSync } = require('child_process') as typeof import('child_process');
+  const started = Date.now();
+  while (Date.now() - started < maxMs) {
+    try {
+      execSync(`lsof -ti tcp:${SIDECAR_PORT}`, { encoding: 'utf8', stdio: 'pipe' });
+      await new Promise((r) => setTimeout(r, 150));
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function recoverSidecarPort(): Promise<void> {
+  killProcessOnSidecarPort(false);
+  if (!(await waitForSidecarPortFree(1200))) {
+    killProcessOnSidecarPort(true);
+    await waitForSidecarPortFree(2000);
   }
 }
 
@@ -441,6 +464,9 @@ function listReadyModels(kind: 'image' | 'video' | '3d' = 'image'): { id: string
     .map((m) => ({ id: m.id, name: m.name }));
   if (kind !== 'video') return rows;
   const extra: { id: string; name: string }[] = [];
+  if (hasLocalTi2v() && !rows.some((m) => m.id === TI2V_MODEL_ID)) {
+    extra.push({ id: TI2V_MODEL_ID, name: 'Wan 2.2 TI2V 5B (MLX)' });
+  }
   if (hasH3Endpoint() && !rows.some((m) => m.id === H3_MODEL_ID)) {
     extra.push({ id: H3_MODEL_ID, name: 'MiniMax H3 Base' });
   }
@@ -461,6 +487,7 @@ function resolveActiveModelId(): string | null {
 
 const RUNWAY_MODEL_ID = 'runwayml/gen4.5';
 const H3_MODEL_ID = 'MiniMaxAI/MiniMax-H3';
+const TI2V_MODEL_ID = 'Anes1032/Wan2.2-TI2V-5B-mlx-q8';
 
 function hasRunwayKey(): boolean {
   return Boolean(getSettingValue('RUNWAY_API_SECRET')?.trim());
@@ -468,6 +495,13 @@ function hasRunwayKey(): boolean {
 
 function hasH3Endpoint(): boolean {
   return Boolean(getSettingValue('H3_ENDPOINT')?.trim());
+}
+
+function hasLocalTi2v(): boolean {
+  const dir = modelDirFor(TI2V_MODEL_ID);
+  return existsSync(join(dir, 'model.safetensors'))
+    && existsSync(join(dir, 't5_encoder.safetensors'))
+    && existsSync(join(dir, 'vae.safetensors'));
 }
 
 function runwayModelRow() {
@@ -496,6 +530,31 @@ function h3ModelRow() {
 
 function resolveActiveVideoModelId(): string | null {
   const ready = listReadyModels('video');
+  const stored = getSettingValue(ACTIVE_VIDEO_MODEL_KEY);
+  if (stored === RUNWAY_MODEL_ID && hasRunwayKey()) return stored;
+  if (stored === H3_MODEL_ID && (ready.some((m) => m.id === H3_MODEL_ID) || hasH3Endpoint())) return stored;
+  if (stored && ready.some((m) => m.id === stored)) return stored;
+  return resolveVideoModelForMode('ai_video');
+}
+
+function resolveVideoModelForMode(mode: string): string | null {
+  const ready = listReadyModels('video');
+  const stored = getSettingValue(ACTIVE_VIDEO_MODEL_KEY);
+  if (mode === 'image_animation') {
+    const svd = ready.find((m) => /stable-video-diffusion|img2vid/i.test(m.id));
+    return svd?.id ?? null;
+  }
+  if (mode === 't2v') {
+    const wan = ready.find((m) => /wan/i.test(m.id) && !/ti2v|anes1032/i.test(m.id));
+    return wan?.id ?? null;
+  }
+  // Prompt-driven product video: local TI2V first, then H3 / Runway. SVD is animation.
+  if (hasLocalTi2v()) return TI2V_MODEL_ID;
+  if (stored) {
+    if (stored === RUNWAY_MODEL_ID && hasRunwayKey()) return stored;
+    if (stored === H3_MODEL_ID && (ready.some((m) => m.id === H3_MODEL_ID) || hasH3Endpoint())) return stored;
+    if (ready.some((m) => m.id === stored) && /runway|minimax|h3/i.test(stored)) return stored;
+  }
   if (ready.some((m) => m.id === H3_MODEL_ID) || hasH3Endpoint()) return H3_MODEL_ID;
   if (hasRunwayKey()) return RUNWAY_MODEL_ID;
   return null;
@@ -525,6 +584,7 @@ function startSidecar(): void {
       PYTHONUNBUFFERED: '1',
       PYTORCH_ENABLE_MPS_FALLBACK: '1',
       PYTORCH_MPS_HIGH_WATERMARK_RATIO: '0.0',
+      PYTORCH_MPS_LOW_WATERMARK_RATIO: '0.0',
     },
     stdio: 'inherit',
   });
@@ -566,8 +626,7 @@ async function bootSidecar(timeoutMs = 20_000): Promise<{ ok: boolean; error?: s
         sidecarProcess.kill('SIGTERM');
         sidecarProcess = null;
       }
-      killProcessOnSidecarPort();
-      await new Promise((r) => setTimeout(r, 400));
+      await recoverSidecarPort();
 
       startSidecar();
 
@@ -883,6 +942,17 @@ function setupIpc() {
     const db = getDb();
     const rows = db.select().from(models).all();
     const injected = [];
+    if (hasLocalTi2v() && !rows.some((row) => row.id === TI2V_MODEL_ID)) {
+      injected.push({
+        id: TI2V_MODEL_ID,
+        name: 'Wan 2.2 TI2V 5B (MLX)',
+        type: 'video',
+        path: modelDirFor(TI2V_MODEL_ID),
+        status: 'ready',
+        errorMessage: null as string | null,
+        createdAt: new Date(0),
+      });
+    }
     if (hasH3Endpoint() && !rows.some((row) => row.id === H3_MODEL_ID)) {
       injected.push(h3ModelRow());
     }
@@ -900,6 +970,9 @@ function setupIpc() {
     const usage: Record<string, number> = {};
     for (const row of rows) {
       usage[row.id] = dirSizeBytes(modelDirFor(row.id));
+    }
+    if (hasLocalTi2v() && usage[TI2V_MODEL_ID] == null) {
+      usage[TI2V_MODEL_ID] = dirSizeBytes(modelDirFor(TI2V_MODEL_ID));
     }
     return usage;
   });
@@ -920,8 +993,22 @@ function setupIpc() {
   ipcMain.handle('get-engine-status', async () => {
     if (engineStatus !== 'ready' && (await isSidecarAlive())) {
       setEngineStatus('ready');
+    } else if (engineStatus === 'ready' && !(await isSidecarAlive())) {
+      setEngineStatus('error', 'health timeout');
     }
     return { status: engineStatus, detail: engineDetail };
+  });
+
+  ipcMain.handle('restart-engine', async () => {
+    if (sidecarProcess && !sidecarProcess.killed) {
+      ignoreSidecarExit = true;
+      sidecarProcess.kill('SIGTERM');
+      sidecarProcess = null;
+    }
+    sidecarBoot = null;
+    setEngineStatus('starting');
+    await recoverSidecarPort();
+    return bootSidecar(45_000);
   });
 
   ipcMain.handle('get-runtime-status', async () => {
@@ -942,8 +1029,14 @@ function setupIpc() {
       busy: false,
       ram_total: ram.ram_total,
       ram_free: ram.ram_free,
+      ram_available: ram.ram_free,
+      ram_used: Math.max(0, ram.ram_total - ram.ram_free),
+      ram_percent: ram.ram_total > 0 ? Math.round(((ram.ram_total - ram.ram_free) / ram.ram_total) * 1000) / 10 : 0,
       engine: engineStatus,
     };
+    if (!(await isSidecarAlive())) {
+      return { ...base, engine: engineStatus === 'ready' ? 'error' : engineStatus };
+    }
     try {
       const res = await net.fetch(`${SIDECAR_URL}/api/runtime/status`, {
         signal: AbortSignal.timeout(2500),
@@ -952,9 +1045,29 @@ function setupIpc() {
       const body = (await res.json()) as {
         job?: typeof base.job;
         loaded?: string[];
-        memory?: { sidecar_rss_bytes?: number; mps_allocated_bytes?: number };
+        memory?: {
+          sidecar_rss_bytes?: number;
+          mps_allocated_bytes?: number;
+          ram_total?: number;
+          ram_available?: number;
+          ram_used?: number;
+          ram_percent?: number;
+        };
         busy?: boolean;
+        ram_total?: number;
+        ram_available?: number;
+        ram_used?: number;
+        ram_percent?: number;
+        video_backend?: {
+          id: string;
+          state: string;
+          installed: boolean;
+          approx_bytes: number;
+        };
       };
+      const ramTotal = body.ram_total || body.memory?.ram_total || base.ram_total;
+      const ramAvailable = body.ram_available || body.memory?.ram_available || base.ram_available;
+      const ramUsed = body.ram_used || body.memory?.ram_used || Math.max(0, ramTotal - ramAvailable);
       return {
         ...base,
         job: { ...base.job, ...(body.job ?? {}) },
@@ -964,6 +1077,12 @@ function setupIpc() {
           mps_allocated_bytes: body.memory?.mps_allocated_bytes ?? 0,
         },
         busy: Boolean(body.busy),
+        ram_total: ramTotal,
+        ram_free: ramAvailable,
+        ram_available: ramAvailable,
+        ram_used: ramUsed,
+        ram_percent: body.ram_percent || body.memory?.ram_percent || (ramTotal > 0 ? (ramUsed / ramTotal) * 100 : 0),
+        video_backend: body.video_backend,
       };
     } catch {
       return base;
@@ -1063,23 +1182,50 @@ function setupIpc() {
     duration_sec?: number;
     model_id?: string;
     image_path?: string;
+    image_base64?: string;
+    mode?: string;
   }) => {
     const ready = await ensureSidecarReady();
     if (!ready.ok) {
       throw new Error(ready.error || 'Sidecar unavailable');
     }
-    if (!payload.image_path) {
-      throw new Error('IMAGE_REQUIRED');
-    }
-    const modelId = payload.model_id || resolveActiveVideoModelId();
+    const mode = (payload.mode || 'ai_video').trim() || 'ai_video';
+    const modelId = payload.model_id || resolveVideoModelForMode(mode);
     if (!modelId) {
-      throw new Error('H3_REQUIRED');
+      if (mode === 'image_animation') {
+        throw new Error(
+          'VIDEO_CAPABILITY_UNSUPPORTED: No SVD model is installed. Studio → Video → SVD XT for short image animation only.',
+        );
+      }
+      throw new Error(
+        'VIDEO_CAPABILITY_UNSUPPORTED: No prompt-driven image-to-video provider. SVD cannot do this. Install Wan 2.2 TI2V-5B (Studio → Video) or add a Runway API key / MiniMax H3 endpoint.',
+      );
     }
     const useH3 = /minimax|h3/i.test(modelId);
-    const apiSecret = useH3 ? '' : (getSettingValue('RUNWAY_API_SECRET')?.trim() || '');
+    const useRunway = /runway/i.test(modelId);
+    const useTi2v = /ti2v|anes1032/i.test(modelId);
+    const useWan = /wan/i.test(modelId) && !useTi2v;
+    const useSvd = /stable-video-diffusion|img2vid|svd/i.test(modelId) && !useTi2v;
+    const apiSecret = useRunway ? (getSettingValue('RUNWAY_API_SECRET')?.trim() || '') : '';
     const h3Endpoint = useH3 ? (getSettingValue('H3_ENDPOINT')?.trim() || '') : '';
-    if (!useH3 && !apiSecret) {
-      throw new Error('H3_REQUIRED');
+    if (mode === 'ai_video' && useSvd) {
+      throw new Error(
+        'VIDEO_CAPABILITY_UNSUPPORTED: SVD is image animation, not AI video. It ignores the motion prompt.',
+      );
+    }
+    if (mode === 'ai_video' && useWan) {
+      throw new Error(
+        'VIDEO_CAPABILITY_UNSUPPORTED: Wan 2.1 T2V is text-to-video and will not keep this product photo. Use Wan 2.2 TI2V, Runway, or H3.',
+      );
+    }
+    if (useRunway && !apiSecret) {
+      throw new Error('VIDEO_CAPABILITY_UNSUPPORTED: Runway API key is missing. Set it in Settings.');
+    }
+    if (!useH3 && !useRunway && !useWan && !useSvd && !useTi2v) {
+      throw new Error('VIDEO_CAPABILITY_UNSUPPORTED: Unknown video provider.');
+    }
+    if (!useWan && !payload.image_path && !payload.image_base64) {
+      throw new Error('IMAGE_REQUIRED');
     }
     const res = await net.fetch(`${SIDECAR_URL}/api/generate/video`, {
       method: 'POST',
@@ -1090,8 +1236,10 @@ function setupIpc() {
         duration_sec: payload.duration_sec ?? 5,
         model_id: modelId,
         image_path: payload.image_path || null,
+        image_base64: payload.image_base64 || null,
         api_secret: apiSecret || null,
         h3_endpoint: h3Endpoint || null,
+        mode,
       }),
       signal: AbortSignal.timeout(30 * 60 * 1000),
     });
@@ -1099,11 +1247,25 @@ function setupIpc() {
       detail?: unknown;
       job_id?: string;
       file_path?: string | null;
+      status?: string;
+      capability?: string;
+      provider_id?: string;
+      prompt_consumed?: boolean;
+      quality?: Record<string, unknown>;
     };
     if (!res.ok) {
       throw new Error(body.detail != null ? String(body.detail).slice(0, 400) : `HTTP ${res.status}`);
     }
-    return { job_id: body.job_id, file_path: body.file_path ?? null, model_id: modelId };
+    return {
+      job_id: body.job_id,
+      file_path: body.file_path ?? null,
+      model_id: modelId,
+      status: body.status ?? 'completed',
+      capability: body.capability,
+      provider_id: body.provider_id ?? modelId,
+      prompt_consumed: Boolean(body.prompt_consumed),
+      quality: body.quality ?? null,
+    };
   });
 
   ipcMain.handle('generate-image', async (_, payload: {
@@ -1276,11 +1438,12 @@ function setupIpc() {
       throw new Error('File is not available to delete');
     }
     const generated = resolve(join(homedir(), 'Documents/Canvas/Generated'));
-    if (resolve(dirname(resolved)) !== generated) {
-      throw new Error('Only generated stills can be deleted');
-    }
-    if (!/\.(png|jpe?g|webp)$/i.test(resolved)) {
-      throw new Error('Only image stills can be deleted');
+    const videoDir = resolve(join(generated, 'Video'));
+    const parent = resolve(dirname(resolved));
+    const still = parent === generated && /\.(png|jpe?g|webp)$/i.test(resolved);
+    const clip = parent === videoDir && /\.(mp4|mov|m4v|webm|mkv)$/i.test(resolved);
+    if (!still && !clip) {
+      throw new Error('Only generated stills and clips can be deleted');
     }
     unlinkSync(resolved);
     return true;

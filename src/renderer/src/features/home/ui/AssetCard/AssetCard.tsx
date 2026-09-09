@@ -11,7 +11,7 @@ import { useTranslation } from 'react-i18next';
 import type { Asset, AssetKind } from '../../../../core/types';
 import { formatRelativeTime } from '../../../../core/utils/time';
 import type { IconProps } from '../../../../shared/ui/icons';
-import { DownloadIcon, FolderIcon, ImageIcon, UserIcon } from '../../../../shared/ui/icons';
+import { DownloadIcon, FolderIcon, ImageIcon, TrashIcon, UserIcon } from '../../../../shared/ui/icons';
 import styles from './AssetCard.module.css';
 
 const KIND_ICONS: Record<AssetKind, ComponentType<IconProps>> = {
@@ -33,9 +33,11 @@ export interface AssetCardProps {
   readonly asset: Asset;
   readonly href?: string;
   readonly onDownload?: (asset: Asset) => void;
+  readonly onDelete?: (asset: Asset) => void;
+  readonly onOpen?: (asset: Asset) => void;
 }
 
-export function AssetCard({ asset, href, onDownload }: AssetCardProps): ReactNode {
+export function AssetCard({ asset, href, onDownload, onDelete, onOpen }: AssetCardProps): ReactNode {
   const { t } = useTranslation();
   const KindIcon = KIND_ICONS[asset.kind];
   const kindLabel = t(`home.kind_${asset.kind}`);
@@ -64,6 +66,20 @@ export function AssetCard({ asset, href, onDownload }: AssetCardProps): ReactNod
           <KindIcon size={28} />
         </div>
       )}
+      {onDelete && asset.thumbnailUrl ? (
+        <button
+          type="button"
+          className={styles.remove}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onDelete(asset);
+          }}
+          aria-label={t('home.delete')}
+        >
+          <TrashIcon size={16} />
+        </button>
+      ) : null}
       {onDownload && asset.thumbnailUrl ? (
         <button
           type="button"
@@ -104,6 +120,25 @@ export function AssetCard({ asset, href, onDownload }: AssetCardProps): ReactNod
       <Link to={href} className={styles.card}>
         {body}
       </Link>
+    );
+  }
+
+  if (onOpen) {
+    return (
+      <article
+        className={styles.card}
+        role="button"
+        tabIndex={0}
+        onClick={() => onOpen(asset)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onOpen(asset);
+          }
+        }}
+      >
+        {body}
+      </article>
     );
   }
 

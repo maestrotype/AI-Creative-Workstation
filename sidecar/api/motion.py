@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 import asyncio
+import base64
 import os
 import tempfile
 import time
@@ -10,8 +11,10 @@ import uuid
 
 from api import generation
 from api import h3_local
+from api import mlx_ti2v
 from api import runway_cloud
 from api.video import _ffmpeg_bin, _run_ffmpeg
+from video_capability import assert_mode_allowed, resolve_mode
 
 router = APIRouter()
 
@@ -27,12 +30,21 @@ class VideoGenRequest(BaseModel):
     duration_sec: float = 5.0
     model_id: str = "MiniMaxAI/MiniMax-H3"
     image_path: Optional[str] = None
+    image_base64: Optional[str] = None
     api_secret: Optional[str] = None
     h3_endpoint: Optional[str] = None
+    # ai_video | image_animation | t2v — never infer cinematic intent from SVD being installed.
+    mode: Optional[str] = None
+
+
+def _is_ti2v(model_id: str) -> bool:
+    key = (model_id or "").lower()
+    return "ti2v" in key or "anes1032" in key
 
 
 def _is_wan(model_id: str) -> bool:
-    return "wan" in model_id.lower()
+    key = (model_id or "").lower()
+    return "wan" in key and not _is_ti2v(model_id)
 
 
 def _is_svd(model_id: str) -> bool:
@@ -189,6 +201,71 @@ def _encode_frames(frames, fps: int, dest: str) -> None:
         )
 
 
+# Mean absolute pixel difference below this is a freeze-frame, not generated motion.
+_LOW_MOTION_MAE = 4.0
+# First generated frame vs source still. Heuristic only — not a product-identity solver.
+_IDENTITY_MAE = 32.0
+
+
+def _motion_report(frames, *, fps: int) -> dict:
+    """Lightweight frame-change score. Does not equal cinematic quality."""
+    images = _frame_list(frames)
+    count = len(images)
+    if count == 0:
+        return {
+            "frame_count": 0,
+            "fps": fps,
+            "duration_sec": 0.0,
+            "width": 0,
+            "height": 0,
+            "motion_mae": 0.0,
+            "motion_score": 0.0,
+            "low_motion": True,
+        }
+    import numpy as np
+
+    first = np.asarray(images[0], dtype=np.float32)
+    mid = np.asarray(images[count // 2], dtype=np.float32)
+    last = np.asarray(images[-1], dtype=np.float32)
+    mae = float(max(np.mean(np.abs(first - mid)), np.mean(np.abs(first - last))))
+    score = min(1.0, mae / 32.0)
+    h, w = int(first.shape[0]), int(first.shape[1])
+    print(f"[motion] frames={count} fps={fps} mae={mae:.2f} score={score:.3f}", flush=True)
+    return {
+        "frame_count": count,
+        "fps": fps,
+        "duration_sec": round(count / max(1, fps), 3),
+        "width": w,
+        "height": h,
+        "motion_mae": round(mae, 3),
+        "motion_score": round(score, 3),
+        "low_motion": mae < _LOW_MOTION_MAE or count < 3,
+        "identity_mae": None,
+        "identity_warning": False,
+    }
+
+
+def _identity_vs_source(source, frames) -> dict:
+    """Warn when the first frame is obviously not the source product photo."""
+    images = _frame_list(frames)
+    if source is None or not images:
+        return {"identity_mae": None, "identity_warning": False}
+    import numpy as np
+
+    first = images[0].convert("RGB")
+    src = source.convert("RGB").resize(first.size)
+    mae = float(np.mean(np.abs(
+        np.asarray(src, dtype=np.float32) - np.asarray(first, dtype=np.float32)
+    )))
+    warning = mae >= _IDENTITY_MAE
+    print(f"[motion] identity mae={mae:.2f} warning={warning}", flush=True)
+    return {"identity_mae": round(mae, 3), "identity_warning": warning}
+
+
+def _frames_are_static(frames) -> bool:
+    return bool(_motion_report(frames, fps=7)["low_motion"])
+
+
 def _infer_wan(pipe, request: VideoGenRequest, *, compact: bool):
     width, height = _size(request.format, compact=compact)
     frames_n = _frame_count(request.duration_sec, compact=compact)
@@ -216,7 +293,57 @@ def _infer_wan(pipe, request: VideoGenRequest, *, compact: bool):
     return out.frames[0], frames_n
 
 
-def _run_wan(request: VideoGenRequest, job_id: str) -> str:
+def _run_ti2v(request: VideoGenRequest, job_id: str):
+    """Local prompt-conditioned I2V. Subprocess so MLX memory dies with the worker."""
+    generation.set_runtime_job(
+        active=True,
+        kind="video",
+        stage="load",
+        percent=4,
+        detail="Wan 2.2 TI2V",
+        model_id=request.model_id,
+        started_at=time.time(),
+        error=None,
+        cancel=False,
+    )
+    dropped = generation._unload_all_models()
+    if dropped:
+        print(f"[motion] freed {dropped} pipeline(s) before TI2V", flush=True)
+    dest_dir = os.path.expanduser("~/Documents/Canvas/Generated/Video")
+    os.makedirs(dest_dir, exist_ok=True)
+    dest = os.path.join(dest_dir, f"{job_id}.mp4")
+    generation.set_runtime_job(stage="infer", percent=12, detail="mlx i2v")
+
+    def on_log(_line: str, percent: int) -> None:
+        generation.set_runtime_job(stage="infer", percent=percent, detail="mlx i2v")
+
+    mlx_ti2v.run_ti2v(
+        image_path=request.image_path or "",
+        prompt=request.prompt,
+        dest=dest,
+        model_id=request.model_id,
+        seed=int(time.time()) % 10_000,
+        should_cancel=generation.runtime_should_cancel,
+        on_log=on_log,
+    )
+    generation.set_runtime_job(stage="validate", percent=90, detail="releasing")
+    frames = mlx_ti2v.extract_frames(dest)
+    quality = _motion_report(frames, fps=mlx_ti2v.FPS)
+    still_path = request.image_path or ""
+    if still_path and os.path.isfile(still_path):
+        from PIL import Image
+
+        quality.update(_identity_vs_source(Image.open(still_path), frames))
+    del frames
+    import gc
+
+    gc.collect()
+    generation.set_runtime_job(active=False, stage="released", percent=100, detail="released")
+    print(f"[{job_id}] TI2V saved {dest} mae={quality.get('motion_mae')}", flush=True)
+    return dest, quality
+
+
+def _run_wan(request: VideoGenRequest, job_id: str):
     generation.set_runtime_job(
         active=True,
         kind="video",
@@ -253,9 +380,11 @@ def _run_wan(request: VideoGenRequest, job_id: str) -> str:
     dest = os.path.join(dest_dir, f"{job_id}.mp4")
     generation.set_runtime_job(stage="encode", percent=92, detail="ffmpeg")
     _encode_frames(frames, 16, dest)
+    quality = _motion_report(frames, fps=16)
+    generation._unload_model(cache_key)
     generation.set_runtime_job(active=False, stage="idle", percent=100, detail="done")
     print(f"[{job_id}] motion saved {dest} frames={frames_n}", flush=True)
-    return dest
+    return dest, quality
 
 
 def _fit_product_image(path: str, fmt: str):
@@ -326,98 +455,247 @@ def _get_svd_pipe(model_id: str, *, force: bool = False):
     return pipe
 
 
-def _run_svd(request: VideoGenRequest, job_id: str) -> str:
-    generation.set_runtime_job(
-        active=True,
-        kind="video",
-        stage="load",
-        percent=4,
-        detail="SVD",
-        model_id=request.model_id,
-        started_at=time.time(),
-        error=None,
-        cancel=False,
-    )
-    image = _fit_product_image(request.image_path or "", request.format)
-    generation.set_runtime_job(stage="infer", percent=12, detail="img2vid")
-    pipe = _get_svd_pipe(request.model_id)
-    torch = generation.torch
-    frames_n = 14 if _on_apple_silicon() else 25
-    steps = 20 if _on_apple_silicon() else 25
+def _infer_svd(pipe, image, torch, *, frames_n: int, steps: int, motion: int, noise: float, seed: int):
     kwargs = {
         "image": image,
         "num_frames": frames_n,
         "num_inference_steps": steps,
-        "motion_bucket_id": 40,
-        "noise_aug_strength": 0.02,
-        "decode_chunk_size": 2,
-        "generator": torch.Generator(device="cpu").manual_seed(42),
+        "fps": 7,
+        "motion_bucket_id": motion,
+        "noise_aug_strength": noise,
+        "decode_chunk_size": 4 if _on_apple_silicon() else 8,
+        "generator": torch.Generator(device="cpu").manual_seed(seed),
     }
     kwargs = generation.attach_step_callback(kwargs, steps)
     try:
         out = pipe(**kwargs)
     except TypeError:
         kwargs.pop("callback_on_step_end", None)
-        out = pipe(**kwargs)
-    frames = out.frames[0]
+        try:
+            out = pipe(**kwargs)
+        except TypeError:
+            kwargs.pop("fps", None)
+            out = pipe(**kwargs)
+    return out.frames[0]
+
+
+def _run_svd(request: VideoGenRequest, job_id: str):
+    """Short image animation. Ignores the text prompt. Never Ken Burns."""
+    generation.set_runtime_job(
+        active=True,
+        kind="video",
+        stage="load",
+        percent=4,
+        detail="SVD animation",
+        model_id=request.model_id,
+        started_at=time.time(),
+        error=None,
+        cancel=False,
+    )
+    still_path = request.image_path or ""
+    image = _fit_product_image(still_path, request.format)
+    generation.set_runtime_job(stage="infer", percent=12, detail="img2vid")
+    cache_key = generation._to_cache_key(request.model_id)
+    pipe = _get_svd_pipe(request.model_id)
+    torch = generation.torch
+    apple = _on_apple_silicon()
+    # SVD-XT is 25 frames; Mac compact is 14 @ 7 fps (~2s). Do not pad duration.
+    frames_n = 14 if apple else 25
+    steps = 22 if apple else 25
     dest_dir = os.path.expanduser("~/Documents/Canvas/Generated/Video")
     os.makedirs(dest_dir, exist_ok=True)
     dest = os.path.join(dest_dir, f"{job_id}.mp4")
+    fps = 7
+
+    attempts = (
+        {"motion": 80, "noise": 0.08, "seed": int(time.time()) % 10_000},
+        {"motion": 127, "noise": 0.18, "seed": 99},
+    )
+    frames = None
+    quality = {"low_motion": True, "frame_count": 0, "fps": fps, "duration_sec": 0.0}
+    last_err: Exception | None = None
+    for i, attempt in enumerate(attempts):
+        try:
+            generation.set_runtime_job(
+                stage="infer",
+                percent=12 + i * 30,
+                detail=f"img2vid {i + 1}/{len(attempts)}",
+            )
+            frames = _infer_svd(
+                pipe, image, torch,
+                frames_n=frames_n, steps=steps,
+                motion=attempt["motion"], noise=attempt["noise"], seed=attempt["seed"],
+            )
+            quality = _motion_report(frames, fps=fps)
+            quality.update(_identity_vs_source(image, frames))
+            if not quality["low_motion"]:
+                break
+            print(f"[{job_id}] SVD low motion attempt {i + 1}", flush=True)
+        except Exception as err:
+            last_err = err
+            if not generation._is_mps_placeholder(err):
+                generation._unload_model(cache_key)
+                raise
+            print(f"[{job_id}] SVD OOM attempt {i + 1}: {err}", flush=True)
+            generation._unload_model(cache_key)
+            pipe = _get_svd_pipe(request.model_id, force=True)
+            frames_n = 14
+            steps = 18
+
+    if frames is None:
+        generation._unload_model(cache_key)
+        raise last_err or RuntimeError("SVD produced no frames")
+
     generation.set_runtime_job(stage="encode", percent=92, detail="ffmpeg")
-    _encode_frames(frames, 7, dest)
-    generation.set_runtime_job(active=False, stage="idle", percent=100, detail="done")
-    print(f"[{job_id}] SVD saved {dest} frames={frames_n}", flush=True)
+    _encode_frames(frames, fps, dest)
+    generation._unload_model(cache_key)
+    status = "low_motion" if quality["low_motion"] else "completed"
+    generation.set_runtime_job(active=False, stage="idle", percent=100, detail=status)
+    print(f"[{job_id}] SVD {status} {dest} frames={quality.get('frame_count')}", flush=True)
+    if status == "low_motion":
+        raise RuntimeError(
+            "LOW_MOTION: SVD animated the still but frames are nearly identical "
+            f"(mae={quality.get('motion_mae')}, {quality.get('duration_sec')}s @ {fps} fps). "
+            "This is not AI video generation. Try Runway / H3 for a prompt-driven clip, "
+            "or a different still."
+        )
+    return dest, quality
+
+
+def _still_from_request(request: VideoGenRequest) -> str:
+    path = (request.image_path or "").strip()
+    if path and os.path.isfile(path):
+        return path
+    raw = (request.image_base64 or "").strip()
+    if not raw:
+        return ""
+    if "," in raw:
+        raw = raw.split(",", 1)[1]
+    try:
+        data = base64.b64decode(raw)
+    except Exception as err:  # noqa: BLE001
+        raise RuntimeError("IMAGE_REQUIRED: Could not read the attached still.") from err
+    dest_dir = os.path.expanduser("~/Documents/Canvas/Generated")
+    os.makedirs(dest_dir, exist_ok=True)
+    dest = os.path.join(dest_dir, f"still_{uuid.uuid4().hex[:10]}.png")
+    with open(dest, "wb") as handle:
+        handle.write(data)
     return dest
+
+
+def _clip_payload(*, job_id: str, path: str, spec: dict, quality: dict, status: str = "completed") -> dict:
+    return {
+        "job_id": job_id,
+        "file_path": path,
+        "status": status,
+        "capability": spec["capability"],
+        "provider_id": spec["id"],
+        "prompt_consumed": bool(spec.get("prompt_consumed")),
+        "quality": quality,
+    }
 
 
 @router.post("/generate/video")
 async def generate_video(request: VideoGenRequest):
-    if not (request.image_path or "").strip():
+    job_id = f"vid_{uuid.uuid4().hex[:12]}"
+    mode = resolve_mode(request.mode, prompt=request.prompt, model_id=request.model_id)
+    try:
+        spec = assert_mode_allowed(mode, request.model_id)
+    except RuntimeError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    still = _still_from_request(request)
+    if still:
+        request.image_path = still
+    if spec["supports_image_conditioning"] and not still:
         raise HTTPException(
             status_code=400,
-            detail="IMAGE_REQUIRED: Insert a product photo into the scene, then generate video.",
+            detail="IMAGE_REQUIRED: Attach a photo for this video provider.",
         )
-    job_id = f"vid_{uuid.uuid4().hex[:12]}"
-    model = (request.model_id or "").lower()
-    use_h3 = "minimax" in model or "h3" in model or not (request.api_secret or "").strip()
-    if "runway" in model:
-        use_h3 = False
-    if use_h3:
+
+    if _is_ti2v(request.model_id):
         def runner():
-            return h3_local.run_h3(
-                image_path=request.image_path or "",
-                prompt=request.prompt,
-                fmt=request.format,
-                duration_sec=request.duration_sec,
-                endpoint=request.h3_endpoint or "",
-                job_id=job_id,
-            )
+            return _run_ti2v(request, job_id)
+    elif _is_wan(request.model_id):
+        def runner():
+            path, quality = _run_wan(request, job_id)
+            return path, quality
+    elif _is_svd(request.model_id):
+        def runner():
+            return _run_svd(request, job_id)
     else:
-        if not (request.api_secret or "").strip():
-            raise HTTPException(
-                status_code=400,
-                detail="H3_REQUIRED: Download MiniMax H3 or set an SGLang URL in Settings. Runway is optional and paid.",
-            )
-        def runner():
-            return runway_cloud.run_runway(
-                image_path=request.image_path or "",
-                prompt=request.prompt,
-                fmt=request.format,
-                duration_sec=request.duration_sec,
-                api_key=request.api_secret or "",
-                job_id=job_id,
-            )
+        use_h3 = "minimax" in (request.model_id or "").lower() or "h3" in (request.model_id or "").lower()
+        if "runway" in (request.model_id or "").lower():
+            use_h3 = False
+        if use_h3:
+            def runner():
+                path = h3_local.run_h3(
+                    image_path=request.image_path or "",
+                    prompt=request.prompt,
+                    fmt=request.format,
+                    duration_sec=request.duration_sec,
+                    endpoint=request.h3_endpoint or "",
+                    job_id=job_id,
+                )
+                return path, {
+                    "frame_count": 0,
+                    "fps": 24,
+                    "duration_sec": float(request.duration_sec or 5),
+                    "motion_score": None,
+                    "low_motion": False,
+                    "prompt_consumed": True,
+                }
+        else:
+            if not (request.api_secret or "").strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="VIDEO_CAPABILITY_UNSUPPORTED: Runway API key is missing. Set it in Settings.",
+                )
+            def runner():
+                path = runway_cloud.run_runway(
+                    image_path=request.image_path or "",
+                    prompt=request.prompt,
+                    fmt=request.format,
+                    duration_sec=request.duration_sec,
+                    api_key=request.api_secret or "",
+                    job_id=job_id,
+                )
+                return path, {
+                    "frame_count": 0,
+                    "fps": 24,
+                    "duration_sec": float(max(5, min(10, request.duration_sec or 5))),
+                    "motion_score": None,
+                    "low_motion": False,
+                    "prompt_consumed": True,
+                }
 
     async with generation._generation_lock:
+        generation.cancel_idle_release()
         try:
-            path = await asyncio.to_thread(runner)
+            path, quality = await asyncio.to_thread(runner)
         except RuntimeError as err:
             generation.clear_runtime_job(error=str(err)[:240])
+            generation.schedule_idle_release()
             msg = str(err)
-            if msg.startswith(("H3_", "RUNWAY_", "IMAGE_REQUIRED", "CANCELLED")):
+            if msg.startswith((
+                "H3_", "RUNWAY_", "IMAGE_REQUIRED", "CANCELLED",
+                "VIDEO_MODEL_MISSING", "VIDEO_CAPABILITY", "LOW_MOTION",
+                "TI2V_FAILED",
+            )):
                 raise HTTPException(status_code=400, detail=msg) from err
             raise HTTPException(status_code=500, detail=msg) from err
         except Exception as err:
             generation.clear_runtime_job(error=str(err)[:240])
+            generation.schedule_idle_release()
             raise HTTPException(status_code=500, detail=str(err)) from err
-    return {"job_id": job_id, "status": "completed", "file_path": path}
+        generation.schedule_idle_release()
+    if quality.get("low_motion"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "LOW_MOTION: Frames are nearly identical "
+                f"(mae={quality.get('motion_mae')}, "
+                f"{quality.get('duration_sec')}s @ {quality.get('fps')} fps). "
+                "An MP4 file is not a successful video generation."
+            ),
+        )
+    return _clip_payload(job_id=job_id, path=path, spec=spec, quality=quality, status="completed")

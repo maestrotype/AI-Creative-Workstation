@@ -18,16 +18,85 @@ torch = None
 AutoPipelineForText2Image = None
 
 
+def _patch_mps_sdpa(torch_mod) -> None:
+    """MPS scaled_dot_product_attention requests a ~44 GiB workspace on 64 GB Macs."""
+    import torch.nn.functional as F
+
+    if getattr(F, "_acw_mps_sdpa_patched", False):
+        return
+    orig = F.scaled_dot_product_attention
+
+    def _sliced(
+        query,
+        key,
+        value,
+        attn_mask=None,
+        dropout_p=0.0,
+        is_causal=False,
+        scale=None,
+        enable_gqa=False,
+        **kwargs,
+    ):
+        if getattr(query, "device", None) is None or query.device.type != "mps":
+            try:
+                return orig(
+                    query, key, value,
+                    attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal,
+                    scale=scale, enable_gqa=enable_gqa, **kwargs,
+                )
+            except TypeError:
+                return orig(
+                    query, key, value,
+                    attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal, scale=scale,
+                )
+        if query.ndim != 4:
+            return orig(query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal, scale=scale)
+        q, k, v = query, key, value
+        heads_q, heads_k = q.shape[1], k.shape[1]
+        if enable_gqa and heads_q != heads_k and heads_k > 0 and heads_q % heads_k == 0:
+            rep = heads_q // heads_k
+            k = k.repeat_interleave(rep, dim=1)
+            v = v.repeat_interleave(rep, dim=1)
+        q_len, dim = q.shape[-2], q.shape[-1]
+        scale_value = (dim ** -0.5) if scale is None else float(scale)
+        k_t = k.transpose(-2, -1)
+        chunks = []
+        for start in range(0, q_len, 64):
+            qs = q[:, :, start:start + 64, :]
+            scores = torch_mod.matmul(qs.float(), k_t.float()) * scale_value
+            if attn_mask is not None:
+                mask = attn_mask
+                if mask.dtype == torch_mod.bool:
+                    scores = scores.masked_fill(~mask, torch_mod.finfo(scores.dtype).min)
+                else:
+                    scores = scores + mask.float()
+            if is_causal:
+                sl = qs.shape[-2]
+                causal = torch_mod.ones(
+                    sl, k.shape[-2], device=scores.device, dtype=torch_mod.bool,
+                ).triu(diagonal=1 + start)
+                scores = scores.masked_fill(causal, torch_mod.finfo(scores.dtype).min)
+            probs = torch_mod.softmax(scores, dim=-1).to(dtype=v.dtype)
+            chunks.append(torch_mod.matmul(probs, v))
+        return torch_mod.cat(chunks, dim=-2).to(dtype=query.dtype)
+
+    F.scaled_dot_product_attention = _sliced
+    F._acw_mps_sdpa_patched = True
+    print("MPS SDPA patched (sliced; no 44 GiB workspace)", flush=True)
+
+
 def _ensure_ml():
     global torch, AutoPipelineForText2Image
     if torch is not None:
         return
-    os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
-    os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
+    os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+    os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
+    os.environ["PYTORCH_MPS_LOW_WATERMARK_RATIO"] = "0.0"
     import torch as _torch
     from diffusers import AutoPipelineForText2Image as _Pipe
     torch = _torch
     AutoPipelineForText2Image = _Pipe
+    _patch_mps_sdpa(torch)
 
 router = APIRouter()
 
@@ -163,9 +232,25 @@ def _memory_snapshot() -> dict:
                 mps_alloc = int(torch.mps.current_allocated_memory())
         except Exception:  # noqa: BLE001
             mps_alloc = 0
+    ram_total = ram_available = ram_used = 0
+    ram_percent = 0.0
+    try:
+        import psutil
+
+        vm = psutil.virtual_memory()
+        ram_total = int(vm.total)
+        ram_available = int(vm.available)
+        ram_used = int(vm.used)
+        ram_percent = float(vm.percent)
+    except Exception:  # noqa: BLE001
+        pass
     return {
         "sidecar_rss_bytes": _process_rss_bytes(),
         "mps_allocated_bytes": mps_alloc,
+        "ram_total": ram_total,
+        "ram_available": ram_available,
+        "ram_used": ram_used,
+        "ram_percent": ram_percent,
     }
 
 
@@ -199,9 +284,28 @@ def _owned_loaded_keys() -> list[str]:
     return keys
 
 
+def _video_backend_snapshot() -> dict:
+    try:
+        from api import mlx_ti2v
+    except Exception:  # noqa: BLE001
+        return {
+            "id": "Anes1032/Wan2.2-TI2V-5B-mlx-q8",
+            "state": "ERROR",
+            "installed": False,
+            "approx_bytes": 0,
+        }
+    return mlx_ti2v.backend_snapshot(
+        job_active=bool(_runtime_job.get("active")),
+        job_stage=str(_runtime_job.get("stage") or "idle"),
+        job_model_id=str(_runtime_job.get("model_id") or ""),
+        job_error=_runtime_job.get("error"),
+    )
+
+
 def runtime_status_payload() -> dict:
     started = float(_runtime_job.get("started_at") or 0)
     elapsed = max(0.0, time.time() - started) if started else 0.0
+    memory = _memory_snapshot()
     return {
         "job": {
             "active": bool(_runtime_job.get("active")),
@@ -214,8 +318,13 @@ def runtime_status_payload() -> dict:
             "error": _runtime_job.get("error"),
         },
         "loaded": _owned_loaded_keys(),
-        "memory": _memory_snapshot(),
+        "memory": memory,
         "busy": _generation_lock.locked(),
+        "ram_total": memory.get("ram_total") or 0,
+        "ram_available": memory.get("ram_available") or 0,
+        "ram_used": memory.get("ram_used") or 0,
+        "ram_percent": memory.get("ram_percent") or 0,
+        "video_backend": _video_backend_snapshot(),
     }
 
 
@@ -356,8 +465,17 @@ def _is_flux(model_id: str) -> bool:
     return "flux" in model_id.lower()
 
 
+def _on_apple_silicon() -> bool:
+    if torch is None:
+        return os.uname().sysname == "Darwin"
+    try:
+        return bool(torch.backends.mps.is_available() and not torch.cuda.is_available())
+    except Exception:  # noqa: BLE001
+        return os.uname().sysname == "Darwin"
+
+
 def _pick_size(model_id: str, request_format: str, compact: bool = False) -> tuple[int, int]:
-    """Frame size. FLUX on MPS OOMs / hits placeholder bugs at 1024x1536; cap it."""
+    """Frame size. FLUX 44 GiB was T5-on-MPS, not width; still cap wide frames for attention."""
     mid = model_id.lower()
     if compact:
         base = 512
@@ -368,10 +486,13 @@ def _pick_size(model_id: str, request_format: str, compact: bool = False) -> tup
     else:
         base = 512
     if request_format == "portrait":
-        return base, (base * 3) // 2
-    if request_format == "wide":
-        return (base * 3) // 2, base
-    return base, base
+        w, h = (base, (base * 5) // 4) if "flux" in mid else (base, (base * 3) // 2)
+    elif request_format == "wide":
+        w, h = ((base * 5) // 4, base) if "flux" in mid else ((base * 3) // 2, base)
+    else:
+        w, h = base, base
+    # FLUX packed latents need multiples of 16.
+    return max(16, (w // 16) * 16), max(16, (h // 16) * 16)
 
 
 def _get_pipeline(model_id: str, force: bool = False):
@@ -382,8 +503,11 @@ def _get_pipeline(model_id: str, force: bool = False):
         _unload_model(cache_key)
     if cache_key in pipeline_cache:
         pipe = pipeline_cache[cache_key]
-        if _is_flux(model_id) and type(pipe).__name__ == "FluxImg2ImgPipeline":
-            print("Replacing cached FluxImg2Img with FluxPipeline (prompt following)", flush=True)
+        if _is_flux(model_id) and (
+            type(pipe).__name__ == "FluxImg2ImgPipeline"
+            or not getattr(pipe, "_acw_flux_mps_v3", False)
+        ):
+            print("Reloading FLUX with MPS-safe offload (T5 stays on CPU)", flush=True)
             _unload_model(cache_key)
         else:
             print(f"Using cached pipeline for {cache_key}", flush=True)
@@ -429,8 +553,168 @@ def _get_pipeline(model_id: str, force: bool = False):
     return cache_key, pipe
 
 
+_FLUX_ATTN_PATCHED = False
+
+
+def _sliced_attention_mps(query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None, **_kwargs):
+    """Attention without MPS scaled_dot_product_attention (that kernel asks for a ~44 GiB workspace)."""
+    # query/key/value: [batch, seq, heads, dim] as FluxAttnProcessor emits.
+    q = query.transpose(1, 2)
+    k = key.transpose(1, 2)
+    v = value.transpose(1, 2)
+    _batch, q_heads, q_len, dim = q.shape
+    k_heads = k.shape[1]
+    if q_heads != k_heads:
+        if q_heads % k_heads != 0:
+            raise RuntimeError(f"attention head mismatch q={q_heads} k={k_heads}")
+        repeat = q_heads // k_heads
+        k = k.repeat_interleave(repeat, dim=1)
+        v = v.repeat_interleave(repeat, dim=1)
+    scale_value = (dim ** -0.5) if scale is None else float(scale)
+    k_len = k.shape[2]
+    slice_size = 128
+    chunks = []
+    for start in range(0, q_len, slice_size):
+        qs = q[:, :, start:start + slice_size, :]
+        scores = torch.matmul(qs.float(), k.transpose(-2, -1).float()) * scale_value
+        if attn_mask is not None:
+            mask = attn_mask
+            if mask.dtype == torch.bool:
+                if mask.ndim == 2:
+                    mask = mask[:, None, None, :]
+                scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
+            else:
+                if mask.ndim == 2:
+                    mask = mask[:, None, None, :]
+                scores = scores + mask.float()
+        if is_causal:
+            sl = qs.shape[2]
+            causal = torch.ones(sl, k_len, device=scores.device, dtype=torch.bool).triu(diagonal=1 + start)
+            scores = scores.masked_fill(causal, torch.finfo(scores.dtype).min)
+        probs = torch.softmax(scores, dim=-1).to(dtype=v.dtype)
+        chunks.append(torch.matmul(probs, v))
+        del scores, probs
+    out = torch.cat(chunks, dim=2)
+    return out.transpose(1, 2).to(dtype=query.dtype)
+
+
+def _install_flux_sliced_attention() -> None:
+    """FluxAttnProcessor imports dispatch_attention_fn by name — patch that module binding."""
+    global _FLUX_ATTN_PATCHED
+    if _FLUX_ATTN_PATCHED:
+        return
+    import diffusers.models.transformers.transformer_flux as flux_tf
+
+    orig = flux_tf.dispatch_attention_fn
+
+    def _dispatch(query, key, value, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None, **kwargs):
+        if getattr(query, "device", None) is not None and query.device.type == "mps":
+            return _sliced_attention_mps(
+                query, key, value,
+                attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal, scale=scale,
+            )
+        return orig(
+            query, key, value,
+            attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal, scale=scale,
+            **kwargs,
+        )
+
+    flux_tf.dispatch_attention_fn = _dispatch
+    _FLUX_ATTN_PATCHED = True
+    print("FLUX attention: sliced matmul on MPS (no SDPA 44 GiB workspace)", flush=True)
+
+
+def _flux_encoder_dtype(pipe):
+    dtype = torch.bfloat16
+    try:
+        tr = getattr(pipe, "transformer", None)
+        if tr is not None:
+            dtype = next(tr.parameters()).dtype
+    except Exception:  # noqa: BLE001
+        pass
+    return dtype
+
+
+def _pin_flux_encoders_cpu(pipe) -> None:
+    """CLIP + T5-XXL must stay on CPU. A single .to(mps) of T5 is the 44 GiB Metal error."""
+    if torch is None:
+        return
+    dtype = _flux_encoder_dtype(pipe)
+    try:
+        from accelerate.hooks import remove_hook_from_module
+    except Exception:  # noqa: BLE001
+        remove_hook_from_module = None
+    for name in ("text_encoder", "text_encoder_2", "image_encoder"):
+        enc = getattr(pipe, name, None)
+        if enc is None:
+            continue
+        if remove_hook_from_module is not None:
+            try:
+                remove_hook_from_module(enc, recurse=True)
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            enc.to(device="cpu", dtype=dtype)
+            p = next(enc.parameters())
+            if p.device.type != "cpu":
+                print(f"FLUX {name} still on {p.device} after pin", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"FLUX {name} pin skipped: {e}", flush=True)
+
+
+def _apply_flux_mps_offload(pipe) -> None:
+    """Hook transformer+VAE only. Stock enable_model_cpu_offload copies T5 onto MPS."""
+    from accelerate import cpu_offload_with_hook
+
+    if hasattr(pipe, "remove_all_hooks"):
+        try:
+            pipe.remove_all_hooks()
+        except Exception as e:  # noqa: BLE001
+            print(f"FLUX remove_all_hooks: {e}", flush=True)
+
+    _pin_flux_encoders_cpu(pipe)
+
+    device = torch.device("mps")
+    pipe._offload_device = device
+    pipe._offload_gpu_id = 0
+    pipe.model_cpu_offload_seq = "transformer->vae"
+    # Do not put encoders in _exclude_from_cpu_offload: stock offload then does model.to(mps).
+    pipe._exclude_from_cpu_offload = []
+
+    pipe._all_hooks = []
+    hook = None
+    for name in ("transformer", "vae"):
+        model = getattr(pipe, name, None)
+        if model is None:
+            continue
+        _, hook = cpu_offload_with_hook(model, device, prev_module_hook=hook)
+        pipe._all_hooks.append(hook)
+    print(f"FLUX offload transformer/VAE → {device}, CLIP+T5 on CPU, hooks={len(pipe._all_hooks)}", flush=True)
+
+
+def _install_flux_offload_guards(pipe) -> None:
+    """maybe_free_model_hooks re-runs enable_model_cpu_offload and would yank T5 to MPS again."""
+    import types
+
+    def _blocked_cpu_offload(self, *args, **kwargs):  # noqa: ARG001
+        print("FLUX: enable_model_cpu_offload blocked (keeps T5 off MPS)", flush=True)
+        _apply_flux_mps_offload(self)
+
+    def _maybe_free(self):
+        for component in self.components.values():
+            if hasattr(component, "_reset_stateful_cache"):
+                try:
+                    component._reset_stateful_cache()
+                except Exception:  # noqa: BLE001
+                    pass
+        _pin_flux_encoders_cpu(self)
+
+    pipe.enable_model_cpu_offload = types.MethodType(_blocked_cpu_offload, pipe)
+    pipe.maybe_free_model_hooks = types.MethodType(_maybe_free, pipe)
+
+
 def _load_flux(model_path: str, local_files_only: bool, dtype):
-    """FLUX on Mac: keep T5 on CPU, offload the rest so MPS is not filled with 24GB weights."""
+    """FLUX on Mac: T5 stays on CPU; only transformer+VAE offload to MPS."""
     from diffusers import FluxPipeline
 
     load_kw = {"local_files_only": local_files_only}
@@ -439,18 +723,6 @@ def _load_flux(model_path: str, local_files_only: bool, dtype):
     except TypeError:
         pipe = FluxPipeline.from_pretrained(model_path, torch_dtype=dtype, **load_kw)
 
-    exclude = list(getattr(pipe, "_exclude_from_cpu_offload", []) or [])
-    if "text_encoder_2" not in exclude:
-        exclude.append("text_encoder_2")
-    pipe._exclude_from_cpu_offload = exclude
-    if getattr(pipe, "text_encoder_2", None) is not None:
-        pipe.text_encoder_2.to("cpu")
-
-    try:
-        pipe.enable_model_cpu_offload(device="mps")
-    except TypeError:
-        pipe.enable_model_cpu_offload()
-
     try:
         pipe.enable_vae_slicing()
         if getattr(pipe, "vae", None) is not None:
@@ -458,29 +730,22 @@ def _load_flux(model_path: str, local_files_only: bool, dtype):
     except Exception as e:  # noqa: BLE001
         print(f"VAE slice/tile skipped: {e}", flush=True)
 
-    print("FLUX ready (cpu offload → MPS, T5 on CPU)", flush=True)
-    _pin_flux_t5(pipe)
+    if torch.backends.mps.is_available():
+        _install_flux_sliced_attention()
+        _apply_flux_mps_offload(pipe)
+        _install_flux_offload_guards(pipe)
+    else:
+        pipe.enable_model_cpu_offload()
+        _pin_flux_encoders_cpu(pipe)
+
+    pipe._acw_flux_mps_v3 = True
+    print("FLUX ready (transformer/VAE offload, T5+CLIP on CPU, sliced attn)", flush=True)
     return pipe
 
 
 def _pin_flux_t5(pipe) -> None:
-    """T5 on MPS yields NaN embeddings. Keep it on CPU in the same dtype as the transformer."""
-    te2 = getattr(pipe, "text_encoder_2", None)
-    if te2 is None or torch is None:
-        return
-    dtype = torch.bfloat16
-    try:
-        tr = getattr(pipe, "transformer", None)
-        if tr is not None:
-            dtype = next(tr.parameters()).dtype
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        te2.to(device="cpu", dtype=dtype)
-        dev = next(te2.parameters()).device
-        print(f"T5 device={dev} dtype={next(te2.parameters()).dtype}", flush=True)
-    except Exception as e:  # noqa: BLE001
-        print(f"T5 pin skipped: {e}", flush=True)
+    """T5 on MPS yields NaN embeddings and a 44 GiB Metal alloc. Keep encoders on CPU."""
+    _pin_flux_encoders_cpu(pipe)
 
 
 def _decode_data_url(image_base64: str):
@@ -776,8 +1041,20 @@ def _is_dtype_mismatch(err: BaseException) -> bool:
 
 
 def _is_mps_placeholder(err: BaseException) -> bool:
+    """Metal refused a huge buffer (OOM, placeholder, 40GB+ invalid size)."""
     msg = str(err).lower()
-    return "placeholder storage" in msg or ("mps device" in msg and "allocat" in msg) or msg.startswith("mps_oom")
+    needles = (
+        "placeholder storage",
+        "invalid buffer size",
+        "mps_oom",
+        "out of memory",
+        "not enough memory",
+        "failed to allocate",
+        "insufficient memory",
+    )
+    if any(s in msg for s in needles):
+        return True
+    return "mps device" in msg and "allocat" in msg
 
 
 def _is_device_mismatch(err: BaseException) -> bool:
@@ -798,34 +1075,56 @@ def _flux_exec_device(pipe):
     return torch.device("cpu")
 
 
+def _encode_flux_on_cpu(pipe, clip_prompt: str, t5_prompt: str, max_sequence_length: int):
+    """CLIP+T5 forward on CPU tensors only — never through Accelerate MPS hooks."""
+    tok_len = int(getattr(pipe, "tokenizer_max_length", 77) or 77)
+    clip_ids = pipe.tokenizer(
+        clip_prompt,
+        padding="max_length",
+        max_length=tok_len,
+        truncation=True,
+        return_tensors="pt",
+    ).input_ids.to("cpu")
+    clip_out = pipe.text_encoder(clip_ids, output_hidden_states=False)
+    pooled = clip_out.pooler_output if hasattr(clip_out, "pooler_output") else clip_out[1]
+    t5_ids = pipe.tokenizer_2(
+        t5_prompt,
+        padding="max_length",
+        max_length=max_sequence_length,
+        truncation=True,
+        return_tensors="pt",
+    ).input_ids.to("cpu")
+    prompt_embeds = pipe.text_encoder_2(t5_ids, output_hidden_states=False)[0]
+    return prompt_embeds, pooled
+
+
 def _encode_flux_prompts(pipe, clip_prompt: str, t5_prompt: str, max_sequence_length: int) -> dict:
     """Encode CLIP+T5 on CPU (T5 on MPS is NaN), then move embeds to the MPS execution device.
 
     Do not use transformer.parameters().device: with enable_model_cpu_offload that is CPU,
     so embeds stay on CPU while the hooked transformer runs on MPS.
     """
-    _pin_flux_t5(pipe)
-    te = getattr(pipe, "text_encoder", None)
-    if te is not None:
+    _pin_flux_encoders_cpu(pipe)
+    with torch.inference_mode():
         try:
-            te.to("cpu")
-        except Exception as e:  # noqa: BLE001
-            print(f"CLIP pin skipped: {e}", flush=True)
-    try:
-        encoded = pipe.encode_prompt(
-            prompt=clip_prompt,
-            prompt_2=t5_prompt,
-            device=torch.device("cpu"),
-            num_images_per_prompt=1,
-            max_sequence_length=max_sequence_length,
-        )
-    except TypeError:
-        encoded = pipe.encode_prompt(
-            prompt=clip_prompt,
-            device=torch.device("cpu"),
-            num_images_per_prompt=1,
-            max_sequence_length=max_sequence_length,
-        )
+            encoded = _encode_flux_on_cpu(pipe, clip_prompt, t5_prompt, max_sequence_length)
+        except Exception as direct_err:  # noqa: BLE001
+            print(f"FLUX direct CPU encode failed ({direct_err}); encode_prompt fallback", flush=True)
+            try:
+                encoded = pipe.encode_prompt(
+                    prompt=clip_prompt,
+                    prompt_2=t5_prompt,
+                    device=torch.device("cpu"),
+                    num_images_per_prompt=1,
+                    max_sequence_length=max_sequence_length,
+                )
+            except TypeError:
+                encoded = pipe.encode_prompt(
+                    prompt=clip_prompt,
+                    device=torch.device("cpu"),
+                    num_images_per_prompt=1,
+                    max_sequence_length=max_sequence_length,
+                )
     prompt_embeds = encoded[0]
     pooled = encoded[1]
     if torch.isnan(prompt_embeds).any() or torch.isinf(prompt_embeds).any():
@@ -933,11 +1232,11 @@ def _run_inference(pipe, request: GenerationRequest, job_id: str) -> str:
     }
     if _is_flux(request.model_id):
         infer_kwargs["prompt_2"] = t5_prompt
-        infer_kwargs["max_sequence_length"] = 256 if "schnell" in request.model_id.lower() else 512
+        infer_kwargs["max_sequence_length"] = 256 if _on_apple_silicon() or "schnell" in request.model_id.lower() else 512
 
     try:
         image = _run_pipe(pipe, request, infer_kwargs, init_image, width, height, strength)
-    except RuntimeError as err:
+    except Exception as err:
         if _is_device_mismatch(err) and _is_flux(request.model_id):
             print(f"[{job_id}] embeds on CPU vs MPS transformer — retrying with exec-device embeds", flush=True)
             _pin_flux_t5(pipe)
@@ -949,7 +1248,7 @@ def _run_inference(pipe, request: GenerationRequest, job_id: str) -> str:
         elif not _is_mps_placeholder(err):
             raise
         else:
-            print(f"[{job_id}] MPS placeholder — unloading poisoned pipeline and retrying 512px", flush=True)
+            print(f"[{job_id}] MPS OOM ({err}) — unloading poisoned pipeline and retrying 512px", flush=True)
             _unload_model(cache_key)
             _, pipe = _get_pipeline(request.model_id)
             width, height = _pick_size(request.model_id, fmt, compact=True)
@@ -959,7 +1258,7 @@ def _run_inference(pipe, request: GenerationRequest, job_id: str) -> str:
             infer_kwargs["generator"] = torch.Generator(device="cpu").manual_seed(int(time.time()))
             try:
                 image = _run_pipe(pipe, request, infer_kwargs, init_image, width, height, strength)
-            except RuntimeError as retry_err:
+            except Exception as retry_err:
                 _unload_model(cache_key)
                 if _is_mps_placeholder(retry_err):
                     raise RuntimeError(
@@ -1039,6 +1338,12 @@ async def generate_image(request: GenerationRequest):
                     await run_on_gpu(_unload_model, _to_cache_key(request.model_id))
                 except Exception as unload_err:  # noqa: BLE001
                     print(f"[{job_id}] auto-unload after MPS error failed: {unload_err}", flush=True)
+            else:
+                # Don't leave a poisoned FLUX in RAM after a hard crash.
+                try:
+                    await run_on_gpu(_unload_model, _to_cache_key(request.model_id))
+                except Exception:  # noqa: BLE001
+                    pass
             raise HTTPException(status_code=500, detail=str(e))
 
     schedule_idle_release()

@@ -17,6 +17,8 @@ export function ResultStep(): ReactNode {
   const referenceImages = useCreateStore((s) => s.referenceImages);
   const tryVariation = useCreateStore((s) => s.tryVariation);
   const startOver = useCreateStore((s) => s.startOver);
+  const makeClipFromResult = useCreateStore((s) => s.makeClipFromResult);
+  const animateFromResult = useCreateStore((s) => s.animateFromResult);
   const removeAssetByUrl = useHomeStore((s) => s.removeAssetByUrl);
   const setLastImagePath = useWorkspaceBridgeStore((s) => s.setLastImagePath);
   const setPendingTitleCard = useWorkspaceBridgeStore((s) => s.setPendingTitleCard);
@@ -33,6 +35,8 @@ export function ResultStep(): ReactNode {
   }, [result, setLastImagePath]);
 
   if (!result) return null;
+  const resultPath = filePathFromAssetUrl(result.thumbnailUrl);
+  const isVideoResult = result.kind === 'video' || Boolean(resultPath && /\.(mp4|mov|m4v|webm|mkv)$/i.test(resultPath));
 
   const sendToVideo = () => {
     const path = filePathFromAssetUrl(result.thumbnailUrl);
@@ -95,15 +99,34 @@ export function ResultStep(): ReactNode {
 
   return (
     <div className={styles.container}>
-      <p className={styles.jobTag}>{t(`create.job_${job}`)}</p>
+      <p className={styles.jobTag}>
+        {t(
+          isVideoResult
+            ? (result.capability === 'IMAGE_ANIMATION' ? 'create.medium_animate' : 'create.medium_video')
+            : `create.job_${job}`,
+        )}
+      </p>
       <div className={styles.imageArea}>
         {result.thumbnailUrl ? (
-          <img
-            key={result.id}
-            src={result.thumbnailUrl}
-            alt={result.prompt}
-            className={styles.generatedImage}
-          />
+          isVideoResult ? (
+            <video
+              key={result.id}
+              src={result.thumbnailUrl}
+              className={styles.generatedImage}
+              controls
+              playsInline
+              autoPlay
+              loop
+              muted
+            />
+          ) : (
+            <img
+              key={result.id}
+              src={result.thumbnailUrl}
+              alt={result.prompt}
+              className={styles.generatedImage}
+            />
+          )
         ) : (
           <div className={styles.placeholderContent}>
             <ImageIcon size={48} />
@@ -115,6 +138,40 @@ export function ResultStep(): ReactNode {
       <p className={styles.prompt}>
         "{result.prompt}"
       </p>
+      {isVideoResult ? (
+        <>
+          <p className={styles.hint}>
+            {result.promptConsumed
+              ? t('create.clip_ai_hint')
+              : t('create.clip_animation_hint')}
+          </p>
+          <p className={styles.quality}>
+            {t('create.quality_ok', {
+              duration: result.quality?.duration_sec ?? '—',
+              motion: result.quality?.motion_score == null
+                ? t('create.quality_motion_unknown')
+                : t('create.quality_motion_good'),
+            })}
+          </p>
+          {result.quality?.identity_warning ? (
+            <p className={styles.warn}>{t('create.quality_identity')}</p>
+          ) : null}
+          <details className={styles.details}>
+            <summary>{t('create.quality_details')}</summary>
+            <pre>
+              {JSON.stringify(
+                {
+                  capability: result.capability,
+                  promptConsumed: result.promptConsumed,
+                  ...result.quality,
+                },
+                null,
+                2,
+              )}
+            </pre>
+          </details>
+        </>
+      ) : null}
       {downloadError ? <p className={styles.error}>{downloadError}</p> : null}
 
       <div className={styles.actions}>
@@ -127,9 +184,20 @@ export function ResultStep(): ReactNode {
           {t('create.btn_try_variations')}
         </button>
 
+        {!isVideoResult ? (
+          <>
+            <button type="button" className={styles.actionButton} onClick={makeClipFromResult}>
+              {t('create.btn_make_clip')}
+            </button>
+            <button type="button" className={styles.actionButton} onClick={animateFromResult}>
+              {t('create.btn_animate')}
+            </button>
+          </>
+        ) : null}
+
         <button type="button" className={styles.actionButton} onClick={() => { void downloadStill(); }}>
           <DownloadIcon size={18} />
-          {t('create.btn_download_image')}
+            {t(isVideoResult ? 'create.btn_download_video_file' : 'create.btn_download_image')}
         </button>
 
         {videoRef ? (

@@ -57,6 +57,44 @@
   text-align: center;
 }
 
+.hint {
+  margin: calc(var(--space-3) * -1) 0 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-body-sm);
+  text-align: center;
+  line-height: 1.4;
+}
+
+.quality {
+  margin: calc(var(--space-2) * -1) 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-body-sm);
+  text-align: center;
+}
+
+.warn {
+  margin: 0;
+  color: var(--color-warning, #c9a227);
+  font-size: var(--text-body-sm);
+  text-align: center;
+}
+
+.details {
+  margin: 0 auto;
+  max-width: 28rem;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+
+.details pre {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  overflow: auto;
+  text-align: left;
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-md);
+}
+
 .error {
   margin: 0;
   color: var(--color-danger, #e07a7a);

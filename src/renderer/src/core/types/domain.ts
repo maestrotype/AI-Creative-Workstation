@@ -40,6 +40,20 @@ export interface GenerationResult {
   readonly thumbnailUrl: string | null;
   /** ISO-8601 creation timestamp. */
   readonly createdAt: string;
+  readonly kind?: 'image' | 'video';
+  readonly capability?: string;
+  readonly videoStatus?: string;
+  readonly promptConsumed?: boolean;
+  readonly quality?: {
+    duration_sec?: number;
+    fps?: number;
+    frame_count?: number;
+    motion_score?: number | null;
+    motion_mae?: number;
+    identity_mae?: number | null;
+    identity_warning?: boolean;
+    low_motion?: boolean;
+  };
 }
 
 /* ─── Navigation types ──────────────────────────────────────────────── */

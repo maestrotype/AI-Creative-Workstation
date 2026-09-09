@@ -24,6 +24,7 @@ interface Window {
     getActiveVideoModel: () => Promise<string | null>;
     setActiveVideoModel: (modelId: string) => Promise<boolean>;
     getEngineStatus: () => Promise<{ status: string; detail: string }>;
+    restartEngine: () => Promise<{ ok: boolean; error?: string }>;
     getRuntimeStatus: () => Promise<{
       job: {
         active: boolean;
@@ -40,7 +41,16 @@ interface Window {
       busy: boolean;
       ram_total: number;
       ram_free: number;
+      ram_available?: number;
+      ram_used?: number;
+      ram_percent?: number;
       engine: string;
+      video_backend?: {
+        id: string;
+        state: string;
+        installed: boolean;
+        approx_bytes: number;
+      };
     }>;
     cancelRuntimeJob: () => Promise<{ ok: boolean }>;
     unloadAllModels: () => Promise<{ ok: boolean; unloaded?: number; reason?: string }>;
@@ -50,7 +60,27 @@ interface Window {
       duration_sec?: number;
       model_id?: string;
       image_path?: string;
-    }) => Promise<{ job_id: string; file_path: string | null; model_id: string }>;
+      image_base64?: string;
+      mode?: string;
+    }) => Promise<{
+      job_id: string;
+      file_path: string | null;
+      model_id: string;
+      status?: string;
+      capability?: string;
+      provider_id?: string;
+      prompt_consumed?: boolean;
+      quality?: {
+        duration_sec?: number;
+        fps?: number;
+        frame_count?: number;
+        motion_score?: number | null;
+        motion_mae?: number;
+        identity_mae?: number | null;
+        identity_warning?: boolean;
+        low_motion?: boolean;
+      } | null;
+    }>;
     generateImage: (payload: {
       prompt: string;
       format: string;

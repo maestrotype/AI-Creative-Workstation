@@ -11,12 +11,14 @@
  */
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
+import type { Asset } from '../../../../core/types';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { IntentInput } from '../../../../shared/ui/IntentInput/IntentInput';
 import { filePathFromAssetUrl } from '../../../studio/store/workspaceBridgeStore';
 import { useHomeStore } from '../../store/homeStore';
+import { useCreateStore } from '../../../create/store/createStore';
 import { ContinueWorking } from '../ContinueWorking/ContinueWorking';
 import { RecentAssets } from '../RecentAssets/RecentAssets';
 import { Inspiration } from '../Inspiration/Inspiration';
@@ -43,6 +45,8 @@ export function HomePage(): ReactNode {
   const assetsStatus = useHomeStore((s) => s.assetsStatus);
   const recentAssets = useHomeStore((s) => s.recentAssets);
   const loadRecentAssets = useHomeStore((s) => s.loadRecentAssets);
+  const deleteRecentAsset = useHomeStore((s) => s.deleteRecentAsset);
+  const openFromAsset = useCreateStore((s) => s.openFromAsset);
 
   const inspirationStatus = useHomeStore((s) => s.inspirationStatus);
   const inspirationItems = useHomeStore((s) => s.inspirationItems);
@@ -64,6 +68,11 @@ export function HomePage(): ReactNode {
   const handleInspirationSelect = (item: { prompt: string; job: 'title' | 'frame' | 'product' }) => {
     setIntentDraft(item.prompt);
     setIntentJob(item.job);
+    navigate('/create');
+  };
+
+  const openStillInCreate = (asset: Asset) => {
+    openFromAsset(asset);
     navigate('/create');
   };
 
@@ -134,8 +143,11 @@ export function HomePage(): ReactNode {
         <RecentAssets
           status={assetsStatus}
           assets={recentAssets}
-          hrefFor={() => '/assets'}
+          onOpen={openStillInCreate}
           onDownload={downloadAsset}
+          onDelete={(asset) => {
+            void deleteRecentAsset(asset);
+          }}
           onRetry={loadRecentAssets}
         />
       </div>

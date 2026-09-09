@@ -8,21 +8,34 @@ import styles from './ErrorStep.module.css';
 export function ErrorStep(): ReactNode {
   const { t } = useTranslation();
   const error = useCreateStore((s) => s.error);
+  const clipStillPath = useCreateStore((s) => s.clipStillPath);
   const retryGeneration = useCreateStore((s) => s.retryGeneration);
-  const reset = useCreateStore((s) => s.reset);
+  const startOver = useCreateStore((s) => s.startOver);
+  const animateFromResult = useCreateStore((s) => s.animateFromResult);
 
   if (!error) return null;
 
   const isSidecarDown = error.kind === 'sidecar_unavailable';
-  const isNoModel = error.kind === 'no_model';
+  const isNoModel = error.kind === 'no_model' || error.kind === 'no_video_model';
   const isGpuMemory = error.kind === 'gpu_memory';
+  const isCapability = error.kind === 'video_capability';
+  const isLowMotion = error.kind === 'low_motion';
+  const isNeedStill = error.kind === 'need_still';
   const messageKey = isSidecarDown
     ? 'create.error.sidecar_unavailable'
-    : isNoModel
-      ? 'create.error.no_model'
-      : isGpuMemory
-        ? 'create.error.mps_memory'
-        : 'create.error.generation_failed';
+    : error.kind === 'no_video_model'
+      ? 'create.error.no_video_model'
+      : isNoModel
+        ? 'create.error.no_model'
+        : isGpuMemory
+          ? 'create.error.mps_memory'
+          : isNeedStill
+            ? 'create.error.need_still'
+            : isCapability
+              ? 'create.error.video_capability'
+              : isLowMotion
+                ? 'create.error.low_motion'
+                : 'create.error.generation_failed';
 
   return (
     <div className={styles.container}>
@@ -33,7 +46,9 @@ export function ErrorStep(): ReactNode {
         {t(messageKey)}
       </p>
 
-      {!isSidecarDown && !isNoModel && !isGpuMemory && <pre className={styles.detail}>{error.message}</pre>}
+      {(error.kind === 'generation_failed' || isCapability || isLowMotion) ? (
+        <pre className={styles.detail}>{error.message}</pre>
+      ) : null}
 
       <div className={styles.actions}>
         <button
@@ -44,8 +59,13 @@ export function ErrorStep(): ReactNode {
           <RefreshIcon size={18} />
           {t('create.btn_retry')}
         </button>
-        <button type="button" className={styles.actionButton} onClick={reset}>
-          {t('create.btn_back')}
+        {isCapability && clipStillPath ? (
+          <button type="button" className={styles.actionButton} onClick={animateFromResult}>
+            {t('create.btn_animate')}
+          </button>
+        ) : null}
+        <button type="button" className={styles.actionButton} onClick={startOver}>
+          {t('create.btn_start_over')}
         </button>
       </div>
     </div>

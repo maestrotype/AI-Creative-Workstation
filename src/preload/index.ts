@@ -19,16 +19,19 @@ const api = {
   getActiveVideoModel: () => ipcRenderer.invoke('get-active-video-model'),
   setActiveVideoModel: (modelId: string) => ipcRenderer.invoke('set-active-video-model', modelId),
   getEngineStatus: () => ipcRenderer.invoke('get-engine-status'),
+  restartEngine: () => ipcRenderer.invoke('restart-engine') as Promise<{ ok: boolean; error?: string }>,
   getRuntimeStatus: () => ipcRenderer.invoke('get-runtime-status'),
   cancelRuntimeJob: () => ipcRenderer.invoke('cancel-runtime-job'),
   unloadAllModels: () => ipcRenderer.invoke('unload-all-models'),
-  generateVideo: (payload: {
-    prompt: string;
-    format: string;
-    duration_sec?: number;
-    model_id?: string;
-    image_path?: string;
-  }) => ipcRenderer.invoke('generate-video', payload),
+    generateVideo: (payload: {
+      prompt: string;
+      format: string;
+      duration_sec?: number;
+      model_id?: string;
+      image_path?: string;
+      image_base64?: string;
+      mode?: string;
+    }) => ipcRenderer.invoke('generate-video', payload),
   generateImage: (payload: {
     prompt: string;
     format: string;

@@ -39,7 +39,7 @@ export function WorkspaceFlow({ kind }: WorkspaceFlowProps): ReactNode {
   const links: { to: string; label: string }[] = {
     create: [
       { to: studioHref('image', fromPath), label: t('flow.to_studio_image') },
-      { to: '/video', label: t('flow.to_video') },
+      { to: studioHref('video', fromPath), label: t('flow.to_studio_video') },
       { to: '/threed', label: t('flow.to_threed') },
       { to: '/assets', label: t('flow.to_assets') },
     ],
@@ -60,12 +60,12 @@ export function WorkspaceFlow({ kind }: WorkspaceFlowProps): ReactNode {
       { to: studioHref('3d', fromPath), label: t('flow.to_studio_3d') },
       { to: '/create', label: t('flow.to_create') },
       { to: '/assets', label: t('flow.to_assets') },
-      { to: '/video', label: t('flow.to_video') },
+      { to: '/video', label: t('flow.to_voiceover') },
     ],
     assets: [
       { to: '/create', label: t('flow.to_create') },
       { to: '/threed', label: t('flow.to_threed') },
-      { to: '/video', label: t('flow.to_video') },
+      { to: '/video', label: t('flow.to_voiceover') },
       { to: studioHref('image', fromPath), label: t('flow.to_studio') },
     ],
   }[kind];

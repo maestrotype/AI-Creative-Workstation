@@ -8,6 +8,7 @@ import { create } from 'zustand';
 
 import type { Asset, GenerationResult, NavId } from '../../../core/types';
 import type { ReferenceImage } from '../../../shared/ui/IntentInput/IntentInput';
+import { filePathFromAssetUrl } from '../../studio/store/workspaceBridgeStore';
 import {
   fetchRecentAssets,
   fetchRecentProjects,
@@ -35,6 +36,7 @@ interface HomeState {
   loadRecentAssets: () => Promise<void>;
   addGeneratedAsset: (result: GenerationResult) => void;
   removeAssetByUrl: (thumbnailUrl: string | null | undefined) => void;
+  deleteRecentAsset: (asset: Asset) => Promise<void>;
 
   /* Inspiration */
   inspirationStatus: LoadingStatus;
@@ -119,6 +121,18 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
     set((state) => ({
       recentAssets: state.recentAssets.filter((asset) => asset.thumbnailUrl !== thumbnailUrl),
     }));
+  },
+
+  deleteRecentAsset: async (asset) => {
+    const path = filePathFromAssetUrl(asset.thumbnailUrl);
+    try {
+      if (path && window.api?.deleteGeneratedStill) {
+        await window.api.deleteGeneratedStill(path);
+      }
+    } catch {
+      /* already gone from disk */
+    }
+    get().removeAssetByUrl(asset.thumbnailUrl);
   },
 
   /* ── Inspiration ───────────────────────────────────────────────── */

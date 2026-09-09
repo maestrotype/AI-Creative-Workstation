@@ -215,6 +215,7 @@ export function ProjectWorkspace(): ReactNode {
         duration_sec: clipSec,
         model_id: motionModel,
         image_path: still,
+        mode: 'ai_video',
       });
       if (!result.file_path) throw new Error(t('projects.generate_fail'));
       const copied = await window.api.importIntoProject({ projectId: latest.id, path: result.file_path });

@@ -28,6 +28,46 @@
   font-size: var(--text-body);
 }
 
+.engineBanner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-4) var(--space-5);
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg-elevated));
+  border: 1px solid var(--color-accent-border);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-body-sm);
+  text-align: center;
+}
+
+.engineBanner p {
+  margin: 0;
+}
+
+.engineRestart {
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text-primary);
+  background: transparent;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-full);
+  font: inherit;
+  font-size: var(--text-body-sm);
+  cursor: pointer;
+}
+
+.engineRestart:hover:not(:disabled) {
+  border-color: var(--color-accent-border);
+  background: var(--color-bg-hover);
+}
+
+.engineRestart:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .jobRow {
   display: flex;
   flex-wrap: wrap;
