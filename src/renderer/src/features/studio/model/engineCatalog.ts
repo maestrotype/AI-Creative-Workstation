@@ -59,6 +59,16 @@ export const CATALOG_ENGINES: CatalogEngine[] = [
     noteKey: 'studio.note_flux_dev',
   },
   {
+    id: 'Anes1032/Wan2.2-TI2V-5B-mlx-q8',
+    name: 'Wan 2.2 TI2V 5B (MLX)',
+    type: 'video',
+    gated: false,
+    size: '~21 GB',
+    downloadable: true,
+    tier: 'recommended',
+    noteKey: 'studio.note_wan22_ti2v',
+  },
+  {
     id: 'runwayml/gen4.5',
     name: 'Runway Gen-4.5',
     type: 'video',

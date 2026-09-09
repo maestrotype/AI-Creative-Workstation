@@ -704,3 +704,54 @@ def analyze_video_cache(video_path: str):
     if not cached:
         return {"status": "miss", "context": None}
     return {"status": "hit", "context": cached}
+
+
+class GradeRequest(BaseModel):
+    video_path: str
+    prompt: str = ""
+    overlay_path: Optional[str] = None
+
+
+@router.post("/video/grade")
+def grade_video(request: GradeRequest):
+    """Same recording, with a grade from the prompt and an optional still overlay."""
+    src = os.path.expanduser(_disk_image_path(request.video_path))
+    if not os.path.isfile(src):
+        raise HTTPException(status_code=400, detail=f"Video not found: {src}")
+    overlay = os.path.expanduser(_disk_image_path(request.overlay_path or ""))
+    has_overlay = bool(overlay) and os.path.isfile(overlay)
+    grade = _effect_filters(request.prompt)
+    if not grade and not has_overlay:
+        grade = "eq=contrast=1.06:saturation=1.04"
+    dest = os.path.join(_video_draft_dir(), f"look-{uuid.uuid4().hex[:10]}.mp4")
+    ffmpeg = _ffmpeg_bin()
+    if has_overlay:
+        base = f"{grade}," if grade else ""
+        graph = (
+            f"[1:v]scale=iw*0.28:-1[ov];"
+            f"[0:v]{base}format=yuv420p[base];"
+            f"[base][ov]overlay=W-w-36:H-h-36[out]"
+        )
+        cmd = [
+            ffmpeg, "-y", "-i", src, "-i", overlay,
+            "-filter_complex", graph,
+            "-map", "[out]", "-map", "0:a?",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k",
+            "-shortest",
+            "-movflags", "+faststart",
+            dest,
+        ]
+    else:
+        vf = f"{grade},format=yuv420p" if grade else "format=yuv420p"
+        cmd = [
+            ffmpeg, "-y", "-i", src,
+            "-vf", vf,
+            "-map", "0:v", "-map", "0:a?",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k",
+            "-movflags", "+faststart",
+            dest,
+        ]
+    _run_ffmpeg(cmd, "ffmpeg grade failed")
+    return {"file_path": dest}

@@ -49,10 +49,19 @@ export function EngineMonitor(): ReactNode {
 
   if (!status) return null;
 
-  const used = Math.max(0, status.ram_total - status.ram_free);
-  const usedPct = status.ram_total > 0 ? Math.round((used / status.ram_total) * 100) : 0;
+  const ramAvailable = status.ram_available ?? status.ram_free;
+  const ramUsed = status.ram_used ?? Math.max(0, status.ram_total - ramAvailable);
+  const usedPct = status.ram_total > 0 ? Math.round((ramUsed / status.ram_total) * 100) : 0;
+  const pythonRss = status.memory.sidecar_rss_bytes;
   const working = status.job.active || status.job.stage === 'releasing';
   const chipPct = status.job.active ? status.job.percent : usedPct;
+  const chipExtra = status.job.active
+    ? ` · ${chipPct}%`
+    : status.job.stage === 'releasing'
+      ? ''
+      : pythonRss > 0
+        ? ` · ${formatBytes(pythonRss)}`
+        : '';
 
   const unloadOne = async (key: string) => {
     if (!window.api?.unloadModel) return;
@@ -100,7 +109,7 @@ export function EngineMonitor(): ReactNode {
         <span className={styles.dot} data-on={working ? 'true' : 'false'} />
         <span className={styles.chipText}>
           {jobLabel(status, t as (k: string, o?: Record<string, string | number>) => string)}
-          {status.job.active ? ` · ${chipPct}%` : ` · ${usedPct}%`}
+          {chipExtra}
         </span>
       </button>
       {open ? (
@@ -131,11 +140,12 @@ export function EngineMonitor(): ReactNode {
           )}
           <p className={styles.ram}>
             {t('monitor.ram', {
-              used: formatBytes(used),
+              used: formatBytes(ramUsed),
               total: formatBytes(status.ram_total),
               pct: usedPct,
             })}
           </p>
+          <p className={styles.ram}>{t('monitor.ram_hint')}</p>
           {status.memory.sidecar_rss_bytes > 0 ? (
             <p className={styles.ram}>
               {t('monitor.python', { size: formatBytes(status.memory.sidecar_rss_bytes) })}
@@ -144,6 +154,16 @@ export function EngineMonitor(): ReactNode {
           {status.memory.mps_allocated_bytes > 0 ? (
             <p className={styles.ram}>
               {t('monitor.gpu', { size: formatBytes(status.memory.mps_allocated_bytes) })}
+            </p>
+          ) : null}
+          {status.video_backend ? (
+            <p className={styles.ram}>
+              {t('monitor.video_model')}
+              {': '}
+              {t(`monitor.video_state_${status.video_backend.state}`)}
+              {status.video_backend.approx_bytes
+                ? ` · ~${formatBytes(status.video_backend.approx_bytes)}`
+                : ''}
             </p>
           ) : null}
           <div className={styles.models}>

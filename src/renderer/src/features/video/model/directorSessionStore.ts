@@ -1,7 +1,7 @@
 import type { BinItem, OverlayPos, TimelineClip, TrackLayout } from './directorTimeline';
 import { DEFAULT_TRACK_LAYOUT } from './directorTimeline';
-import type { VoiceoverSession } from './voiceoverSession';
-import { emptyVoiceoverSession } from './voiceoverSession';
+import type { StillCompose, VoiceoverSession } from './voiceoverSession';
+import { applyStillCompose, emptyVoiceoverSession } from './voiceoverSession';
 
 export interface DirectorSession {
   savedAt: number;
@@ -16,6 +16,7 @@ export interface DirectorSession {
   overlayPos?: Record<string, OverlayPos>;
   voiceover?: VoiceoverSession;
   projectName?: string;
+  stillCompose?: StillCompose;
 }
 
 const STANDALONE_KEY = 'acw-director-session-v2';
@@ -31,10 +32,17 @@ function parseSession(raw: string | null): DirectorSession | null {
   try {
     const parsed = JSON.parse(raw) as DirectorSession;
     if (!parsed || !Array.isArray(parsed.bins) || !Array.isArray(parsed.clips)) return null;
+    const migrated = parsed.stillCompose == null;
+    const stillCompose = parsed.stillCompose ?? 'intro';
+    const clips = migrated
+      ? applyStillCompose(parsed.bins, parsed.clips, stillCompose)
+      : parsed.clips;
     return {
       ...parsed,
+      clips,
       trackLayout: parsed.trackLayout ?? DEFAULT_TRACK_LAYOUT,
       overlayPos: parsed.overlayPos ?? {},
+      stillCompose,
       voiceover: parsed.voiceover
         ? { ...emptyVoiceoverSession(), ...parsed.voiceover }
         : emptyVoiceoverSession(),

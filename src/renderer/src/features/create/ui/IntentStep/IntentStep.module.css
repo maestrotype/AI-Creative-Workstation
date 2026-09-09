@@ -22,10 +22,92 @@
 
 .lead {
   margin: calc(var(--space-3) * -1) 0 0;
-  max-width: 36rem;
+  max-width: 40rem;
   text-align: center;
   color: var(--color-text-secondary);
   font-size: var(--text-body);
+}
+
+.engineBanner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-4) var(--space-5);
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg-elevated));
+  border: 1px solid var(--color-accent-border);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-body-sm);
+  text-align: center;
+}
+
+.engineBanner p {
+  margin: 0;
+}
+
+.engineRestart {
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text-primary);
+  background: transparent;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-full);
+  font: inherit;
+  font-size: var(--text-body-sm);
+  cursor: pointer;
+}
+
+.engineRestart:hover:not(:disabled) {
+  border-color: var(--color-accent-border);
+  background: var(--color-bg-hover);
+}
+
+.engineRestart:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.jobRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.jobBtn {
+  flex: 1;
+  min-width: 7.5rem;
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  font: inherit;
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.jobBtn:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-default);
+}
+
+.jobBtn[data-checked='true'] {
+  color: var(--color-text-primary);
+  background: var(--color-accent-subtle);
+  border-color: var(--color-accent-border);
+}
+
+.jobLead {
+  margin: calc(var(--space-4) * -1) 0 0;
+  max-width: 40rem;
+  text-align: center;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-body-sm);
+  line-height: 1.45;
 }
 
 .options {

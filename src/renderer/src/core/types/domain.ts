@@ -9,7 +9,7 @@
 /* ─── Asset types ───────────────────────────────────────────────────── */
 
 /** The kinds of creative entities the app surfaces in the UI. */
-export type AssetKind = 'character' | 'image' | 'project';
+export type AssetKind = 'character' | 'image' | 'video' | 'project';
 
 /**
  * A creative asset as represented in the application.
@@ -24,7 +24,8 @@ export interface Asset {
   readonly kind: AssetKind;
   /** Thumbnail source (local path or data URI). `null` → placeholder icon. */
   readonly thumbnailUrl: string | null;
-  /** ISO-8601 timestamp of the last modification. */
+  /** Preview image. For clips this is a mid-frame; the file itself is `id` / thumbnail of the mp4. */
+  readonly posterUrl?: string | null;
   readonly updatedAt: string;
 }
 
@@ -40,6 +41,20 @@ export interface GenerationResult {
   readonly thumbnailUrl: string | null;
   /** ISO-8601 creation timestamp. */
   readonly createdAt: string;
+  readonly kind?: 'image' | 'video';
+  readonly capability?: string;
+  readonly videoStatus?: string;
+  readonly promptConsumed?: boolean;
+  readonly quality?: {
+    duration_sec?: number;
+    fps?: number;
+    frame_count?: number;
+    motion_score?: number | null;
+    motion_mae?: number;
+    identity_mae?: number | null;
+    identity_warning?: boolean;
+    low_motion?: boolean;
+  };
 }
 
 /* ─── Navigation types ──────────────────────────────────────────────── */

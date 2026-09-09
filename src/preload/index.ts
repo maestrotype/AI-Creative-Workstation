@@ -19,20 +19,24 @@ const api = {
   getActiveVideoModel: () => ipcRenderer.invoke('get-active-video-model'),
   setActiveVideoModel: (modelId: string) => ipcRenderer.invoke('set-active-video-model', modelId),
   getEngineStatus: () => ipcRenderer.invoke('get-engine-status'),
+  restartEngine: () => ipcRenderer.invoke('restart-engine') as Promise<{ ok: boolean; error?: string }>,
   getRuntimeStatus: () => ipcRenderer.invoke('get-runtime-status'),
   cancelRuntimeJob: () => ipcRenderer.invoke('cancel-runtime-job'),
   unloadAllModels: () => ipcRenderer.invoke('unload-all-models'),
-  generateVideo: (payload: {
-    prompt: string;
-    format: string;
-    duration_sec?: number;
-    model_id?: string;
-    image_path?: string;
-  }) => ipcRenderer.invoke('generate-video', payload),
+    generateVideo: (payload: {
+      prompt: string;
+      format: string;
+      duration_sec?: number;
+      model_id?: string;
+      image_path?: string;
+      image_base64?: string;
+      mode?: string;
+    }) => ipcRenderer.invoke('generate-video', payload),
   generateImage: (payload: {
     prompt: string;
     format: string;
     style: string;
+    job?: string;
     model_id?: string;
     image_base64?: string;
     images_base64?: string[];
@@ -72,7 +76,8 @@ const api = {
   }) => ipcRenderer.invoke('render-timeline', payload),
   loadVideoHistory: () => ipcRenderer.invoke('load-video-history'),
   saveVideoHistory: (payload: unknown) => ipcRenderer.invoke('save-video-history', payload),
-  listGeneratedStills: () => ipcRenderer.invoke('list-generated-stills') as Promise<{ path: string; mtime: number }[]>,
+  listGeneratedStills: () => ipcRenderer.invoke('list-generated-stills') as Promise<{ path: string; mtime: number; poster?: string | null }[]>,
+  deleteGeneratedStill: (sourcePath: string) => ipcRenderer.invoke('delete-generated-still', sourcePath) as Promise<boolean>,
   pickVideo: () => ipcRenderer.invoke('pick-video'),
   probeMediaDuration: (filePath: string) => ipcRenderer.invoke('probe-media-duration', filePath) as Promise<number>,
   rememberDroppedMedia: (filePath: string) =>
@@ -90,6 +95,7 @@ const api = {
   listMediaLibrary: () => ipcRenderer.invoke('list-media-library'),
   importLibraryAudio: (paths?: string[]) => ipcRenderer.invoke('import-library-audio', paths),
   deleteLibraryAudio: (filePath: string) => ipcRenderer.invoke('delete-library-audio', filePath),
+  deleteLibraryAudioMany: (filePaths: string[]) => ipcRenderer.invoke('delete-library-audio-many', filePaths),
   prepareLibraryAudio: (filePath: string) => ipcRenderer.invoke('prepare-library-audio', filePath),
   installVoiceEngine: () => ipcRenderer.invoke('install-voice-engine'),
   deleteVoiceEngine: () => ipcRenderer.invoke('delete-voice-engine'),
@@ -178,6 +184,12 @@ const api = {
     ipcRenderer.invoke('ensure-video-preview', sourcePath, force) as Promise<{ path: string; transcoded: boolean }>,
   discardMeshDraft: (sourcePath: string) => ipcRenderer.invoke('discard-mesh-draft', sourcePath),
   saveVideoAs: (sourcePath: string) => ipcRenderer.invoke('save-video-as', sourcePath),
+  saveMediaAs: (sourcePath: string) => ipcRenderer.invoke('save-media-as', sourcePath),
+  gradeVideo: (payload: {
+    video_path: string;
+    prompt?: string;
+    overlay_path?: string | null;
+  }) => ipcRenderer.invoke('grade-video', payload) as Promise<{ file_path: string | null }>,
   discardVideoDraft: (sourcePath: string) => ipcRenderer.invoke('discard-video-draft', sourcePath),
   openPath: (filePath: string) => ipcRenderer.invoke('open-path', filePath),
   getSetting: (key: string) => ipcRenderer.invoke('get-setting', key),

@@ -1,13 +1,31 @@
 import type { IpcMain } from 'electron';
 import { net } from 'electron';
 import { ChildProcess, spawn, spawnSync } from 'child_process';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 export const DEFAULT_LLM_MODEL = 'qwen2.5:7b';
 const OLLAMA_TAGS_URL = 'http://127.0.0.1:11434/api/tags';
 
+const OLLAMA_BIN_CANDIDATES = [
+  '/opt/homebrew/bin/ollama',
+  '/usr/local/bin/ollama',
+  path.join(os.homedir(), '.local/bin/ollama'),
+  '/usr/bin/ollama',
+];
+
+const BREW_BIN_CANDIDATES = [
+  '/opt/homebrew/bin/brew',
+  '/usr/local/bin/brew',
+];
+
 export interface OllamaEngineStatus {
   binary_found: boolean;
   server_running: boolean;
+  /** Weights exist locally even if the server is currently down. */
+  model_on_disk: boolean;
+  /** Server is up AND the model is available — scripts can run. */
   model_ready: boolean;
   installing: boolean;
   stage: string;
@@ -33,21 +51,55 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function ollamaBin(): string | null {
+function which(bin: string): string | null {
   try {
-    const path = spawnSync('which', ['ollama'], { encoding: 'utf8' }).stdout.trim();
-    return path || null;
+    const found = spawnSync('which', [bin], { encoding: 'utf8' }).stdout.trim();
+    return found || null;
   } catch {
     return null;
   }
 }
 
+function firstExisting(candidates: string[]): string | null {
+  return candidates.find((candidate) => {
+    try {
+      return fs.existsSync(candidate);
+    } catch {
+      return false;
+    }
+  }) ?? null;
+}
+
+export function ollamaBin(): string | null {
+  return which('ollama') || firstExisting(OLLAMA_BIN_CANDIDATES);
+}
+
 function brewBin(): string | null {
+  return which('brew') || firstExisting(BREW_BIN_CANDIDATES);
+}
+
+export function modelNameMatches(name: string, wanted: string): boolean {
+  const n = (name || '').trim().toLowerCase();
+  const w = (wanted || '').trim().toLowerCase();
+  if (!n || !w) return false;
+  if (n === w) return true;
+  if (n.startsWith(`${w}:`) || n.startsWith(`${w}-`)) return true;
+  const [root, tag] = w.split(':');
+  if (tag && n.startsWith(`${root}:`) && n.includes(tag)) return true;
+  return false;
+}
+
+function namesFromOllamaListCli(bin: string): string[] {
   try {
-    const path = spawnSync('which', ['brew'], { encoding: 'utf8' }).stdout.trim();
-    return path || null;
+    const out = spawnSync(bin, ['list'], { encoding: 'utf8', timeout: 8000 });
+    if (out.status !== 0) return [];
+    return (out.stdout || '')
+      .split(/\r?\n/)
+      .slice(1)
+      .map((line) => line.trim().split(/\s+/)[0] || '')
+      .filter(Boolean);
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -60,18 +112,46 @@ async function ollamaServerRunning(): Promise<boolean> {
   }
 }
 
-async function ollamaModelPulled(model: string): Promise<boolean> {
+async function ollamaNamesFromServer(): Promise<string[]> {
   try {
     const res = await net.fetch(OLLAMA_TAGS_URL, { signal: AbortSignal.timeout(5000) });
-    if (!res.ok) return false;
+    if (!res.ok) return [];
     const body = (await res.json()) as { models?: Array<{ name?: string }> };
-    return (body.models ?? []).some((entry) => {
-      const name = entry.name ?? '';
-      return name === model || name.startsWith(`${model}:`);
-    });
+    return (body.models ?? []).map((entry) => String(entry.name || '').trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function ollamaModelPulled(model: string): Promise<boolean> {
+  const names = await ollamaNamesFromServer();
+  return names.some((name) => modelNameMatches(name, model));
+}
+
+function ollamaManifestExists(model: string): boolean {
+  const [name, tag] = model.split(':');
+  const manifest = path.join(
+    os.homedir(),
+    '.ollama',
+    'models',
+    'manifests',
+    'registry.ollama.ai',
+    'library',
+    name || 'qwen2.5',
+    tag || 'latest',
+  );
+  try {
+    return fs.existsSync(manifest);
   } catch {
     return false;
   }
+}
+
+function ollamaModelOnDisk(model: string): boolean {
+  if (ollamaManifestExists(model)) return true;
+  const bin = ollamaBin();
+  if (!bin) return false;
+  return namesFromOllamaListCli(bin).some((name) => modelNameMatches(name, model));
 }
 
 function broadcastStatus(broadcast: BroadcastFn): void {
@@ -83,11 +163,12 @@ function broadcastStatus(broadcast: BroadcastFn): void {
 export async function ollamaEngineStatusPayload(): Promise<OllamaEngineStatus> {
   const binary = Boolean(ollamaBin());
   const server = binary ? await ollamaServerRunning() : false;
-  const model = server ? await ollamaModelPulled(DEFAULT_LLM_MODEL) : false;
+  const onDisk = binary ? (server ? await ollamaModelPulled(DEFAULT_LLM_MODEL) : ollamaModelOnDisk(DEFAULT_LLM_MODEL)) : false;
   return {
     binary_found: binary,
     server_running: server,
-    model_ready: model,
+    model_on_disk: onDisk,
+    model_ready: server && onDisk,
     installing: ollamaInstallJob.active,
     stage: ollamaInstallJob.stage,
     percent: ollamaInstallJob.percent,
@@ -201,11 +282,16 @@ export function stopOllamaIfStartedByApp(): void {
   ollamaStartedByApp = false;
 }
 
-/** Start Ollama server before script generation when the model is already on disk. */
+/** Start Ollama when the model is already on disk so script gen does not look "uninstalled". */
 export async function prepareOllamaForScript(broadcast: BroadcastFn): Promise<void> {
   const status = await ollamaEngineStatusPayload();
-  if (!status.model_ready || status.server_running) return;
-  await ensureOllamaServe(broadcast);
+  if (status.server_running && status.model_on_disk) return;
+  if (!status.binary_found) return;
+  const onDisk = status.model_on_disk || ollamaModelOnDisk(DEFAULT_LLM_MODEL);
+  if (!onDisk) return;
+  if (!status.server_running) {
+    await ensureOllamaServe(broadcast);
+  }
 }
 
 export function registerOllamaIpc(ipcMain: IpcMain, broadcast: BroadcastFn): void {

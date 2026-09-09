@@ -1,10 +1,15 @@
-.clipList {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.page {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  flex: 1;
+  width: 100%;
+  max-width: 90rem;
+  margin-inline: auto;
+  gap: var(--space-6);
+}
+
+.libraryCard {
+  padding: var(--space-4);
 }
 
 .libraryHead {
@@ -24,15 +29,124 @@
   outline-offset: 4px;
 }
 
-.clip {
+.board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(13.5rem, 1fr));
+  gap: var(--space-3);
+  align-items: stretch;
+  overflow-x: auto;
+  padding-bottom: var(--space-1);
+}
+
+.column {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  background-color: var(--color-bg-elevated);
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 13.5rem;
+  min-height: 22rem;
+  max-height: 32rem;
+  padding: var(--space-3);
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-bg-card) 55%, var(--color-bg-elevated));
+}
+
+.column[data-kind='generated'] {
+  border-color: var(--color-accent-border);
+  background: color-mix(in srgb, var(--color-accent-subtle) 35%, var(--color-bg-elevated));
+}
+
+.columnHead {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.columnTitleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.columnTitle {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-heading);
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+}
+
+.groupCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-full);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.groupDelete {
+  align-self: flex-start;
+  margin: 0;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--color-error) 45%, var(--color-border-subtle));
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-error);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-caption);
+}
+
+.groupDelete:hover {
+  background: color-mix(in srgb, var(--color-error) 12%, transparent);
+}
+
+.groupHint {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-micro);
+  line-height: 1.4;
+}
+
+.columnEmpty {
+  margin: auto 0;
+  padding: var(--space-4) 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+  text-align: center;
+}
+
+.clipList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.clip {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
 }
 
 .clip[data-on='true'] {
@@ -45,7 +159,7 @@
 }
 
 .clipName {
-  flex: 1;
+  width: 100%;
   min-width: 0;
   text-align: left;
   background: none;
@@ -53,20 +167,30 @@
   color: var(--color-text-primary);
   cursor: pointer;
   font: inherit;
-  word-break: break-all;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0.15rem;
 }
 
+.clipLabel {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body-sm);
+}
+
 .clipActions {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex-shrink: 0;
   flex-wrap: wrap;
-  justify-content: flex-end;
+}
+
+.clipActions button {
+  font-size: var(--text-micro);
 }
 
 .clipDelete {
@@ -76,7 +200,7 @@
   color: var(--color-error);
   cursor: pointer;
   font: inherit;
-  font-size: var(--text-body-sm);
+  font-size: var(--text-caption);
 }
 
 .player {

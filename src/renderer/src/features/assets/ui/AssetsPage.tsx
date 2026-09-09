@@ -4,7 +4,9 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { WorkspaceFlow } from '../../studio/ui/WorkspaceFlow';
+import { studioHref } from '../../studio/model/studioReturn';
 import { useMediaLibraryStore } from '../store/mediaLibraryStore';
+import { AUDIO_KIND_ORDER, audioClipKind, audioClipLabel, type AudioClipKind } from '../model/audioClipKind';
 import { mediaMime } from '../../video/model/directorMedia';
 import ui from '../../video/ui/VideoPage.module.css';
 import styles from './AssetsPage.module.css';
@@ -99,7 +101,7 @@ function VoiceProgressPanel({ job, t }: { job: VoiceJob; t: (key: string, opts?:
 }
 
 export function AssetsPage(): ReactNode {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const audioClips = useMediaLibraryStore((s) => s.audioClips);
   const voicePath = useMediaLibraryStore((s) => s.voicePath);
   const selectedAudioPath = useMediaLibraryStore((s) => s.selectedAudioPath);
@@ -468,6 +470,34 @@ export function AssetsPage(): ReactNode {
     }
   };
 
+  const handleDeleteGroup = async (kind: AudioClipKind, clips: { path: string; name: string }[]) => {
+    if (!window.api?.deleteLibraryAudioMany || clips.length === 0) return;
+    const removable = clips.filter((clip) => clip.path !== voiceSourcePath);
+    const kept = clips.length - removable.length;
+    if (removable.length === 0) {
+      setCaptureError(t('assets.library_kept_sample'));
+      return;
+    }
+    const ok = window.confirm(
+      t('assets.library_delete_group_confirm', {
+        count: removable.length,
+        kind: t(`assets.library_kind_${kind}`),
+      }),
+    );
+    if (!ok) return;
+    setCaptureError(null);
+    try {
+      await window.api.deleteLibraryAudioMany(removable.map((clip) => clip.path));
+      if (removable.some((clip) => clip.path === selectedAudioPath)) setSelectedAudioPath(null);
+      if (playingPath && removable.some((clip) => clip.path === playingPath)) setPlayingPath(null);
+      await loadLibrary();
+      await refreshVoiceEngine();
+      if (kept > 0) setCaptureError(t('assets.library_kept_sample'));
+    } catch (err) {
+      setCaptureError(captureFailMessage(err, t));
+    }
+  };
+
   const importDropped = async (files: FileList) => {
     const paths: string[] = [];
     for (const file of Array.from(files)) {
@@ -541,7 +571,7 @@ export function AssetsPage(): ReactNode {
   const canGenerate = ttsReady && voicePath && voiceText.trim().length > 0 && !voiceBusy && recording === 'idle';
 
   return (
-    <div className={ui.container}>
+    <div className={styles.page}>
       <header className={ui.header}>
         <div>
           <h1 className={ui.title}>{t('assets.title')}</h1>
@@ -594,7 +624,7 @@ export function AssetsPage(): ReactNode {
         {ttsEngine !== 'xtts' ? (
           <p className={ui.hint}>
             {t('assets.voice_install_studio')}{' '}
-            <Link to="/studio?family=voice">{t('assets.voice_install_studio_link')}</Link>
+            <Link to={studioHref('voice', '/assets')}>{t('assets.voice_install_studio_link')}</Link>
           </p>
         ) : null}
 
@@ -621,9 +651,17 @@ export function AssetsPage(): ReactNode {
                 disabled={voiceBusy || recording !== 'idle'}
               >
                 <option value="">{t('assets.voice_sample_pick')}</option>
-                {audioClips.map((clip) => (
-                  <option key={clip.path} value={clip.path}>{clip.name}</option>
-                ))}
+                {AUDIO_KIND_ORDER.map((kind) => {
+                  const clips = audioClips.filter((clip) => audioClipKind(clip.name) === kind);
+                  if (clips.length === 0) return null;
+                  return (
+                    <optgroup key={kind} label={t(`assets.library_kind_${kind}`)}>
+                      {clips.map((clip) => (
+                        <option key={clip.path} value={clip.path}>{clip.name}</option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
               </select>
               <button
                 type="button"
@@ -772,7 +810,7 @@ export function AssetsPage(): ReactNode {
       </section>
 
       <section
-        className={`${ui.card} ${libDrop ? styles.libraryDropOn : ''}`}
+        className={`${ui.card} ${styles.libraryCard} ${libDrop ? styles.libraryDropOn : ''}`}
         onDragOver={(event) => {
           if (!Array.from(event.dataTransfer.types).includes('Files')) return;
           event.preventDefault();
@@ -803,55 +841,85 @@ export function AssetsPage(): ReactNode {
           </button>
         </div>
         <p className={ui.lead}>{t('assets.library_formats')}</p>
-        {audioClips.length === 0 ? (
-          <p className={ui.output}>{t('assets.empty_library')}</p>
-        ) : (
-          <ul className={styles.clipList}>
-            {audioClips.map((clip) => (
-              <li
-                key={clip.path}
-                className={styles.clip}
-                data-on={clip.path === selectedAudioPath}
-                data-voice={clip.path === voiceSourcePath ? 'true' : undefined}
-              >
-                <button type="button" className={styles.clipName} onClick={() => setSelectedAudioPath(clip.path)}>
-                  {clip.name}
-                  {clip.path === voiceSourcePath ? (
-                    <span className={styles.voiceBadge}>{t('assets.voice_sample_badge')}</span>
+        <div className={styles.board}>
+          {AUDIO_KIND_ORDER.map((kind) => {
+            const clips = audioClips.filter((clip) => audioClipKind(clip.name) === kind);
+            return (
+              <section key={kind} className={styles.column} data-kind={kind}>
+                <header className={styles.columnHead}>
+                  <div className={styles.columnTitleRow}>
+                    <h3 className={styles.columnTitle}>{t(`assets.library_kind_${kind}`)}</h3>
+                    <span className={styles.groupCount}>{clips.length}</span>
+                  </div>
+                  <p className={styles.groupHint}>{t(`assets.library_kind_hint_${kind}`)}</p>
+                  {clips.length > 0 ? (
+                    <button
+                      type="button"
+                      className={styles.groupDelete}
+                      onClick={() => { void handleDeleteGroup(kind, clips); }}
+                    >
+                      {t('assets.library_delete_group')}
+                    </button>
                   ) : null}
-                </button>
-                <div className={styles.clipActions}>
-                  <button
-                    type="button"
-                    className={ui.link}
-                    onClick={() => { void playClip(clip.path); }}
-                  >
-                    {playingPath === clip.path ? t('assets.library_playing') : t('assets.library_play')}
-                  </button>
-                  <button
-                    type="button"
-                    className={ui.link}
-                    disabled={voiceBusy || clip.path === voiceSourcePath}
-                    onClick={() => { void applyVoiceSample(clip.path); }}
-                  >
-                    {t('assets.voice_sample_use')}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.clipDelete}
-                    onClick={() => {
-                      if (playingPath === clip.path) setPlayingPath(null);
-                      void handleDeleteLibrary(clip.path);
-                    }}
-                    title={t('assets.library_delete')}
-                  >
-                    {t('assets.library_delete')}
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+                </header>
+                {clips.length === 0 ? (
+                  <p className={styles.columnEmpty}>{t('assets.library_kind_empty')}</p>
+                ) : (
+                  <ul className={styles.clipList}>
+                    {clips.map((clip) => (
+                      <li
+                        key={clip.path}
+                        className={styles.clip}
+                        data-on={clip.path === selectedAudioPath}
+                        data-voice={clip.path === voiceSourcePath ? 'true' : undefined}
+                      >
+                        <button
+                          type="button"
+                          className={styles.clipName}
+                          title={clip.name}
+                          onClick={() => setSelectedAudioPath(clip.path)}
+                        >
+                          <span className={styles.clipLabel}>{audioClipLabel(clip.name, i18n.language)}</span>
+                          {clip.path === voiceSourcePath ? (
+                            <span className={styles.voiceBadge}>{t('assets.voice_sample_badge')}</span>
+                          ) : null}
+                        </button>
+                        <div className={styles.clipActions}>
+                          <button
+                            type="button"
+                            className={ui.link}
+                            onClick={() => { void playClip(clip.path); }}
+                          >
+                            {playingPath === clip.path ? t('assets.library_playing') : t('assets.library_play')}
+                          </button>
+                          <button
+                            type="button"
+                            className={ui.link}
+                            disabled={voiceBusy || clip.path === voiceSourcePath}
+                            onClick={() => { void applyVoiceSample(clip.path); }}
+                          >
+                            {t('assets.voice_sample_use')}
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.clipDelete}
+                            onClick={() => {
+                              if (playingPath === clip.path) setPlayingPath(null);
+                              void handleDeleteLibrary(clip.path);
+                            }}
+                            title={t('assets.library_delete')}
+                          >
+                            {t('assets.library_delete')}
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            );
+          })}
+        </div>
         {playingPath && playUrl ? (
           <audio className={styles.player} src={playUrl} controls autoPlay onEnded={() => setPlayingPath(null)} />
         ) : null}

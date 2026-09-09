@@ -1,129 +1,81 @@
 /**
- * Home feature — mock data source for recent assets, projects, and inspiration.
- *
- * This is the only module that "fetches" records. In production
- * it will be swapped for a local-first SQLite repository without
- * touching any store or UI code.
+ * Home feature — recent projects, generated stills, and job prompts.
  */
 import type { Asset } from '../../../core/types';
+import { toAssetUrl } from '../../video/model/directorMedia';
 
-/* ─── Helpers ───────────────────────────────────────────────────────── */
+function fileName(path: string): string {
+  return path.split('/').pop()?.replace(/\.[^.]+$/, '') || path;
+}
 
-const hoursAgo = (h: number): string =>
-  new Date(Date.now() - h * 3_600_000).toISOString();
-
-/** Simulated network/disk latency for the mock endpoint. */
-const LATENCY_MS = 800;
-
-/* ─── Mock data ─────────────────────────────────────────────────────── */
-
-const MOCK_PROJECTS: readonly Asset[] = [
-  {
-    id: 'project-01',
-    name: 'MacBook Pro Review — November',
-    kind: 'project',
-    thumbnailUrl: null,
-    updatedAt: hoursAgo(2),
-  },
-  {
-    id: 'project-02',
-    name: 'Neon City Asset Build',
-    kind: 'project',
-    thumbnailUrl: null,
-    updatedAt: hoursAgo(22),
-  },
-  {
-    id: 'project-03',
-    name: 'Social Media Pack',
-    kind: 'project',
-    thumbnailUrl: null,
-    updatedAt: hoursAgo(120),
-  },
-];
-
-const MOCK_ASSETS: readonly Asset[] = [
-  {
-    id: 'asset-01',
-    name: 'Aria — Protagonist',
-    kind: 'character',
-    thumbnailUrl: null,
-    updatedAt: hoursAgo(1),
-  },
-  {
-    id: 'asset-02',
-    name: 'Neon Alley — Keyframe 07',
-    kind: 'image',
-    thumbnailUrl: null,
-    updatedAt: hoursAgo(4),
-  },
-  {
-    id: 'asset-04',
-    name: 'Kael — Antagonist v3',
-    kind: 'character',
-    thumbnailUrl: null,
-    updatedAt: hoursAgo(48),
-  },
-  {
-    id: 'asset-05',
-    name: 'Cover Art — Stormlight',
-    kind: 'image',
-    thumbnailUrl: null,
-    updatedAt: hoursAgo(72),
-  },
-];
+function isVideoPath(path: string): boolean {
+  return /\.(mp4|mov|m4v|webm|mkv)$/i.test(path);
+}
 
 export interface InspirationItem {
   id: string;
   prompt: string;
+  job: 'title' | 'frame' | 'product';
   thumbnailUrl: string | null;
 }
 
-const MOCK_INSPIRATION: readonly InspirationItem[] = [
-  {
-    id: 'insp-01',
-    prompt: 'A cinematic portrait in Tokyo at night',
-    thumbnailUrl: null, // We'll use CSS gradients for placeholders
-  },
-  {
-    id: 'insp-02',
-    prompt: 'Concept art for a sci-fi mech suit',
-    thumbnailUrl: null,
-  },
-  {
-    id: 'insp-03',
-    prompt: 'Cozy isometric coffee shop',
-    thumbnailUrl: null,
-  },
-  {
-    id: 'insp-04',
-    prompt: '3D stylized character rendered in clay',
-    thumbnailUrl: null,
-  },
-];
+export async function fetchRecentProjects(limit = 3): Promise<Asset[]> {
+  if (!window.api?.listProjects) return [];
+  const list = await window.api.listProjects();
+  return list.slice(0, limit).map((item) => ({
+    id: item.id,
+    name: item.name,
+    kind: 'project' as const,
+    thumbnailUrl: item.coverPath
+      ? toAssetUrl(item.coverPath)
+      : item.assembledPath
+        ? toAssetUrl(item.assembledPath)
+        : null,
+    updatedAt: new Date(item.updatedAt).toISOString(),
+  }));
+}
 
-/* ─── Public API ────────────────────────────────────────────────────── */
-
-export function fetchRecentProjects(limit = 3): Promise<Asset[]> {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(MOCK_PROJECTS.slice(0, limit)), LATENCY_MS);
+export async function fetchRecentAssets(limit = 6): Promise<Asset[]> {
+  if (!window.api?.listGeneratedStills) return [];
+  const stills = await window.api.listGeneratedStills();
+  return stills.slice(0, limit).map((row) => {
+    const video = isVideoPath(row.path);
+    return {
+      id: row.path,
+      name: fileName(row.path),
+      kind: (video ? 'video' : 'image') as Asset['kind'],
+      thumbnailUrl: toAssetUrl(row.path),
+      posterUrl: row.poster ? toAssetUrl(row.poster) : null,
+      updatedAt: new Date(row.mtime).toISOString(),
+    };
   });
 }
 
-export function fetchRecentAssets(limit = 6): Promise<Asset[]> {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(MOCK_ASSETS.slice(0, limit)), LATENCY_MS);
-  });
+export async function fetchInspirationItems(): Promise<InspirationItem[]> {
+  return [
+    {
+      id: 'insp-title',
+      job: 'title',
+      prompt: 'Title card: Angular 3D Store — dark UI, 3D catalog, admin, page builder. No fake screenshot.',
+      thumbnailUrl: null,
+    },
+    {
+      id: 'insp-frame',
+      job: 'frame',
+      prompt: 'Storyboard frame: dark product grid of a 3D store template, real software UI, no invented shop interior.',
+      thumbnailUrl: null,
+    },
+    {
+      id: 'insp-product',
+      job: 'product',
+      prompt: 'Grey silk tote bag based on this reference, same shape and stitching, studio light.',
+      thumbnailUrl: null,
+    },
+    {
+      id: 'insp-vary',
+      job: 'frame',
+      prompt: 'Same shot as the reference, cooler grade, light film grain, keep the composition.',
+      thumbnailUrl: null,
+    },
+  ];
 }
-
-export function fetchInspirationItems(limit = 4): Promise<InspirationItem[]> {
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(MOCK_INSPIRATION.slice(0, limit)), LATENCY_MS);
-  });
-}
-
-/** Quick-start intent suggestions shown when the user hasn't typed anything. */
-export const QUICK_SUGGESTIONS: readonly string[] = [
-  'A cinematic character portrait with dramatic lighting',
-  'A story outline in three acts with conflict arcs',
-  'An image prompt from a vivid scene description',
-];

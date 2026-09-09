@@ -5,6 +5,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { formatBytes } from '../../../shared/lib/formatBytes';
 import styles from './StudioPage.module.css';
 import { CATALOG_ENGINES, ENGINE_FAMILIES, type EngineFamily } from '../model/engineCatalog';
+import { safeStudioFrom, studioReturnLabelKey } from '../model/studioReturn';
 import { DownloadProgress, type DownloadProgressState } from './DownloadProgress';
 import { StudioResources } from './StudioResources';
 
@@ -35,6 +36,7 @@ export function StudioPage(): ReactNode {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const family: EngineFamily = isFamily(searchParams.get('family')) ? searchParams.get('family') as EngineFamily : 'image';
+  const returnTo = safeStudioFrom(searchParams.get('from'));
   const [models, setModels] = useState<Model[]>([]);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, DownloadProgressState>>({});
   const [diskUsage, setDiskUsage] = useState<Record<string, number>>({});
@@ -60,6 +62,7 @@ export function StudioPage(): ReactNode {
   const [ollamaEngine, setOllamaEngine] = useState({
     binary_found: false,
     server_running: false,
+    model_on_disk: false,
     model_ready: false,
     installing: false,
     stage: 'idle',
@@ -413,6 +416,11 @@ export function StudioPage(): ReactNode {
       <header className={styles.header}>
         <h1 className={styles.title}>{t('studio.title')}</h1>
       </header>
+      {returnTo ? (
+        <Link className={styles.returnBar} to={returnTo}>
+          ← {t(studioReturnLabelKey(returnTo))}
+        </Link>
+      ) : null}
 
       <p className={styles.lead}>{t('studio.lead')}</p>
 
@@ -432,7 +440,12 @@ export function StudioPage(): ReactNode {
             type="button"
             className={styles.pill}
             data-on={family === id}
-            onClick={() => setSearchParams(id === 'image' ? {} : { family: id })}
+            onClick={() => {
+              const next = new URLSearchParams();
+              if (id !== 'image') next.set('family', id);
+              if (returnTo) next.set('from', returnTo);
+              setSearchParams(next);
+            }}
           >
             {t(`studio.family_${id}`)}
           </button>
@@ -512,18 +525,35 @@ export function StudioPage(): ReactNode {
           <div className={styles.modelCard}>
             <div className={styles.modelInfo}>
               <span className={styles.modelName}>Qwen 2.5 7B</span>
-              <span className={styles.modelType}>
-                {t('studio.llm_qwen_size')}
-                {' · '}
-                {ollamaEngine.binary_found ? t('studio.llm_binary_on') : t('studio.llm_binary_off')}
-                {' · '}
-                {ollamaEngine.server_running ? t('studio.llm_server_on') : t('studio.llm_server_off')}
-                {' · '}
-                {ollamaEngine.model_ready ? t('studio.llm_model_on') : t('studio.llm_model_off')}
-              </span>
+              <span className={styles.modelType}>{t('studio.llm_qwen_size')}</span>
+              <div className={styles.stateRow}>
+                <span className={styles.stateChip} data-on={ollamaEngine.binary_found}>
+                  {ollamaEngine.binary_found ? t('studio.llm_binary_on') : t('studio.llm_binary_off')}
+                </span>
+                <span className={styles.stateChip} data-on={ollamaEngine.model_on_disk}>
+                  {ollamaEngine.model_on_disk ? t('studio.llm_model_on') : t('studio.llm_model_off')}
+                </span>
+                <span className={styles.stateChip} data-on={ollamaEngine.server_running}>
+                  {ollamaEngine.server_running ? t('studio.llm_server_on') : t('studio.llm_server_off')}
+                </span>
+                <span className={styles.stateChip} data-on={ollamaEngine.model_ready}>
+                  {ollamaEngine.model_ready ? t('studio.llm_ready_on') : t('studio.llm_ready_off')}
+                </span>
+              </div>
             </div>
             <div className={styles.voiceActions}>
-              {!ollamaEngine.model_ready ? (
+              {ollamaEngine.model_ready ? (
+                <span className={styles.status}>✓ {t('studio.llm_ready_on')}</span>
+              ) : ollamaEngine.model_on_disk && !ollamaEngine.server_running ? (
+                <button
+                  type="button"
+                  className={styles.downloadButton}
+                  disabled={ollamaBusy || ollamaEngine.installing}
+                  onClick={() => { void handleOllamaStart(); }}
+                >
+                  {ollamaBusy ? t('studio.llm_starting') : t('studio.llm_start_server')}
+                </button>
+              ) : (
                 <button
                   type="button"
                   className={styles.downloadButton}
@@ -532,20 +562,20 @@ export function StudioPage(): ReactNode {
                 >
                   {ollamaEngine.installing ? t('studio.llm_downloading') : t('studio.download')}
                 </button>
-              ) : (
-                <span className={styles.status}>✓ {t('studio.installed')}</span>
               )}
-              {ollamaEngine.binary_found && !ollamaEngine.server_running && !ollamaEngine.installing ? (
-                <button
-                  type="button"
-                  className={styles.textButton}
-                  disabled={ollamaBusy}
-                  onClick={() => { void handleOllamaStart(); }}
-                >
-                  {t('studio.llm_start_server')}
-                </button>
-              ) : null}
-              {ollamaEngine.model_ready && !ollamaEngine.installing ? (
+              {ollamaEngine.binary_found && !ollamaEngine.server_running && ollamaEngine.model_on_disk ? null : (
+                ollamaEngine.binary_found && !ollamaEngine.server_running && !ollamaEngine.installing ? (
+                  <button
+                    type="button"
+                    className={styles.textButton}
+                    disabled={ollamaBusy}
+                    onClick={() => { void handleOllamaStart(); }}
+                  >
+                    {t('studio.llm_start_server')}
+                  </button>
+                ) : null
+              )}
+              {ollamaEngine.model_on_disk && !ollamaEngine.installing ? (
                 <button
                   type="button"
                   className={styles.textButton}
@@ -567,8 +597,14 @@ export function StudioPage(): ReactNode {
           {ollamaEngine.detail && (ollamaEngine.installing || ollamaBusy) ? (
             <p className={styles.hint}>{ollamaEngine.detail}</p>
           ) : null}
-          <p className={styles.hint}>{t('studio.llm_qwen_hint')}</p>
-          <Link className={styles.textButton} to="/video">{t('studio.llm_use_in_video')}</Link>
+          <p className={styles.hint}>
+            {ollamaEngine.model_on_disk && !ollamaEngine.server_running
+              ? t('studio.llm_needs_server')
+              : t('studio.llm_qwen_hint')}
+          </p>
+          <Link className={styles.textButton} to={returnTo || '/video'}>
+            {returnTo ? t(studioReturnLabelKey(returnTo)) : t('studio.llm_use_in_video')}
+          </Link>
         </>
       ) : (
         <>

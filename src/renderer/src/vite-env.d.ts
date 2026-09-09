@@ -24,6 +24,7 @@ interface Window {
     getActiveVideoModel: () => Promise<string | null>;
     setActiveVideoModel: (modelId: string) => Promise<boolean>;
     getEngineStatus: () => Promise<{ status: string; detail: string }>;
+    restartEngine: () => Promise<{ ok: boolean; error?: string }>;
     getRuntimeStatus: () => Promise<{
       job: {
         active: boolean;
@@ -40,7 +41,16 @@ interface Window {
       busy: boolean;
       ram_total: number;
       ram_free: number;
+      ram_available?: number;
+      ram_used?: number;
+      ram_percent?: number;
       engine: string;
+      video_backend?: {
+        id: string;
+        state: string;
+        installed: boolean;
+        approx_bytes: number;
+      };
     }>;
     cancelRuntimeJob: () => Promise<{ ok: boolean }>;
     unloadAllModels: () => Promise<{ ok: boolean; unloaded?: number; reason?: string }>;
@@ -50,11 +60,32 @@ interface Window {
       duration_sec?: number;
       model_id?: string;
       image_path?: string;
-    }) => Promise<{ job_id: string; file_path: string | null; model_id: string }>;
+      image_base64?: string;
+      mode?: string;
+    }) => Promise<{
+      job_id: string;
+      file_path: string | null;
+      model_id: string;
+      status?: string;
+      capability?: string;
+      provider_id?: string;
+      prompt_consumed?: boolean;
+      quality?: {
+        duration_sec?: number;
+        fps?: number;
+        frame_count?: number;
+        motion_score?: number | null;
+        motion_mae?: number;
+        identity_mae?: number | null;
+        identity_warning?: boolean;
+        low_motion?: boolean;
+      } | null;
+    }>;
     generateImage: (payload: {
       prompt: string;
       format: string;
       style: string;
+      job?: string;
       model_id?: string;
       image_base64?: string;
       images_base64?: string[];
@@ -148,7 +179,8 @@ interface Window {
       }>;
     } | null>;
     saveVideoHistory: (payload: unknown) => Promise<boolean>;
-    listGeneratedStills: () => Promise<{ path: string; mtime: number }[]>;
+    listGeneratedStills: () => Promise<{ path: string; mtime: number; poster?: string | null }[]>;
+    deleteGeneratedStill: (sourcePath: string) => Promise<boolean>;
     pickVideo: () => Promise<string | null>;
     probeMediaDuration: (filePath: string) => Promise<number>;
     rememberDroppedMedia: (filePath: string) => Promise<string | null>;
@@ -162,6 +194,7 @@ interface Window {
     }>;
     importLibraryAudio: (paths?: string[]) => Promise<{ imported: string[] }>;
     deleteLibraryAudio: (filePath: string) => Promise<{ deleted: boolean }>;
+    deleteLibraryAudioMany: (filePaths: string[]) => Promise<{ deleted: number; skipped: string[] }>;
     prepareLibraryAudio: (filePath: string) => Promise<{ path: string; converted: boolean }>;
     installVoiceEngine: () => Promise<{ ok: boolean }>;
     deleteVoiceEngine: () => Promise<{ deleted: boolean }>;
@@ -189,6 +222,7 @@ interface Window {
     getOllamaEngineStatus: () => Promise<{
       binary_found: boolean;
       server_running: boolean;
+      model_on_disk: boolean;
       model_ready: boolean;
       installing: boolean;
       stage: string;
@@ -200,6 +234,7 @@ interface Window {
     onOllamaEngineUpdated: (callback: (data: {
       binary_found: boolean;
       server_running: boolean;
+      model_on_disk: boolean;
       model_ready: boolean;
       installing: boolean;
       stage: string;
@@ -410,6 +445,12 @@ interface Window {
     ensureVideoPreview: (sourcePath: string, force?: boolean) => Promise<{ path: string; transcoded: boolean }>;
     discardMeshDraft: (sourcePath: string) => Promise<boolean>;
     saveVideoAs: (sourcePath: string) => Promise<string | null>;
+    saveMediaAs: (sourcePath: string) => Promise<string | null>;
+    gradeVideo: (payload: {
+      video_path: string;
+      prompt?: string;
+      overlay_path?: string | null;
+    }) => Promise<{ file_path: string | null }>;
     discardVideoDraft: (sourcePath: string) => Promise<boolean>;
     openPath: (filePath: string) => Promise<boolean>;
     getSetting: (key: string) => Promise<string | null>;

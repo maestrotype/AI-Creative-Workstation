@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 
 import { runGeneration } from '../../create/api/generationApi';
 import { WorkspaceFlow } from '../../studio/ui/WorkspaceFlow';
+import { studioHref } from '../../studio/model/studioReturn';
 import { filePathFromAssetUrl, useWorkspaceBridgeStore } from '../../studio/store/workspaceBridgeStore';
 import ui from '../../video/ui/VideoPage.module.css';
 import { MeshProgress, type MeshProgressState } from './MeshProgress';
@@ -258,7 +259,7 @@ export function ThreeDPage(): ReactNode {
       {!modelInstalled && !weightsLocal && engineReady ? (
         <section className={ui.card}>
           <p className={ui.lead}>{t('threed.weights_hf_fallback')}</p>
-          <Link className={ui.link} to="/studio?family=3d">{t('threed.download_in_studio')}</Link>
+          <Link className={ui.link} to={studioHref('3d', '/threed')}>{t('threed.download_in_studio')}</Link>
         </section>
       ) : null}
 
@@ -307,7 +308,7 @@ export function ThreeDPage(): ReactNode {
             {!hasImageEngine ? (
               <p className={ui.error}>
                 {t('threed.need_image_engine')}{' '}
-                <Link className={ui.link} to="/studio?family=image">{t('threed.open_image_studio')}</Link>
+                <Link className={ui.link} to={studioHref('image', '/threed')}>{t('threed.open_image_studio')}</Link>
               </p>
             ) : null}
           </>

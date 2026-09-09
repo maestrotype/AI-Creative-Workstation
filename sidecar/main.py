@@ -1,8 +1,11 @@
 import os
 
 # Must be set before torch is imported (generation loads it lazily).
-os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
-os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+# Both must be set together: high alone at 0.55 leaves default low=1.4 → "invalid low watermark ratio".
+# FLUX keeps T5 on CPU + sliced MPS attention so 0.0 does not trigger the old 44 GiB T5 buffer.
+os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
+os.environ["PYTORCH_MPS_LOW_WATERMARK_RATIO"] = "0.0"
 
 # rembg → pymatting → numba: default cache next to site-packages fails under Electron.
 _numba_cache = os.path.expanduser("~/Library/Caches/canvas-numba")

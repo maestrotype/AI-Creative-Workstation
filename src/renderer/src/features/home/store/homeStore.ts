@@ -8,6 +8,7 @@ import { create } from 'zustand';
 
 import type { Asset, GenerationResult, NavId } from '../../../core/types';
 import type { ReferenceImage } from '../../../shared/ui/IntentInput/IntentInput';
+import { filePathFromAssetUrl } from '../../studio/store/workspaceBridgeStore';
 import {
   fetchRecentAssets,
   fetchRecentProjects,
@@ -34,6 +35,8 @@ interface HomeState {
   recentAssets: readonly Asset[];
   loadRecentAssets: () => Promise<void>;
   addGeneratedAsset: (result: GenerationResult) => void;
+  removeAssetByUrl: (thumbnailUrl: string | null | undefined) => void;
+  deleteRecentAsset: (asset: Asset) => Promise<void>;
 
   /* Inspiration */
   inspirationStatus: LoadingStatus;
@@ -42,9 +45,11 @@ interface HomeState {
 
   /* Intent bar */
   intentDraft: string;
+  intentJob: 'title' | 'frame' | 'product' | null;
   referenceDrafts: ReferenceImage[];
   isCreating: boolean;
   setIntentDraft: (draft: string) => void;
+  setIntentJob: (job: 'title' | 'frame' | 'product' | null) => void;
   setReferenceDrafts: (images: ReferenceImage[]) => void;
   submitIntent: () => void;
 }
@@ -63,8 +68,7 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
   recentProjects: [],
 
   loadRecentProjects: async () => {
-    const { projectsStatus } = get();
-    if (projectsStatus === 'loading' || projectsStatus === 'ready') return;
+    if (get().projectsStatus === 'loading') return;
 
     set({ projectsStatus: 'loading' });
     try {
@@ -82,8 +86,7 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
   recentAssets: [],
 
   loadRecentAssets: async () => {
-    const { assetsStatus } = get();
-    if (assetsStatus === 'loading' || assetsStatus === 'ready') return;
+    if (get().assetsStatus === 'loading') return;
 
     set({ assetsStatus: 'loading' });
     try {
@@ -101,7 +104,7 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
       const newAsset: Asset = {
         id: result.id,
         name: result.prompt.length > 48 ? `${result.prompt.slice(0, 45)}…` : result.prompt,
-        kind: 'image',
+        kind: result.kind === 'video' ? 'video' : 'image',
         thumbnailUrl: result.thumbnailUrl,
         updatedAt: result.createdAt,
       };
@@ -113,13 +116,33 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
     });
   },
 
+  removeAssetByUrl: (thumbnailUrl) => {
+    if (!thumbnailUrl) return;
+    set((state) => ({
+      recentAssets: state.recentAssets.filter((asset) => asset.thumbnailUrl !== thumbnailUrl),
+    }));
+  },
+
+  deleteRecentAsset: async (asset) => {
+    const path = asset.kind === 'video' && asset.id.startsWith('/')
+      ? asset.id
+      : filePathFromAssetUrl(asset.thumbnailUrl);
+    try {
+      if (path && window.api?.deleteGeneratedStill) {
+        await window.api.deleteGeneratedStill(path);
+      }
+    } catch {
+      /* already gone from disk */
+    }
+    get().removeAssetByUrl(asset.thumbnailUrl);
+  },
+
   /* ── Inspiration ───────────────────────────────────────────────── */
   inspirationStatus: 'idle',
   inspirationItems: [],
 
   loadInspirationItems: async () => {
-    const { inspirationStatus } = get();
-    if (inspirationStatus === 'loading' || inspirationStatus === 'ready') return;
+    if (get().inspirationStatus === 'loading') return;
 
     set({ inspirationStatus: 'loading' });
     try {
@@ -134,10 +157,12 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
 
   /* ── Intent bar ────────────────────────────────────────────────── */
   intentDraft: '',
+  intentJob: null,
   referenceDrafts: [],
   isCreating: false,
 
   setIntentDraft: (draft) => set({ intentDraft: draft }),
+  setIntentJob: (job) => set({ intentJob: job }),
   setReferenceDrafts: (images) => set({ referenceDrafts: images }),
 
   submitIntent: () => {

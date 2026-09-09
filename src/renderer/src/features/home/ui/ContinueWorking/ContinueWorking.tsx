@@ -19,6 +19,8 @@ export interface ContinueWorkingProps {
   readonly status: 'idle' | 'loading' | 'ready' | 'error';
   /** Projects to render, newest first. */
   readonly projects: readonly Asset[];
+  readonly hrefFor: (asset: Asset) => string;
+  readonly onDownload?: (asset: Asset) => void;
   /** Retry action for the error state. */
   readonly onRetry?: () => void;
 }
@@ -32,6 +34,8 @@ const SKELETON_COUNT = 3;
 export function ContinueWorking({
   status,
   projects,
+  hrefFor,
+  onDownload,
   onRetry,
 }: ContinueWorkingProps): ReactNode {
   const { t } = useTranslation();
@@ -115,7 +119,7 @@ export function ContinueWorking({
       <ul className={styles.grid}>
         {projects.map((project) => (
           <li key={project.id} className={styles.gridItem}>
-            <AssetCard asset={project} />
+            <AssetCard asset={project} href={hrefFor(project)} onDownload={onDownload} />
           </li>
         ))}
       </ul>

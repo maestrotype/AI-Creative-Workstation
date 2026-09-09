@@ -8,6 +8,16 @@
   animation: fadeSlideUp var(--duration-moderate) var(--ease-out) both;
 }
 
+.jobTag {
+  margin: 0;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
 .imageArea {
   width: 100%;
   aspect-ratio: 16 / 9; /* Adjusted dynamically in a real app based on format */
@@ -44,6 +54,51 @@
   border-radius: var(--radius-lg);
   font-size: var(--text-body);
   font-style: italic;
+  text-align: center;
+}
+
+.hint {
+  margin: calc(var(--space-3) * -1) 0 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-body-sm);
+  text-align: center;
+  line-height: 1.4;
+}
+
+.quality {
+  margin: calc(var(--space-2) * -1) 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-body-sm);
+  text-align: center;
+}
+
+.warn {
+  margin: 0;
+  color: var(--color-warning, #c9a227);
+  font-size: var(--text-body-sm);
+  text-align: center;
+}
+
+.details {
+  margin: 0 auto;
+  max-width: 28rem;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption);
+}
+
+.details pre {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  overflow: auto;
+  text-align: left;
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-md);
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger, #e07a7a);
+  font-size: var(--text-body-sm);
   text-align: center;
 }
 
@@ -85,6 +140,16 @@
 .primaryAction:hover {
   background-color: var(--color-accent-hover);
   border-color: var(--color-accent-hover);
+}
+
+.dangerAction {
+  color: var(--color-danger, #e07a7a);
+  border-color: color-mix(in srgb, var(--color-danger, #e07a7a) 45%, var(--color-border-default));
+}
+
+.dangerAction:hover {
+  background-color: color-mix(in srgb, var(--color-danger, #e07a7a) 14%, var(--color-bg-card));
+  border-color: var(--color-danger, #e07a7a);
 }
 
 @keyframes fadeSlideUp {

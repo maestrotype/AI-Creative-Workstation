@@ -42,12 +42,15 @@ import { DEFAULT_TRACK_LAYOUT } from '../model/directorTimeline';
 import { handoffPathsOf, takeProjectHandoff, type ProjectHandoff } from '../../projects/model/handoff';
 import { loadDirectorSession, saveDirectorSession, type DirectorSession } from '../model/directorSessionStore';
 import {
+  applyStillCompose,
   applyTemplateVoiceoverDefaults,
   binMediaDuration,
   demoteShortClipsFromV1,
   emptyVoiceoverSession,
+  inferStillCompose,
   pickLongestVideoBin,
   resolveVoiceoverSource,
+  type StillCompose,
   type VoiceoverSession,
   type VoiceoverSource,
 } from '../model/voiceoverSession';
@@ -164,6 +167,8 @@ type DirectorSnap = {
   placeLibraryAudio: (path: string) => void;
   overlayPos: Record<string, OverlayPos>;
   setOverlayPos: (track: string, pos: OverlayPos) => void;
+  stillCompose: StillCompose;
+  setStillCompose: (mode: StillCompose) => void;
   exportBusy: boolean;
   exportPath: string | null;
   exportError: string | null;
@@ -248,10 +253,12 @@ function sessionFromHandoff(handoff: ProjectHandoff): DirectorSession {
     t += dur;
   }
   const firstVideo = pickLongestVideoBin(bins) ?? bins.find((b) => b.kind === 'video');
+  const laidOut = applyStillCompose(bins, demoteShortClipsFromV1(bins, clips), 'intro');
   return {
     savedAt: Date.now(),
     bins,
-    clips: demoteShortClipsFromV1(bins, clips),
+    clips: laidOut,
+    stillCompose: 'intro',
     playhead: 0,
     selectedBin: firstVideo?.id ?? bins[0]?.id ?? null,
     selectedClip: null,
@@ -329,6 +336,9 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const [overlayPos, setOverlayPosState] = useState<Record<string, OverlayPos>>(
     () => boot?.overlayPos ?? {},
   );
+  const [stillCompose, setStillComposeState] = useState<StillCompose>(
+    () => boot?.stillCompose ?? inferStillCompose(boot?.bins ?? [], boot?.clips ?? []),
+  );
   const [viewW, setViewW] = useState(640);
   const fittedOnce = useRef(false);
   const lastFitRef = useRef(16);
@@ -390,6 +400,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     trackLayout,
     overlayPos,
     voiceover,
+    stillCompose,
   });
   sessionSnapRef.current = {
     bins,
@@ -402,7 +413,10 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     trackLayout,
     overlayPos,
     voiceover,
+    stillCompose,
   };
+  const stillComposeRef = useRef(stillCompose);
+  stillComposeRef.current = stillCompose;
   const [voiceoverBusy, setVoiceoverBusy] = useState(false);
   const [voiceoverError, setVoiceoverError] = useState<string | null>(null);
   const [voiceoverProgress, setVoiceoverProgress] = useState({ stage: 'idle', percent: 0, detail: '' });
@@ -483,7 +497,11 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     const longest = pickLongestVideoBin(bins);
     if (!longest || binMediaDuration(longest) < 8) return;
     setClips((prev) => {
-      const next = demoteShortClipsFromV1(bins, prev);
+      const next = applyStillCompose(
+        bins,
+        demoteShortClipsFromV1(bins, prev),
+        stillComposeRef.current,
+      );
       const same = prev.length === next.length && prev.every((clip, i) => (
         clip.id === next[i].id
         && clip.track === next[i].track
@@ -570,7 +588,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     };
     const timer = window.setTimeout(persist, 350);
     return () => window.clearTimeout(timer);
-  }, [bins, clips, playhead, selectedBin, selectedClip, captionDraft, pxPerSec, trackLayout, overlayPos, voiceover]);
+  }, [bins, clips, playhead, selectedBin, selectedClip, captionDraft, pxPerSec, trackLayout, overlayPos, voiceover, stillCompose]);
 
   useEffect(() => {
     const persist = () => {
@@ -796,7 +814,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       return prev ?? newBins[0].id;
     });
     if (autoPlace) {
-      if (items.some((it) => it.track && it.track.startsWith('v') && it.track !== 'v1')) {
+      if (stillComposeRef.current === 'pip' || items.some((it) => it.track && it.track.startsWith('v') && it.track !== 'v1')) {
         setTrackLayout((layout) => ensureTrackVisible(layout, 'v2'));
       }
       setClips((prev) => {
@@ -833,7 +851,15 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           });
           if (wantTrack === 'v1') vCursor += clipSpan(bin);
         }
-        return [...prev, ...added];
+        const next = [...prev, ...added];
+        if (newBins.some((bin) => bin.kind === 'image')) {
+          return applyStillCompose(
+            [...binsRef.current, ...newBins],
+            next,
+            stillComposeRef.current,
+          );
+        }
+        return next;
       });
     }
   };
@@ -1275,9 +1301,22 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     setVoiceover((prev) => ({ ...prev, expanded }));
   };
 
+  const setStillCompose = (mode: StillCompose) => {
+    setStillComposeState(mode);
+    setClips((prev) => applyStillCompose(binsRef.current, prev, mode));
+    if (mode === 'pip') {
+      setTrackLayout((layout) => ensureTrackVisible(layout, 'v2'));
+    }
+  };
+
+  const relayoutVoiceoverPicture = (prev: TimelineClip[]): TimelineClip[] => {
+    const demoted = demoteShortClipsFromV1(binsRef.current, prev);
+    return applyStillCompose(binsRef.current, demoted, stillComposeRef.current);
+  };
+
   const openVoiceover = () => {
     const longest = pickLongestVideoBin(binsRef.current);
-    setClips((prev) => demoteShortClipsFromV1(binsRef.current, prev));
+    setClips((prev) => relayoutVoiceoverPicture(prev));
     if (longest) setSelectedBin(longest.id);
     setTrackLayout((layout) => ensureTrackVisible(layout, 'v2'));
     setVoiceover((prev) => {
@@ -1296,7 +1335,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   };
 
   const analyzeVoiceover = async (force = false) => {
-    setClips((prev) => demoteShortClipsFromV1(binsRef.current, prev));
+    setClips((prev) => relayoutVoiceoverPicture(prev));
     const longest = pickLongestVideoBin(binsRef.current);
     if (longest) setSelectedBin(longest.id);
     const src = longest
@@ -1966,6 +2005,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     setOverlayPos: (track, pos) => {
       setOverlayPosState((prev) => ({ ...prev, [track]: pos }));
     },
+    stillCompose,
+    setStillCompose,
     exportBusy,
     exportPath,
     exportError,

@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
+import { studioHref } from '../../studio/model/studioReturn';
 import { useDirector } from './DirectorBoard';
+import { LlmEngineNotice } from './LlmEngineNotice';
 import { VoiceSampleSetup } from './VoiceSampleSetup';
 import { formatTimecode } from '../model/videoAnalysis';
 import styles from './VideoPage.module.css';
@@ -17,18 +18,7 @@ export function VoiceoverScriptEditor(): ReactNode {
   const script = d.voiceover.script;
   const analysis = d.voiceover.analysis;
   const busy = d.scriptBusy || d.voiceoverApplyBusy;
-  const [ollamaReady, setOllamaReady] = useState<boolean | null>(null);
   const voiced = d.voiceover.status === 'voiced';
-
-  useEffect(() => {
-    void window.api?.getOllamaEngineStatus?.().then((status) => {
-      setOllamaReady(Boolean(status?.model_ready && status?.server_running));
-    }).catch(() => setOllamaReady(null));
-    const cleanup = window.api?.onOllamaEngineUpdated?.((status) => {
-      setOllamaReady(Boolean(status.model_ready && status.server_running));
-    });
-    return () => { cleanup?.(); };
-  }, []);
 
   const coverageSec = script ? scriptCoverageSec(script) : 0;
   const videoSec = analysis?.duration_sec ?? 0;
@@ -36,12 +26,7 @@ export function VoiceoverScriptEditor(): ReactNode {
   return (
     <div className={styles.voScriptBlock}>
       <h4 className={styles.voSubtitle}>{d.t('video.vo_script_title')}</h4>
-      {ollamaReady === false ? (
-        <p className={styles.voScriptNotice}>
-          {d.t('video.vo_script_fallback_note')}{' '}
-          <Link className={styles.voStudioLink} to="/studio?family=llm">{d.t('video.vo_script_open_studio')}</Link>
-        </p>
-      ) : null}
+      <LlmEngineNotice />
       <label className={styles.voPromptLabel}>
         <span>{d.t('video.vo_script_prompt')}</span>
         <textarea
@@ -96,7 +81,7 @@ export function VoiceoverScriptEditor(): ReactNode {
           {script.meta.provider === 'fallback' ? (
             <p className={styles.voScriptNotice}>
               {d.t('video.vo_script_fallback_note')}{' '}
-              <Link className={styles.voStudioLink} to="/studio?family=llm">{d.t('video.vo_script_open_studio')}</Link>
+              <Link className={styles.voStudioLink} to={studioHref('llm', '/video')}>{d.t('video.vo_script_open_studio')}</Link>
             </p>
           ) : null}
           <p className={styles.hintTight}>{d.t('video.vo_script_edit_hint')}</p>

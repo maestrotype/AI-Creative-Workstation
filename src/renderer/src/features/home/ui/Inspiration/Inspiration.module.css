@@ -42,19 +42,46 @@
   border-color: var(--color-border-hover);
 }
 
-.thumbnail {
+.media {
+  position: relative;
   width: 100%;
-  aspect-ratio: 1 / 1;
+}
+
+.thumbnail {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
   object-fit: cover;
 }
 
 .placeholder {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 16 / 10;
   background-image: linear-gradient(135deg, var(--color-bg-hover), var(--color-accent-subtle));
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: var(--space-3);
+}
+
+.job {
+  position: absolute;
+  left: var(--space-3);
+  bottom: var(--space-3);
+  padding: 0.15rem 0.45rem;
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-bg-card) 78%, transparent);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.placeholder .job {
+  position: static;
+  background: none;
+  padding: 0;
 }
 
 .caption {
@@ -86,7 +113,7 @@
 
 .skeletonThumb {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 16 / 10;
   background-color: var(--color-bg-elevated);
 }
 

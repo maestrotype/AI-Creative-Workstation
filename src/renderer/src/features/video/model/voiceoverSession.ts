@@ -1,5 +1,5 @@
-import type { BinItem, TimelineClip } from './directorTimeline';
-import { fileName, packTrack } from './directorTimeline';
+import type { BinItem, TimelineClip, TrackId } from './directorTimeline';
+import { clipSpan, fileName, packTrack } from './directorTimeline';
 import type { VideoAnalysisContext } from './videoAnalysis';
 import type { VoiceoverScript } from './voiceoverScript';
 
@@ -127,7 +127,93 @@ export function resolveVoiceoverSource(
   return asSource(longest, longest.id === selected?.id ? 'selected_bin' : 'longest_video');
 }
 
-/** Keep the screencast on V1; shove short AI clips and stills onto V2 as overlays. */
+/**
+ * How a still from Create sits on the timeline:
+ * - intro: full-frame before the screencast (V1)
+ * - pip: corner overlay on V2 while the recording plays
+ * - off: keep the file in the bin, omit it from the cut
+ */
+export type StillCompose = 'intro' | 'pip' | 'off';
+
+const INTRO_STILL_SEC = 5;
+
+function imageBins(bins: BinItem[]): BinItem[] {
+  return bins.filter((bin) => bin.kind === 'image');
+}
+
+function stillDuration(bin: BinItem): number {
+  return Math.max(2.5, Math.min(8, clipSpan(bin) || INTRO_STILL_SEC));
+}
+
+function withoutImageClips(bins: BinItem[], clips: TimelineClip[]): TimelineClip[] {
+  const imgIds = new Set(imageBins(bins).map((bin) => bin.id));
+  return clips.filter((clip) => !clip.binId || !imgIds.has(clip.binId));
+}
+
+/** Pack V1, then pull every clip back so the picture starts at 0. */
+function normalizePictureStart(clips: TimelineClip[]): TimelineClip[] {
+  const packed = packTrack(clips, 'v1');
+  const first = packed
+    .filter((clip) => clip.track === 'v1')
+    .sort((a, b) => a.startSec - b.startSec)[0];
+  const delta = first?.startSec ?? 0;
+  if (delta < 0.05) return packed;
+  return packed.map((clip) => ({ ...clip, startSec: Math.max(0, clip.startSec - delta) }));
+}
+
+export function inferStillCompose(bins: BinItem[], clips: TimelineClip[]): StillCompose {
+  const images = imageBins(bins);
+  if (images.length === 0) return 'intro';
+  const imgIds = new Set(images.map((bin) => bin.id));
+  const imgClips = clips.filter((clip) => clip.binId && imgIds.has(clip.binId));
+  if (imgClips.length === 0) return 'off';
+  if (imgClips.some((clip) => clip.track !== 'v1')) return 'pip';
+  return 'intro';
+}
+
+export function applyStillCompose(
+  bins: BinItem[],
+  clips: TimelineClip[],
+  mode: StillCompose,
+): TimelineClip[] {
+  const images = imageBins(bins);
+  const existingByBin = new Map<string, TimelineClip>();
+  for (const clip of clips) {
+    if (clip.binId && images.some((bin) => bin.id === clip.binId) && !existingByBin.has(clip.binId)) {
+      existingByBin.set(clip.binId, clip);
+    }
+  }
+  const base = normalizePictureStart(withoutImageClips(bins, clips));
+  if (mode === 'off' || images.length === 0) return base;
+
+  const makeStill = (img: BinItem, track: TrackId, startSec: number): TimelineClip => {
+    const prev = existingByBin.get(img.id);
+    return {
+      id: prev?.id ?? `clip-still-${img.id}`,
+      binId: img.id,
+      track,
+      startSec,
+      durationSec: stillDuration(img),
+      sourceInSec: 0,
+      label: img.name,
+      autoLength: true,
+    };
+  };
+
+  if (mode === 'pip') {
+    return [...base, ...images.map((img) => makeStill(img, 'v2', 0))];
+  }
+
+  let cursor = 0;
+  const stills = images.map((img) => {
+    const clip = makeStill(img, 'v1', cursor);
+    cursor += clip.durationSec;
+    return clip;
+  });
+  return [...stills, ...base.map((clip) => ({ ...clip, startSec: clip.startSec + cursor }))];
+}
+
+/** Keep the long screencast on V1; short AI clips go to V2. Stills follow StillCompose, not this. */
 export function demoteShortClipsFromV1(bins: BinItem[], clips: TimelineClip[]): TimelineClip[] {
   const longest = pickLongestVideoBin(bins);
   if (!longest) return packTrack(clips, 'v1');
@@ -136,9 +222,7 @@ export function demoteShortClipsFromV1(bins: BinItem[], clips: TimelineClip[]): 
     if (clip.track !== 'v1') return clip;
     const bin = bins.find((item) => item.id === clip.binId);
     if (!bin) return clip;
-    if (bin.kind === 'image') {
-      return { ...clip, track: 'v2' as const, startSec: 0 };
-    }
+    if (bin.kind === 'image') return clip;
     if (bin.kind === 'video' && bin.id !== longest.id && binMediaDuration(bin) < threshold) {
       return { ...clip, track: 'v2' as const, startSec: 0 };
     }

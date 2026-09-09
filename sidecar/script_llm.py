@@ -54,6 +54,33 @@ _FORBIDDEN_SPOKEN = re.compile(
     r"\b(тварь|монстр|демон|alien|creature|demon|monster|godzilla)\b",
     re.IGNORECASE,
 )
+_CJK_RX = re.compile(r"[\u3000-\u303f\u3040-\u30ff\u3400-\u9fff\uF900-\uFAFF\uFF00-\uFFEF]")
+
+
+def _strip_cjk(text: str) -> str:
+    cleaned = _CJK_RX.sub(" ", text or "")
+    return re.sub(r"\s+", " ", cleaned).strip(" ,.;:!?…—–-")
+
+
+def _spoken_in_language(text: str, language: str) -> str:
+    """Drop leaked Chinese (Qwen default) from Russian/English voiceover."""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    if language.startswith(("ru", "en")):
+        raw = _strip_cjk(raw)
+    return raw
+
+
+def _purpose_in_language(text: str, language: str) -> str:
+    cleaned = _spoken_in_language(text, language)
+    if not cleaned:
+        return ""
+    # Purpose is a short director note, not a second spoken line.
+    words = cleaned.split()
+    if len(words) > 18:
+        cleaned = " ".join(words[:18]).rstrip(" ,;:—–-")
+    return cleaned
 
 
 def _window_words(window_sec: float, wpm: int) -> int:
@@ -717,6 +744,8 @@ Rules:
 - start_sec/end_sec must sit inside the beats you are covering. end_sec is the VISUAL window you may occupy, not a command to keep talking.
 - Word count per segment MUST stay under the max words of that window ({SPEAK_WINDOW_RATIO:.0%} of duration at {target_wpm} wpm). Shorter clear sentences beat stuffed ones.
 - roles: hook | body | outro | cta
+- Spoken "text" and "purpose" MUST be only in {lang_label}. Never Chinese, never mixed scripts.
+- Cover the whole recording with several segments. Do not stop after the first 5 seconds.
 - No stage directions, no "Scene 1", no commands like "покажи" / "tell the client".
 """
 
@@ -733,7 +762,7 @@ def _finalize_segments(
     for item in raw:
         if item.get("speak") is False:
             continue
-        text = str(item.get("text") or "").strip()
+        text = _spoken_in_language(str(item.get("text") or ""), language)
         if not text or _looks_like_direction(text):
             continue
         start = max(0.0, float(item.get("start_sec", item.get("start", 0))))
@@ -758,7 +787,7 @@ def _finalize_segments(
             "end_sec": round(end, 2),
             "text": text,
             "role": role,
-            "purpose": str(item.get("purpose") or "").strip(),
+            "purpose": _purpose_in_language(str(item.get("purpose") or ""), language),
             "visual_summary": visual,
             "estimated_sec": _estimated_sec(text, target_wpm),
         })
@@ -827,6 +856,15 @@ def _fallback_from_analysis(
     return spoken
 
 
+def _coverage_ok(segments: list[dict[str, Any]], duration: float) -> bool:
+    if duration < 20 or not segments:
+        return bool(segments)
+    last = max(float(item.get("end_sec") or 0) for item in segments)
+    first = min(float(item.get("start_sec") or 0) for item in segments)
+    span = max(0.0, last - first)
+    return span >= min(duration * 0.4, duration - 3.0) or len(segments) >= 3
+
+
 def generate_voiceover_script(
     video_context: dict[str, Any],
     prompt: str,
@@ -852,7 +890,7 @@ def generate_voiceover_script(
                 language,
                 target_wpm,
             )
-            if segments:
+            if segments and _coverage_ok(segments, duration):
                 meta = llm_result.get("meta") if isinstance(llm_result.get("meta"), dict) else {}
                 return {
                     "segments": segments,
