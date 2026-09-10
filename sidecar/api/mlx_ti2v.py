@@ -16,15 +16,23 @@ from collections.abc import Callable
 from pathlib import Path
 
 TI2V_ID = "Anes1032/Wan2.2-TI2V-5B-mlx-q8"
-# Proven on M4 Max 64 GB: 832x480, 41 frames @ 24 fps, 20 steps, ~7 min, peak ~32 GB MLX.
+# Wan TI2V latents are 4n+1 at 24 fps: 41≈1.71s, 81≈3.38s, 121≈5.04s.
+# mlx-video has no 41-frame cap (default in generate.py is 81). 121 is the 5s length.
+# Practical Mac limit is measured by run_ti2v_scale.py, not assumed here.
 WIDTH = 832
 HEIGHT = 480
 FRAMES = 41
+FRAMES_MID = 81
+FRAMES_LONG = 81
+FRAMES_FULL = 121
 STEPS = 20
 FPS = 24
 GUIDE = 5.0
 SHIFT = 5.0
-WORKER_TIMEOUT_SEC = 40 * 60
+WORKER_TIMEOUT_SEC = 60 * 60
+MAX_FRAMES = 121
+MIN_FRAMES = 17
+LAST_RUN: dict = {}
 # On-disk weights ≈ 5G q8 transformer + 11G T5 + 2.6G VAE.
 APPROX_WEIGHT_BYTES = 21 * 1024 ** 3
 
@@ -116,6 +124,37 @@ def backend_snapshot(
     }
 
 
+def snap_frame_count(num_frames: int) -> int:
+    """Nearest Wan latent length (4n+1), clamped to [MIN_FRAMES, MAX_FRAMES]."""
+    n = int(num_frames)
+    n = max(MIN_FRAMES, min(MAX_FRAMES, n))
+    snapped = int(round((n - 1) / 4.0)) * 4 + 1
+    return max(MIN_FRAMES, min(MAX_FRAMES, snapped))
+
+
+def frames_for_duration(duration_sec: float | None, requested: int | None = None) -> int:
+    """Map wall-clock seconds to Wan frames at 24 fps.
+
+    Create sends duration_sec=5 → 120 frames → snap 121 (≈5.04s).
+    Unspecified duration stays on the short 41-frame default.
+    Requests above MAX_FRAMES clamp; we do not loop or Ken-Burns to fake length.
+    """
+    if requested is not None:
+        return snap_frame_count(requested)
+    sec = float(duration_sec or 0)
+    if sec <= 0:
+        return FRAMES
+    return snap_frame_count(int(round(sec * FPS)))
+
+
+def _rss_mb(pid: int) -> float:
+    try:
+        out = subprocess.check_output(["ps", "-o", "rss=", "-p", str(pid)], text=True)
+        return int(out.strip().split()[0]) / 1024.0
+    except Exception:
+        return 0.0
+
+
 def _percent_from_log(line: str, current: int) -> int:
     text = line.strip()
     for needle, pct in _LOG_PERCENT:
@@ -147,6 +186,8 @@ def run_ti2v(
     model_id: str | None = None,
     negative_prompt: str = "",
     seed: int = 42,
+    num_frames: int | None = None,
+    duration_sec: float | None = None,
     should_cancel: Callable[[], bool] | None = None,
     on_log: Callable[[str, int], None] | None = None,
 ) -> str:
@@ -156,6 +197,7 @@ def run_ti2v(
         raise RuntimeError(
             "VIDEO_MODEL_MISSING: Download Wan 2.2 TI2V 5B (MLX q8) in Studio → Video."
         )
+    frames_n = frames_for_duration(duration_sec, num_frames)
     py = mlx_python()
     worker = str(_here() / "mlx_ti2v_worker.py")
     cmd = [
@@ -167,13 +209,13 @@ def run_ti2v(
         "--output", dest,
         "--width", str(WIDTH),
         "--height", str(HEIGHT),
-        "--num-frames", str(FRAMES),
+        "--num-frames", str(frames_n),
         "--steps", str(STEPS),
         "--guide-scale", str(GUIDE),
         "--shift", str(SHIFT),
         "--seed", str(seed),
     ]
-    print(f"[mlx_ti2v] {' '.join(cmd[:4])} …", flush=True)
+    print(f"[mlx_ti2v] {' '.join(cmd[:4])} … frames={frames_n}", flush=True)
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     proc = subprocess.Popen(
@@ -186,9 +228,17 @@ def run_ti2v(
     assert proc.stdout is not None
     collected: list[str] = []
     percent = 12
-    deadline = time.time() + WORKER_TIMEOUT_SEC
+    peak_rss = 0.0
+    peak_mlx_gb = None
+    t0 = time.time()
+    deadline = t0 + WORKER_TIMEOUT_SEC
+    LAST_RUN.clear()
+    LAST_RUN.update({"num_frames": frames_n, "pid": proc.pid})
     try:
         while True:
+            rss = _rss_mb(proc.pid)
+            if rss > peak_rss:
+                peak_rss = rss
             if time.time() > deadline:
                 _stop_worker(proc)
                 raise RuntimeError("TI2V_FAILED: MLX worker timed out.")
@@ -209,6 +259,9 @@ def run_ti2v(
             if not line:
                 continue
             collected.append(line)
+            match = re.search(r"PEAK_MLX_GB\s+([0-9.]+)", line)
+            if match:
+                peak_mlx_gb = float(match.group(1))
             percent = _percent_from_log(line, percent)
             if on_log:
                 on_log(line.rstrip()[:120], percent)
@@ -216,7 +269,23 @@ def run_ti2v(
             sys.stdout.flush()
     except Exception:
         _stop_worker(proc)
+        LAST_RUN.update({
+            "elapsed_sec": round(time.time() - t0, 1),
+            "peak_worker_rss_mb": round(peak_rss, 1),
+            "peak_mlx_gb": peak_mlx_gb,
+            "returncode": proc.returncode,
+        })
         raise
+    LAST_RUN.update({
+        "elapsed_sec": round(time.time() - t0, 1),
+        "peak_worker_rss_mb": round(peak_rss, 1),
+        "peak_mlx_gb": peak_mlx_gb,
+        "returncode": proc.returncode,
+    })
+    print(
+        f"[mlx_ti2v] PEAK_WORKER_RSS_MB {peak_rss:.1f} PEAK_MLX_GB {peak_mlx_gb}",
+        flush=True,
+    )
     if proc.returncode != 0:
         tail = "".join(collected)[-800:]
         raise RuntimeError(f"TI2V_FAILED: MLX worker exited {proc.returncode}. {tail}")

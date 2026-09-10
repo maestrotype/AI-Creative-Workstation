@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +8,7 @@ import { studioHref } from '../../studio/model/studioReturn';
 import { useMediaLibraryStore } from '../store/mediaLibraryStore';
 import { AUDIO_KIND_ORDER, audioClipKind, audioClipLabel, type AudioClipKind } from '../model/audioClipKind';
 import { mediaMime } from '../../video/model/directorMedia';
+import { MediaLibrary } from './MediaLibrary';
 import ui from '../../video/ui/VideoPage.module.css';
 import styles from './AssetsPage.module.css';
 
@@ -102,6 +103,8 @@ function VoiceProgressPanel({ job, t }: { job: VoiceJob; t: (key: string, opts?:
 
 export function AssetsPage(): ReactNode {
   const { t, i18n } = useTranslation();
+  const [search, setSearch] = useSearchParams();
+  const tab = search.get('tab') === 'voice' ? 'voice' : 'media';
   const audioClips = useMediaLibraryStore((s) => s.audioClips);
   const voicePath = useMediaLibraryStore((s) => s.voicePath);
   const selectedAudioPath = useMediaLibraryStore((s) => s.selectedAudioPath);
@@ -579,7 +582,31 @@ export function AssetsPage(): ReactNode {
         </div>
       </header>
 
+      <div className={styles.tabs}>
+        <button
+          type="button"
+          className={styles.tab}
+          data-on={tab === 'media'}
+          onClick={() => setSearch({ tab: 'media' })}
+        >
+          {t('assets.tab_media')}
+        </button>
+        <button
+          type="button"
+          className={styles.tab}
+          data-on={tab === 'voice'}
+          onClick={() => setSearch({ tab: 'voice' })}
+        >
+          {t('assets.tab_voice')}
+        </button>
+      </div>
+
       <WorkspaceFlow kind="assets" />
+
+      {tab === 'media' ? <MediaLibrary /> : null}
+
+      {tab === 'voice' ? (
+      <>
 
       <section className={ui.card}>
         <h2 className={ui.subtitle}>{t('assets.capture_title')}</h2>
@@ -924,6 +951,8 @@ export function AssetsPage(): ReactNode {
           <audio className={styles.player} src={playUrl} controls autoPlay onEnded={() => setPlayingPath(null)} />
         ) : null}
       </section>
+      </>
+      ) : null}
     </div>
   );
 }

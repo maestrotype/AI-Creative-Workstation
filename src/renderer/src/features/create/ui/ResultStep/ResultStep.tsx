@@ -1,13 +1,47 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useCreateStore } from '../../store/createStore';
 import { useHomeStore } from '../../../home/store/homeStore';
 import { filePathFromAssetUrl, useWorkspaceBridgeStore } from '../../../studio/store/workspaceBridgeStore';
+import { attachGeneratedToFilm } from '../../../projects/model/attachToFilm';
 import { DownloadIcon, ImageIcon, RefreshIcon, TrashIcon } from '../../../../shared/ui/icons';
 import styles from './ResultStep.module.css';
 import { cx } from '../../../../shared/lib/cx';
+
+function ResultVideo({ src, label }: { src: string; label: string }): ReactNode {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [paused, setPaused] = useState(false);
+
+  const toggle = () => {
+    const el = ref.current;
+    if (!el) return;
+    if (el.paused) {
+      void el.play();
+    } else {
+      el.pause();
+    }
+  };
+
+  return (
+    <button type="button" className={styles.videoHit} onClick={toggle} aria-label={label}>
+      <video
+        ref={ref}
+        src={src}
+        className={styles.generatedImage}
+        preload="auto"
+        playsInline
+        autoPlay
+        loop
+        muted
+        onPlay={() => setPaused(false)}
+        onPause={() => setPaused(true)}
+      />
+      {paused ? <span className={styles.playMark} aria-hidden="true" /> : null}
+    </button>
+  );
+}
 
 export function ResultStep(): ReactNode {
   const { t } = useTranslation();
@@ -26,6 +60,9 @@ export function ResultStep(): ReactNode {
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [gradeBusy, setGradeBusy] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [filmBusy, setFilmBusy] = useState(false);
+  const [filmStatus, setFilmStatus] = useState<string | null>(null);
+  const [filmId, setFilmId] = useState<string | null>(null);
 
   const videoRef = referenceImages.find((ref) => ref.kind === 'video' && ref.sourcePath);
 
@@ -37,14 +74,60 @@ export function ResultStep(): ReactNode {
   if (!result) return null;
   const resultPath = filePathFromAssetUrl(result.thumbnailUrl);
   const isVideoResult = result.kind === 'video' || Boolean(resultPath && /\.(mp4|mov|m4v|webm|mkv)$/i.test(resultPath));
+  const promptIsJobId = /^vid_[a-f0-9]+$/i.test(result.prompt.trim());
+  const isSvd = result.capability === 'IMAGE_ANIMATION' || result.promptConsumed === false;
+  const isAiVideo = result.capability === 'IMAGE_TO_VIDEO' || result.promptConsumed === true;
 
-  const sendToVideo = () => {
+  const sendToVideo = async () => {
     const path = filePathFromAssetUrl(result.thumbnailUrl);
-    if (path) {
-      setLastImagePath(path);
-      setPendingTitleCard(path);
+    if (!path) {
+      setDownloadError(t('create.error.need_still'));
+      return;
     }
-    navigate('/video');
+    setFilmBusy(true);
+    setDownloadError(null);
+    try {
+      const film = await attachGeneratedToFilm({
+        path,
+        kind: isVideoResult ? 'video' : 'image',
+        prompt: result.prompt,
+        quality: result.quality,
+        status: result.videoStatus,
+      });
+      setFilmId(film.projectId);
+      if (!isVideoResult) {
+        setLastImagePath(path);
+        setPendingTitleCard(path);
+      }
+      navigate(`/video?project=${encodeURIComponent(film.projectId)}&voice=1`);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setFilmBusy(false);
+    }
+  };
+
+  const addToFilm = async () => {
+    const path = filePathFromAssetUrl(result.thumbnailUrl);
+    if (!path) return;
+    setFilmBusy(true);
+    setFilmStatus(null);
+    setDownloadError(null);
+    try {
+      const film = await attachGeneratedToFilm({
+        path,
+        kind: isVideoResult ? 'video' : 'image',
+        prompt: result.prompt,
+        quality: result.quality,
+        status: result.videoStatus,
+      });
+      setFilmId(film.projectId);
+      setFilmStatus(t('create.added_to_film', { name: film.name }));
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setFilmBusy(false);
+    }
   };
 
   const downloadStill = async () => {
@@ -109,16 +192,10 @@ export function ResultStep(): ReactNode {
       <div className={styles.imageArea}>
         {result.thumbnailUrl ? (
           isVideoResult ? (
-            <video
+            <ResultVideo
               key={result.id}
               src={result.thumbnailUrl}
-              className={styles.generatedImage}
-              preload="auto"
-              controls
-              playsInline
-              autoPlay
-              loop
-              muted
+              label={t('create.preview_toggle')}
             />
           ) : (
             <img
@@ -137,17 +214,24 @@ export function ResultStep(): ReactNode {
       </div>
 
       <p className={styles.prompt}>
-        "{result.prompt}"
+        {isVideoResult && promptIsJobId
+          ? t('create.clip_unnamed')
+          : `"${result.prompt}"`}
       </p>
       {isVideoResult ? (
         <>
           <p className={styles.hint}>
-            {result.promptConsumed
-              ? t('create.clip_ai_hint')
-              : t('create.clip_animation_hint')}
+            {isSvd
+              ? t('create.clip_animation_hint')
+              : isAiVideo
+                ? t('create.clip_ai_hint')
+                : t('create.clip_library_hint')}
           </p>
           <p className={styles.quality}>
             {t('create.quality_ok', {
+              provider: result.providerId
+                ? (result.providerId.split('/').pop() || result.providerId)
+                : t('create.provider_unknown'),
               duration: result.quality?.duration_sec ?? '—',
               motion: result.quality?.motion_score == null
                 ? t('create.quality_motion_unknown')
@@ -157,8 +241,28 @@ export function ResultStep(): ReactNode {
           {result.quality?.identity_warning ? (
             <p className={styles.warn}>{t('create.quality_identity')}</p>
           ) : null}
+          {result.quality?.low_motion || result.videoStatus === 'low_motion' ? (
+            <p className={styles.warn}>{t('create.quality_low_motion')}</p>
+          ) : null}
+          {result.quality?.prompt_intent ? (
+            <p className={styles.hint}>{t(`create.intent_${result.quality.prompt_intent}`)}</p>
+          ) : null}
+          <p className={styles.hint}>{t('create.preview_click')}</p>
           {(result.quality?.duration_sec ?? 0) > 0 && (result.quality?.duration_sec ?? 0) < 4 ? (
             <p className={styles.hint}>{t('create.clip_short_local')}</p>
+          ) : null}
+          {filmStatus ? (
+            <p className={styles.hint}>
+              {filmStatus}
+              {filmId ? (
+                <>
+                  {' '}
+                  <button type="button" className={styles.actionButton} onClick={() => navigate(`/projects/${filmId}`)}>
+                    {t('create.btn_open_film')}
+                  </button>
+                </>
+              ) : null}
+            </p>
           ) : null}
           <details className={styles.details}>
             <summary>{t('create.quality_details')}</summary>
@@ -166,6 +270,7 @@ export function ResultStep(): ReactNode {
               {JSON.stringify(
                 {
                   capability: result.capability,
+                  providerId: result.providerId,
                   promptConsumed: result.promptConsumed,
                   ...result.quality,
                 },
@@ -199,6 +304,26 @@ export function ResultStep(): ReactNode {
           </>
         ) : null}
 
+        {isVideoResult ? (
+          <button
+            type="button"
+            className={styles.actionButton}
+            disabled={filmBusy}
+            onClick={() => { void addToFilm(); }}
+          >
+            {t('create.btn_add_to_film')}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={styles.actionButton}
+            disabled={filmBusy}
+            onClick={() => { void addToFilm(); }}
+          >
+            {t('home.use_as_product')}
+          </button>
+        )}
+
         <button type="button" className={styles.actionButton} onClick={() => { void downloadStill(); }}>
           <DownloadIcon size={18} />
             {t(isVideoResult ? 'create.btn_download_video_file' : 'create.btn_download_image')}
@@ -224,13 +349,13 @@ export function ResultStep(): ReactNode {
             <Link to="/assets" className={styles.actionButton}>
               {t('create.btn_open_assets')}
             </Link>
-            <button type="button" className={styles.actionButton} onClick={sendToVideo}>
+            <button type="button" className={styles.actionButton} disabled={filmBusy} onClick={() => { void sendToVideo(); }}>
               {t('create.btn_send_video_insert')}
             </button>
           </>
         ) : (
           <>
-            <button type="button" className={styles.actionButton} onClick={sendToVideo}>
+            <button type="button" className={styles.actionButton} disabled={filmBusy} onClick={() => { void sendToVideo(); }}>
               {job === 'frame' ? t('create.btn_send_video_frame') : t('create.btn_send_video')}
             </button>
             <Link to="/threed" className={styles.actionButton}>

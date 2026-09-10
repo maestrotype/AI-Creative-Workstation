@@ -27,6 +27,12 @@ export interface Asset {
   /** Preview image. For clips this is a mid-frame; the file itself is `id` / thumbnail of the mp4. */
   readonly posterUrl?: string | null;
   readonly updatedAt: string;
+  readonly prompt?: string | null;
+  readonly capability?: string | null;
+  readonly providerId?: string | null;
+  readonly promptConsumed?: boolean | null;
+  readonly videoStatus?: string | null;
+  readonly quality?: GenerationResult['quality'] | null;
 }
 
 /* ─── Generation types ──────────────────────────────────────────────── */
@@ -43,6 +49,7 @@ export interface GenerationResult {
   readonly createdAt: string;
   readonly kind?: 'image' | 'video';
   readonly capability?: string;
+  readonly providerId?: string;
   readonly videoStatus?: string;
   readonly promptConsumed?: boolean;
   readonly quality?: {
@@ -54,6 +61,9 @@ export interface GenerationResult {
     identity_mae?: number | null;
     identity_warning?: boolean;
     low_motion?: boolean;
+    prompt_wan?: string;
+    prompt_intent?: string;
+    prompt_english?: string;
   };
 }
 

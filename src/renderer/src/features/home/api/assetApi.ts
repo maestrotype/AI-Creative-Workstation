@@ -35,18 +35,26 @@ export async function fetchRecentProjects(limit = 3): Promise<Asset[]> {
   }));
 }
 
-export async function fetchRecentAssets(limit = 6): Promise<Asset[]> {
+export async function fetchRecentAssets(limit = 80): Promise<Asset[]> {
   if (!window.api?.listGeneratedStills) return [];
   const stills = await window.api.listGeneratedStills();
   return stills.slice(0, limit).map((row) => {
     const video = isVideoPath(row.path);
+    const prompt = (row.prompt || '').trim();
+    const fallbackName = fileName(row.path);
     return {
       id: row.path,
-      name: fileName(row.path),
+      name: prompt || fallbackName,
       kind: (video ? 'video' : 'image') as Asset['kind'],
       thumbnailUrl: toAssetUrl(row.path),
       posterUrl: row.poster ? toAssetUrl(row.poster) : null,
       updatedAt: new Date(row.mtime).toISOString(),
+      prompt: prompt || null,
+      capability: row.capability ?? null,
+      providerId: row.provider_id ?? null,
+      promptConsumed: row.prompt_consumed ?? null,
+      videoStatus: row.status ?? null,
+      quality: (row.quality ?? null) as Asset['quality'],
     };
   });
 }

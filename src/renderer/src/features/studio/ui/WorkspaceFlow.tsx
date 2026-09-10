@@ -63,6 +63,7 @@ export function WorkspaceFlow({ kind }: WorkspaceFlowProps): ReactNode {
       { to: '/video', label: t('flow.to_voiceover') },
     ],
     assets: [
+      { to: '/projects', label: t('flow.to_projects') },
       { to: '/create', label: t('flow.to_create') },
       { to: '/threed', label: t('flow.to_threed') },
       { to: '/video', label: t('flow.to_voiceover') },

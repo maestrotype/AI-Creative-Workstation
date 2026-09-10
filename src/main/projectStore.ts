@@ -7,6 +7,51 @@ export type ProjectKind = 'video';
 export type ProjectFormat = 'landscape' | 'shorts';
 export type FilmPreset = 'marketplace' | 'hero' | 'youtube' | 'shorts';
 export type ShotMotion = 'still_motion' | 'import' | 'i2v';
+export type ShotPurpose =
+  | 'HOOK'
+  | 'PRODUCT_HERO'
+  | 'DETAIL'
+  | 'FEATURE'
+  | 'ANGLE'
+  | 'LIFESTYLE'
+  | 'CTA'
+  | 'TRANSITION';
+export type ShotValidation = 'ok' | 'warning' | 'failed';
+
+export interface FilmShot {
+  id: string;
+  projectId?: string | null;
+  sourceAsset: string | null;
+  provider: string;
+  modelId: string;
+  generationPrompt: string;
+  duration: number;
+  fps: number;
+  width: number;
+  height: number;
+  artifactPath: string;
+  generationMetadata: Record<string, unknown>;
+  validationStatus: ShotValidation;
+  productIdentityWarning: boolean;
+  shotPurpose: ShotPurpose;
+  createdAt: number;
+}
+
+export interface FilmTimeline {
+  bins: unknown[];
+  clips: unknown[];
+  trackLayout?: { videos: number; audios: number; titles: number };
+  overlayPos?: Record<string, { x: number; y: number }>;
+  playhead?: number;
+  pxPerSec?: number;
+  stillCompose?: string;
+  assembly?: {
+    targetSec: number;
+    style: string;
+    rationale: string;
+    createdAt: number;
+  };
+}
 
 export interface ProjectScene {
   id: string;
@@ -28,7 +73,11 @@ export interface ProjectDoc {
   preset: FilmPreset;
   brief: string;
   scenes: ProjectScene[];
+  shots: FilmShot[];
+  timeline: FilmTimeline | null;
+  productStillPath: string | null;
   assembledPath: string | null;
+  assembledFingerprint?: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -83,7 +132,11 @@ function emptyProject(name: string, format: ProjectFormat = 'landscape', preset:
     preset: nextPreset,
     brief: '',
     scenes: [],
+    shots: [],
+    timeline: null,
+    productStillPath: null,
     assembledPath: null,
+    assembledFingerprint: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -114,6 +167,7 @@ function parseDoc(raw: string): ProjectDoc | null {
       ...scene,
           motion: normalizeMotion(scene.motion) || (scene.clipPath ? 'import' : scene.stillPath ? 'still_motion' : 'import'),
     }));
+    const shots = Array.isArray(parsed.shots) ? parsed.shots.filter((row) => row && row.id && row.artifactPath) : [];
     return {
       ...emptyProject(parsed.name, format, preset),
       ...parsed,
@@ -121,6 +175,10 @@ function parseDoc(raw: string): ProjectDoc | null {
       format,
       preset,
       scenes,
+      shots,
+      timeline: parsed.timeline && typeof parsed.timeline === 'object' ? parsed.timeline : null,
+      productStillPath: parsed.productStillPath || null,
+      assembledFingerprint: parsed.assembledFingerprint || null,
     };
   } catch {
     return null;
@@ -128,6 +186,10 @@ function parseDoc(raw: string): ProjectDoc | null {
 }
 
 function coverOf(doc: ProjectDoc): string | null {
+  if (doc.productStillPath && existsSync(doc.productStillPath)) return doc.productStillPath;
+  for (const shot of doc.shots) {
+    if (shot.artifactPath && existsSync(shot.artifactPath)) return shot.artifactPath;
+  }
   for (const scene of doc.scenes) {
     if (scene.stillPath && existsSync(scene.stillPath)) return scene.stillPath;
     if (scene.clipPath && existsSync(scene.clipPath)) return scene.clipPath;

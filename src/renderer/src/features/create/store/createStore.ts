@@ -243,22 +243,46 @@ export const useCreateStore = create<CreateState>()((set, get) => ({
       ? asset.id
       : filePathFromAssetUrl(asset.thumbnailUrl);
     const video = asset.kind === 'video' || isVideoPath(mediaPath);
+    const storedPrompt = (asset.prompt || '').trim();
+    const nameIsJobId = /^vid_[a-f0-9]+$/i.test((asset.name || '').trim());
+    const prompt = storedPrompt || (nameIsJobId ? '' : asset.name);
     set({
       step: 'result',
       medium: video ? 'video' : 'image',
       result: {
         id: asset.id,
-        prompt: asset.name,
+        prompt: prompt || asset.name,
         thumbnailUrl: mediaPath
           ? toAssetUrl(mediaPath)
           : asset.thumbnailUrl,
         createdAt: asset.updatedAt,
         kind: video ? 'video' : 'image',
+        capability: asset.capability ?? undefined,
+        providerId: asset.providerId ?? undefined,
+        videoStatus: asset.videoStatus ?? undefined,
+        promptConsumed: asset.promptConsumed ?? undefined,
+        quality: asset.quality ?? undefined,
       },
       error: null,
       generationProgress: null,
       cancel: null,
     });
+    if (video && mediaPath && window.api?.probeMediaDuration && !(asset.quality?.duration_sec)) {
+      void window.api.probeMediaDuration(mediaPath).then((sec) => {
+        if (!(sec > 0)) return;
+        const current = get().result;
+        if (!current || current.id !== asset.id) return;
+        set({
+          result: {
+            ...current,
+            quality: {
+              ...current.quality,
+              duration_sec: Math.round(sec * 1000) / 1000,
+            },
+          },
+        });
+      }).catch(() => undefined);
+    }
   },
 
   /* ── Navigation ─────────────────────────────────────────────── */

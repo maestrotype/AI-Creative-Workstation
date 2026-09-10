@@ -36,6 +36,7 @@ export interface BinItem {
   outSec: number;
   durationKnown?: boolean;
   proxying?: boolean;
+  shotId?: string;
 }
 
 export interface TimelineClip {
@@ -105,6 +106,7 @@ export function trackLabel(id: TrackId): TrackDef {
   if (id === 'v1') return { id, labelKey: 'video.track_v1' };
   if (id.startsWith('v')) return { id, labelKey: 'video.track_v_overlay', labelParams: { n } };
   if (id === 'a1') return { id, labelKey: 'video.track_a1' };
+  if (id === 'a2') return { id, labelKey: 'video.track_a2' };
   if (id.startsWith('a')) return { id, labelKey: 'video.track_a_extra', labelParams: { n } };
   if (id === 't1') return { id, labelKey: 'video.track_t1' };
   return { id, labelKey: 'video.track_t_extra', labelParams: { n } };
@@ -438,4 +440,29 @@ export function syncClipDuration(clip: TimelineClip, bin: BinItem): TimelineClip
     durationSec: clipSpan(bin),
     sourceInSec: bin.inSec,
   };
+}
+
+export function splitClipAt(
+  clips: TimelineClip[],
+  clipId: string,
+  atSec: number,
+): TimelineClip[] {
+  const clip = clips.find((item) => item.id === clipId);
+  if (!clip) return clips;
+  const local = atSec - clip.startSec;
+  if (local < 0.2 || local > clip.durationSec - 0.2) return clips;
+  const left: TimelineClip = {
+    ...clip,
+    durationSec: local,
+    autoLength: false,
+  };
+  const right: TimelineClip = {
+    ...clip,
+    id: newId('clip'),
+    startSec: atSec,
+    durationSec: clip.durationSec - local,
+    sourceInSec: clip.sourceInSec + local,
+    autoLength: false,
+  };
+  return clips.flatMap((item) => (item.id === clipId ? [left, right] : [item]));
 }

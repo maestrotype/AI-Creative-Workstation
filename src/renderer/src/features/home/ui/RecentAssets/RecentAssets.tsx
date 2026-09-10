@@ -5,26 +5,31 @@
  * Handles four states: idle/loading (skeleton), error, empty, and populated.
  */
 import type { ReactNode } from 'react';
-
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { Asset } from '../../../../core/types';
 import { SparklesIcon } from '../../../../shared/ui/icons';
 import { AssetCard } from '../AssetCard/AssetCard';
 import styles from './RecentAssets.module.css';
 
-/* ─── Props ─────────────────────────────────────────────────────────── */
+const PREVIEW_COUNT = 6;
 
 export interface RecentAssetsProps {
-  /** Loading state — drives skeleton vs. content rendering. */
   readonly status: 'idle' | 'loading' | 'ready' | 'error';
-  /** Assets to render, newest first. Ignored unless status is 'ready'. */
   readonly assets: readonly Asset[];
+  readonly expanded?: boolean;
+  readonly onToggleExpanded?: () => void;
+  readonly libraryHref?: string;
   readonly hrefFor?: (asset: Asset) => string;
   readonly onOpen?: (asset: Asset) => void;
   readonly onDownload?: (asset: Asset) => void;
   readonly onDelete?: (asset: Asset) => void;
-  /** Retry action for the error state. */
+  readonly onUse?: (asset: Asset) => void;
+  readonly useLabelFor?: (asset: Asset) => string | undefined;
   readonly onRetry?: () => void;
+  readonly note?: string | null;
+  readonly noteHref?: string | null;
+  readonly noteHrefLabel?: string;
 }
 
 /* ─── Constants ─────────────────────────────────────────────────────── */
@@ -36,11 +41,19 @@ const SKELETON_COUNT = 6;
 export function RecentAssets({
   status,
   assets,
+  expanded = false,
+  onToggleExpanded,
+  libraryHref = '/assets?tab=media',
   hrefFor,
   onOpen,
   onDownload,
   onDelete,
+  onUse,
+  useLabelFor,
   onRetry,
+  note,
+  noteHref,
+  noteHrefLabel,
 }: RecentAssetsProps): ReactNode {
   const { t } = useTranslation();
 
@@ -104,15 +117,40 @@ export function RecentAssets({
   }
 
   /* Populated grid */
+  const shown = expanded ? assets : assets.slice(0, PREVIEW_COUNT);
+  const hidden = Math.max(0, assets.length - PREVIEW_COUNT);
+
   return (
     <section className={styles.section} aria-label="Recent creations">
       <header className={styles.header}>
         <h2 className={styles.title}>{t('home.recent_assets')}</h2>
         <span className={styles.count}>{assets.length}</span>
+        <div className={styles.headerActions}>
+          {hidden > 0 && onToggleExpanded ? (
+            <button type="button" className={styles.textBtn} onClick={onToggleExpanded}>
+              {expanded ? t('home.show_less') : t('home.show_all', { count: assets.length })}
+            </button>
+          ) : null}
+          <Link className={styles.textBtn} to={libraryHref}>
+            {t('home.view_library')}
+          </Link>
+        </div>
       </header>
+      <p className={styles.lead}>{t('home.recent_assets_lead')}</p>
+      {note ? (
+        <p className={styles.note}>
+          {note}
+          {noteHref ? (
+            <>
+              {' '}
+              <Link to={noteHref}>{noteHrefLabel || t('home.open_this_film')}</Link>
+            </>
+          ) : null}
+        </p>
+      ) : null}
 
       <ul className={styles.grid}>
-        {assets.map((asset) => (
+        {shown.map((asset) => (
           <li key={asset.id} className={styles.gridItem}>
             <AssetCard
               asset={asset}
@@ -120,6 +158,8 @@ export function RecentAssets({
               onOpen={onOpen}
               onDownload={onDownload}
               onDelete={onDelete}
+              onUse={onUse}
+              useLabel={useLabelFor?.(asset)}
             />
           </li>
         ))}

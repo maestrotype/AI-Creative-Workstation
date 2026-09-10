@@ -31,6 +31,10 @@ const api = {
       image_path?: string;
       image_base64?: string;
       mode?: string;
+      num_frames?: number;
+      shot_index?: number;
+      shot_total?: number;
+      seed?: number;
     }) => ipcRenderer.invoke('generate-video', payload),
   generateImage: (payload: {
     prompt: string;
@@ -76,7 +80,17 @@ const api = {
   }) => ipcRenderer.invoke('render-timeline', payload),
   loadVideoHistory: () => ipcRenderer.invoke('load-video-history'),
   saveVideoHistory: (payload: unknown) => ipcRenderer.invoke('save-video-history', payload),
-  listGeneratedStills: () => ipcRenderer.invoke('list-generated-stills') as Promise<{ path: string; mtime: number; poster?: string | null }[]>,
+  listGeneratedStills: () => ipcRenderer.invoke('list-generated-stills') as Promise<{
+    path: string;
+    mtime: number;
+    poster?: string | null;
+    prompt?: string | null;
+    capability?: string | null;
+    prompt_consumed?: boolean | null;
+    status?: string | null;
+    provider_id?: string | null;
+    quality?: Record<string, unknown> | null;
+  }[]>,
   deleteGeneratedStill: (sourcePath: string) => ipcRenderer.invoke('delete-generated-still', sourcePath) as Promise<boolean>,
   pickVideo: () => ipcRenderer.invoke('pick-video'),
   probeMediaDuration: (filePath: string) => ipcRenderer.invoke('probe-media-duration', filePath) as Promise<number>,

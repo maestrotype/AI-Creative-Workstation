@@ -1,8 +1,9 @@
 import type { ProjectDoc } from './project';
 import { sceneHasMedia } from './project';
 
-/** One-shot payload: Projects → Video. Consumed when Video mounts. */
+/** One-shot leftover from older Film → Director navigation. Consumed and discarded; not the Film identity. */
 export const PROJECT_VIDEO_HANDOFF_KEY = 'acw-open-project-video';
+/** Resume hint on the Films list only. Not the source of truth; project.json is. */
 export const LAST_PROJECT_KEY = 'acw-last-project-id';
 
 export type ProjectHandoffSource = {
