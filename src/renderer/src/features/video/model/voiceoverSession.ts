@@ -1,5 +1,6 @@
 import type { BinItem, TimelineClip, TrackId } from './directorTimeline';
 import { clipSpan, fileName, packTrack } from './directorTimeline';
+import { hasScreencastBin } from './filmVisual';
 import type { VideoAnalysisContext } from './videoAnalysis';
 import type { VoiceoverScript } from './voiceoverScript';
 
@@ -22,7 +23,7 @@ export interface VoiceoverSource {
   binId: string | null;
   name: string;
   durationSec: number;
-  from: 'selected_bin' | 'selected_clip' | 'v1_clip' | 'video_bin' | 'longest_video';
+  from: 'selected_bin' | 'selected_clip' | 'v1_clip' | 'video_bin' | 'longest_video' | 'assembled_timeline';
 }
 
 export function emptyVoiceoverSession(): VoiceoverSession {
@@ -91,15 +92,47 @@ function asSource(bin: BinItem, from: VoiceoverSource['from']): VoiceoverSource 
   };
 }
 
-/** Prefer the longest screencast. Short generated clips are never the voiceover source. */
+/** Prefer a real screencast when one exists. Product films use the V1 assembled cut. */
 export function resolveVoiceoverSource(
   bins: BinItem[],
   clips: TimelineClip[],
   selectedBin: string | null,
   selectedClip: string | null,
+  assembled?: { path: string; durationSec: number; name?: string } | null,
 ): VoiceoverSource | null {
+  if (!hasScreencastBin(bins)) {
+    if (assembled?.path) {
+      return {
+        path: assembled.path,
+        binId: null,
+        name: assembled.name || fileName(assembled.path),
+        durationSec: Math.max(0.4, assembled.durationSec || 0),
+        from: 'assembled_timeline',
+      };
+    }
+    const picture = clips
+      .filter((clip) => clip.track === 'v1' && clip.binId)
+      .sort((a, b) => a.startSec - b.startSec);
+    if (picture.length === 1) {
+      const bin = bins.find((item) => item.id === picture[0].binId);
+      if (bin?.kind === 'video') return asSource(bin, 'v1_clip');
+    }
+    return null;
+  }
+
   const longest = pickLongestVideoBin(bins);
-  if (!longest) return null;
+  if (!longest) {
+    if (assembled?.path) {
+      return {
+        path: assembled.path,
+        binId: null,
+        name: assembled.name || fileName(assembled.path),
+        durationSec: Math.max(0.4, assembled.durationSec || 0),
+        from: 'assembled_timeline',
+      };
+    }
+    return null;
+  }
 
   const selected = selectedBin ? bins.find((b) => b.id === selectedBin) : null;
   if (selected?.kind === 'video' && isVoiceoverWorthyVideo(selected, longest)) {
@@ -213,10 +246,11 @@ export function applyStillCompose(
   return [...stills, ...base.map((clip) => ({ ...clip, startSec: clip.startSec + cursor }))];
 }
 
-/** Keep the long screencast on V1; short AI clips go to V2. Stills follow StillCompose, not this. */
+/** Keep a long screencast on V1. Do not strip AI product shots when they ARE the film. */
 export function demoteShortClipsFromV1(bins: BinItem[], clips: TimelineClip[]): TimelineClip[] {
+  if (!hasScreencastBin(bins)) return clips;
   const longest = pickLongestVideoBin(bins);
-  if (!longest) return packTrack(clips, 'v1');
+  if (!longest) return clips;
   const threshold = Math.max(8, binMediaDuration(longest) * 0.35);
   const next = clips.map((clip) => {
     if (clip.track !== 'v1') return clip;

@@ -60,7 +60,7 @@ class CapabilityTests(unittest.TestCase):
         self.assertTrue(spec["supports_text_prompt"])
         self.assertTrue(spec["supports_image_conditioning"])
         self.assertTrue(spec["prompt_consumed"])
-        self.assertFalse(spec["supports_duration_control"])
+        self.assertTrue(spec["supports_duration_control"])
         vc.assert_mode_allowed("ai_video", TI2V)
 
     def test_normalize_does_not_collapse_ti2v_to_t2v(self):
@@ -303,6 +303,17 @@ class MotionQualityTests(unittest.TestCase):
         other = Image.new("RGB", (64, 64), (240, 240, 240))
         identity = _identity_vs_source(source, [other, other])
         self.assertTrue(identity["identity_warning"])
+
+    def test_identity_warning_when_last_frame_collapses(self):
+        from PIL import Image
+        from api.motion import _identity_vs_source
+
+        source = Image.new("RGB", (64, 64), (12, 40, 90))
+        first = source.copy()
+        last = Image.new("RGB", (64, 64), (240, 240, 240))
+        identity = _identity_vs_source(source, [first, first, last])
+        self.assertTrue(identity["identity_warning"])
+        self.assertGreaterEqual(identity["identity_mae_last"], 32.0)
 
 
 if __name__ == "__main__":

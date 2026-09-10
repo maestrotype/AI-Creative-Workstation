@@ -4,8 +4,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { toAssetUrl } from '../../video/model/directorMedia';
-import { writeLastProjectId, writeProjectHandoff } from '../model/handoff';
-import { composeClips, formatForPreset, newScene, normalizePreset, normalizeShotMotion, projectDuration, sceneHasMedia, templateChapters, type FilmPreset, type ProjectDoc, type ProjectScene } from '../model/project';
+import { assembleShots, planToTimeline, productShotPresets } from '../../video/model/autoAssemble';
+import { writeLastProjectId } from '../model/handoff';
+import { composeClips, formatForPreset, newScene, normalizePreset, normalizeShotMotion, projectDuration, sceneHasMedia, shotFromGeneration, templateChapters, type FilmPreset, type ProjectDoc, type ProjectScene } from '../model/project';
 import styles from './ProjectsPage.module.css';
 
 function ipcMessage(err: unknown): string {
@@ -68,6 +69,8 @@ export function ProjectWorkspace(): ReactNode {
   const [busyKind, setBusyKind] = useState<'still' | 'video' | 'import' | null>(null);
   const [composing, setComposing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [shotBusy, setShotBusy] = useState(false);
+  const [assembleTarget, setAssembleTarget] = useState(10);
 
   const docRef = useRef<ProjectDoc | null>(null);
   docRef.current = doc;
@@ -83,9 +86,11 @@ export function ProjectWorkspace(): ReactNode {
   }, []);
 
   useEffect(() => {
+    setDoc(null);
+    setError(null);
     if (!projectId || !window.api?.loadProject) return;
     void window.api.loadProject(projectId).then((loaded) => {
-      if (!loaded) {
+      if (!loaded || loaded.id !== projectId) {
         setError(t('projects.missing'));
         return;
       }
@@ -100,7 +105,11 @@ export function ProjectWorkspace(): ReactNode {
           prompt: scene.prompt.trim() ? scene.prompt : scene.title,
           effectPrompt: scene.effectPrompt.trim() ? scene.effectPrompt : t('projects.effect_default'),
         })),
-      };
+        shots: (Array.isArray(loaded.shots) ? loaded.shots : []) as ProjectDoc['shots'],
+        timeline: (loaded.timeline ?? null) as ProjectDoc['timeline'],
+        productStillPath: loaded.productStillPath ?? null,
+        assembledFingerprint: loaded.assembledFingerprint ?? null,
+      } as ProjectDoc;
       writeLastProjectId(loaded.id);
       if (!loaded.brief.trim()) {
         void persist(next);
@@ -197,15 +206,16 @@ export function ProjectWorkspace(): ReactNode {
       return;
     }
     const motionModel = await window.api.getActiveVideoModel?.();
-    if (!motionModel || !/runway|minimax|h3/i.test(motionModel)) {
-      setError(t('projects.no_h3'));
+    if (!motionModel || !/runway|minimax|h3|ti2v|anes1032/i.test(motionModel)) {
+      setError(t('projects.no_ai_video'));
       return;
     }
     const isH3 = /minimax|h3/i.test(motionModel);
+    const isTi2v = /ti2v|anes1032/i.test(motionModel);
     setBusyScene(scene.id);
     setBusyKind('video');
     setError(null);
-    setStatus(t(isH3 ? 'projects.generating_h3' : 'projects.generating_runway'));
+    setStatus(t(isTi2v ? 'projects.generating_motion' : isH3 ? 'projects.generating_h3' : 'projects.generating_runway'));
     try {
       const prompt = [latest.brief, scene.prompt || scene.title].filter(Boolean).join('\n\n');
       const clipSec = Math.max(5, Math.min(10, scene.durationSec || 5));
@@ -230,7 +240,7 @@ export function ProjectWorkspace(): ReactNode {
             : row
         )),
       });
-      setStatus(t(isH3 ? 'projects.generated_h3_ok' : 'projects.generated_runway_ok'));
+      setStatus(t(isTi2v ? 'projects.generated_motion_ok' : isH3 ? 'projects.generated_h3_ok' : 'projects.generated_runway_ok'));
     } catch (err) {
       setStatus(null);
       setError(motionErrorMessage(err, t));
@@ -238,6 +248,119 @@ export function ProjectWorkspace(): ReactNode {
       setBusyScene(null);
       setBusyKind(null);
     }
+  };
+
+  const pickProductStill = async () => {
+    const picked = await window.api.pickImage?.();
+    if (!picked || !window.api.importIntoProject) return;
+    const latest = docRef.current ?? doc;
+    try {
+      const copied = await window.api.importIntoProject({ projectId: latest.id, path: picked });
+      await persist({ ...(docRef.current ?? latest), productStillPath: copied.file_path });
+    } catch (err) {
+      setError(ipcMessage(err));
+    }
+  };
+
+  const generateProductShots = async () => {
+    if (!window.api?.generateVideo) return;
+    const latest = docRef.current ?? doc;
+    const still = latest.productStillPath;
+    if (!still) {
+      setError(t('projects.need_product_photo'));
+      return;
+    }
+    const motionModel = await window.api.getActiveVideoModel?.();
+    if (!motionModel || !/runway|minimax|h3|ti2v|anes1032/i.test(motionModel)) {
+      setError(t('projects.no_ai_video'));
+      return;
+    }
+    setShotBusy(true);
+    setError(null);
+    const presets = productShotPresets(latest.brief);
+    let current = latest;
+    try {
+      for (let i = 0; i < presets.length; i += 1) {
+        const spec = presets[i];
+        setStatus(t('projects.generating_shot', { current: i + 1, total: presets.length }));
+        const result = await window.api.generateVideo({
+          prompt: spec.prompt,
+          format: current.format === 'shorts' ? 'portrait' : 'wide',
+          duration_sec: 1.7,
+          model_id: motionModel,
+          image_path: still,
+          mode: 'ai_video',
+          shot_index: i + 1,
+          shot_total: presets.length,
+        });
+        if (!result.file_path) throw new Error(t('projects.generate_fail'));
+        const duration = result.quality?.duration_sec
+          ?? await window.api.probeMediaDuration(result.file_path).catch(() => 1.7);
+        const shot = shotFromGeneration({
+          path: result.file_path,
+          prompt: spec.prompt,
+          purpose: spec.purpose,
+          provider: result.provider_id || motionModel,
+          modelId: result.provider_id || motionModel,
+          sourceAsset: still,
+          projectId: current.id,
+          quality: {
+            ...result.quality,
+            duration_sec: duration,
+          },
+          status: result.status,
+        });
+        current = docRef.current ?? current;
+        current = {
+          ...current,
+          shots: [...(current.shots ?? []), shot],
+        };
+        await persist(current);
+        setStatus(t('projects.shot_ready', { current: i + 1, total: presets.length }));
+      }
+      setStatus(t('projects.shots_done', { count: presets.length }));
+    } catch (err) {
+      setError(motionErrorMessage(err, t));
+    } finally {
+      setShotBusy(false);
+    }
+  };
+
+  const openEditorFromShots = async (assemble: boolean, voice = false) => {
+    const latest = docRef.current ?? doc;
+    const usable = (latest.shots ?? []).filter((shot) => shot.validationStatus !== 'failed' && shot.artifactPath);
+    if (usable.length < 1) {
+      setError(t('projects.need_shots'));
+      return;
+    }
+    let next = latest;
+    if (assemble) {
+      const plan = assembleShots({
+        shots: latest.shots ?? [],
+        targetSec: assembleTarget,
+        productStillPath: latest.productStillPath,
+      });
+      const built = planToTimeline(plan);
+      next = {
+        ...latest,
+        timeline: {
+          bins: built.bins,
+          clips: built.clips,
+          trackLayout: plan.trackLayout,
+          playhead: 0,
+          pxPerSec: 16,
+          assembly: {
+            targetSec: plan.targetSec,
+            style: plan.style,
+            rationale: plan.rationale,
+            createdAt: Date.now(),
+          },
+        },
+      };
+      await persist(next);
+    }
+    writeLastProjectId(next.id);
+    navigate(`/video?project=${encodeURIComponent(next.id)}${voice ? '&voice=1' : ''}`);
   };
 
   const importStill = async (scene: ProjectScene) => {
@@ -316,6 +439,11 @@ export function ProjectWorkspace(): ReactNode {
   const finishInVideo = async () => {
     const latest = docRef.current ?? doc;
     writeLastProjectId(latest.id);
+    if ((latest.shots ?? []).some((shot) => shot.artifactPath)) {
+      const hasCut = (latest.timeline?.clips ?? []).some((clip) => clip.track === 'v1');
+      await openEditorFromShots(!hasCut, true);
+      return;
+    }
     if (!latest.scenes.some(sceneHasMedia)) {
       setError(t('projects.compose_need_media'));
       return;
@@ -323,18 +451,7 @@ export function ProjectWorkspace(): ReactNode {
     let assembled = await compose();
     if (!assembled) return;
     const fresh = docRef.current ?? latest;
-    writeProjectHandoff({
-      projectId: fresh.id,
-      projectName: fresh.name,
-      brief: fresh.brief,
-      sources: [{
-        kind: 'video',
-        path: assembled,
-        name: fresh.name,
-        durationSec: projectDuration(fresh),
-      }],
-    });
-    navigate(`/video?project=${encodeURIComponent(fresh.id)}`);
+    navigate(`/video?project=${encodeURIComponent(fresh.id)}&voice=1`);
   };
 
   const useStillMotion = (scene: ProjectScene) => {
@@ -347,6 +464,9 @@ export function ProjectWorkspace(): ReactNode {
   };
 
   const preset = doc.preset ?? 'marketplace';
+  const hasShots = (doc.shots ?? []).some((shot) => shot.artifactPath);
+  const hasSceneMedia = doc.scenes.some(sceneHasMedia);
+  const canFinish = hasShots || hasSceneMedia;
   const filmStep = !doc.scenes.some(sceneHasMedia) ? 'shots' : doc.assembledPath ? 'voice' : 'picture';
 
   return (
@@ -379,6 +499,73 @@ export function ProjectWorkspace(): ReactNode {
         <li data-on={filmStep === 'voice'}>{t('projects.step_voice')}</li>
       </ol>
       <p className={styles.lead}>{t(`projects.preset_lead_${preset}`)}</p>
+
+      <section className={styles.productPanel}>
+        <h2 className={styles.h2}>{t('projects.product_shots')}</h2>
+        <p className={styles.muted}>{t('projects.product_shots_lead')}</p>
+        <div className={styles.productRow}>
+          <div className={styles.thumb}>
+            {doc.productStillPath ? (
+              <img src={toAssetUrl(doc.productStillPath)} alt="" />
+            ) : (
+              <span>📷</span>
+            )}
+          </div>
+          <div className={styles.productActions}>
+            <button type="button" className={styles.ghostBtn} onClick={() => void pickProductStill()} disabled={shotBusy}>
+              {t('projects.pick_product_still')}
+            </button>
+            <button
+              type="button"
+              className={styles.newButton}
+              disabled={shotBusy || busyScene !== null || !doc.productStillPath}
+              onClick={() => void generateProductShots()}
+            >
+              {shotBusy ? t('projects.generating') : t('projects.generate_shots')}
+            </button>
+            <label className={styles.dur}>
+              {t('projects.assemble_target')}
+              <input
+                type="number"
+                min={4}
+                max={30}
+                step={1}
+                value={assembleTarget}
+                onChange={(e) => setAssembleTarget(Number(e.target.value) || 10)}
+              />
+            </label>
+            <button
+              type="button"
+              className={styles.ghostBtn}
+              disabled={shotBusy || (doc.shots ?? []).length === 0}
+              onClick={() => void openEditorFromShots(true)}
+            >
+              {t('projects.assemble_and_edit')}
+            </button>
+            <button
+              type="button"
+              className={styles.textBtn}
+              disabled={(doc.shots ?? []).length === 0}
+              onClick={() => void openEditorFromShots(false)}
+            >
+              {t('projects.open_editor')}
+            </button>
+          </div>
+        </div>
+        {(doc.shots ?? []).length > 0 ? (
+          <ul className={styles.shotChips}>
+            {(doc.shots ?? []).map((shot, index) => (
+              <li key={shot.id}>
+                {index + 1}. {shot.shotPurpose.replaceAll('_', ' ')}
+                {' · '}
+                {shot.duration ? `${shot.duration.toFixed(1)}s` : '—'}
+                {' · '}
+                {shot.validationStatus}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </section>
 
       <label className={styles.field}>
         <span>{t('projects.brief')}</span>
@@ -530,7 +717,7 @@ export function ProjectWorkspace(): ReactNode {
       )}
 
       {(() => {
-        const hasMedia = doc.scenes.some(sceneHasMedia);
+        const hasMedia = hasSceneMedia || hasShots;
         const step = !hasMedia ? 'scene' : 'voice';
         return (
           <aside className={styles.nextBox} data-step={step}>
@@ -548,7 +735,7 @@ export function ProjectWorkspace(): ReactNode {
         <button
           type="button"
           className={styles.newButton}
-          disabled={composing || busyScene !== null || !doc.scenes.some(sceneHasMedia)}
+          disabled={composing || busyScene !== null || !canFinish}
           onClick={() => void finishInVideo()}
         >
           {composing ? t('projects.composing') : t('projects.finish_voice')}

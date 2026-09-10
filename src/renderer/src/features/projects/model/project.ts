@@ -1,6 +1,76 @@
 export type ProjectFormat = 'landscape' | 'shorts';
 export type FilmPreset = 'marketplace' | 'hero' | 'youtube' | 'shorts';
 export type ShotMotion = 'still_motion' | 'import' | 'i2v';
+export type ShotPurpose =
+  | 'HOOK'
+  | 'PRODUCT_HERO'
+  | 'DETAIL'
+  | 'FEATURE'
+  | 'ANGLE'
+  | 'LIFESTYLE'
+  | 'CTA'
+  | 'TRANSITION';
+export type ShotValidation = 'ok' | 'warning' | 'failed';
+
+export interface FilmShot {
+  id: string;
+  /** Same as ProjectDoc.id. Film and Project are one record. */
+  projectId?: string | null;
+  sourceAsset: string | null;
+  provider: string;
+  modelId: string;
+  generationPrompt: string;
+  duration: number;
+  fps: number;
+  width: number;
+  height: number;
+  artifactPath: string;
+  generationMetadata: Record<string, unknown>;
+  validationStatus: ShotValidation;
+  productIdentityWarning: boolean;
+  shotPurpose: ShotPurpose;
+  createdAt: number;
+}
+
+export interface FilmTimelineClip {
+  id: string;
+  binId: string | null;
+  track: string;
+  startSec: number;
+  durationSec: number;
+  sourceInSec: number;
+  label: string;
+  text?: string;
+  autoLength?: boolean;
+}
+
+export interface FilmTimelineBin {
+  id: string;
+  kind: 'video' | 'image' | 'audio';
+  path: string;
+  name: string;
+  durationSec: number;
+  inSec: number;
+  outSec: number;
+  durationKnown?: boolean;
+  shotId?: string;
+}
+
+export interface FilmTimeline {
+  bins: FilmTimelineBin[];
+  clips: FilmTimelineClip[];
+  trackLayout: { videos: number; audios: number; titles: number };
+  overlayPos?: Record<string, { x: number; y: number }>;
+  playhead?: number;
+  pxPerSec?: number;
+  stillCompose?: string;
+  assembly?: {
+    targetSec: number;
+    style: string;
+    rationale: string;
+    createdAt: number;
+  };
+}
 
 export interface ProjectScene {
   id: string;
@@ -14,6 +84,13 @@ export interface ProjectScene {
   motion: ShotMotion;
 }
 
+/**
+ * In this app a Film is a ProjectDoc. One identity: projectId.
+ * Route `/projects/:projectId` is the Film workspace.
+ * Route `/video?project=:projectId` is that same Film’s Director/narration.
+ * Shots, timeline, narration-derived preview, and export live on project.json.
+ * localStorage may cache director UI; it is not the source of truth.
+ */
 export interface ProjectDoc {
   id: string;
   name: string;
@@ -22,7 +99,13 @@ export interface ProjectDoc {
   preset: FilmPreset;
   brief: string;
   scenes: ProjectScene[];
+  shots: FilmShot[];
+  timeline: FilmTimeline | null;
+  productStillPath: string | null;
+  /** Last rendered V1 preview used for narration/analysis. */
   assembledPath: string | null;
+  /** Fingerprint of V1 clips that assembledPath was rendered from. */
+  assembledFingerprint?: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -51,6 +134,57 @@ export function newScene(title = ''): ProjectScene {
     stillPath: null,
     clipPath: null,
     motion: 'import',
+  };
+}
+
+export function newShotId(): string {
+  return typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `shot-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+export function shotFromGeneration(args: {
+  path: string;
+  prompt: string;
+  purpose?: ShotPurpose;
+  provider?: string;
+  modelId?: string;
+  sourceAsset?: string | null;
+  projectId?: string | null;
+  quality?: {
+    duration_sec?: number;
+    fps?: number;
+    frame_count?: number;
+    width?: number;
+    height?: number;
+    low_motion?: boolean;
+    identity_warning?: boolean;
+    motion_mae?: number;
+    identity_mae?: number | null;
+    motion_score?: number | null;
+  } | null;
+  status?: string;
+}): FilmShot {
+  const quality = args.quality ?? {};
+  const failed = args.status === 'failed' || quality.low_motion === true;
+  const warning = Boolean(quality.identity_warning);
+  return {
+    id: newShotId(),
+    sourceAsset: args.sourceAsset ?? null,
+    projectId: args.projectId ?? null,
+    provider: args.provider || args.modelId || 'unknown',
+    modelId: args.modelId || args.provider || '',
+    generationPrompt: args.prompt,
+    duration: Number(quality.duration_sec) || 0,
+    fps: Number(quality.fps) || 24,
+    width: Number(quality.width) || 0,
+    height: Number(quality.height) || 0,
+    artifactPath: args.path,
+    generationMetadata: { ...quality },
+    validationStatus: failed ? 'failed' : warning ? 'warning' : 'ok',
+    productIdentityWarning: warning,
+    shotPurpose: args.purpose ?? 'PRODUCT_HERO',
+    createdAt: Date.now(),
   };
 }
 

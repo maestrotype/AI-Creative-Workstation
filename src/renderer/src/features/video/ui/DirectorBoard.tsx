@@ -24,6 +24,7 @@ import {
   packAllGaps,
   packTrack,
   snapStart,
+  splitClipAt,
   trackHasGap,
   maxDurationBeforeNext,
   syncClipDuration,
@@ -38,8 +39,10 @@ import {
   type TrackId,
   type TrackLayout,
 } from '../model/directorTimeline';
+import { assembleShots, planToTimeline } from '../model/autoAssemble';
+import type { FilmShot, FilmTimeline, ProjectDoc } from '../../projects/model/project';
 import { DEFAULT_TRACK_LAYOUT } from '../model/directorTimeline';
-import { handoffPathsOf, takeProjectHandoff, type ProjectHandoff } from '../../projects/model/handoff';
+import { takeProjectHandoff } from '../../projects/model/handoff';
 import { loadDirectorSession, saveDirectorSession, type DirectorSession } from '../model/directorSessionStore';
 import {
   applyStillCompose,
@@ -54,6 +57,7 @@ import {
   type VoiceoverSession,
   type VoiceoverSource,
 } from '../model/voiceoverSession';
+import { hasScreencastBin, v1Clips, visualTimelineFingerprint } from '../model/filmVisual';
 import type { VideoAnalysisContext } from '../model/videoAnalysis';
 import type { VoiceoverScript } from '../model/voiceoverScript';
 
@@ -134,6 +138,7 @@ type DirectorSnap = {
   setDropActive: (on: boolean) => void;
   addCaption: () => void;
   removeClip: (id: string) => void;
+  splitAtPlayhead: () => void;
   clearTrack: (track: TrackId) => void;
   onClipPointerDown: (e: PointerEvent<HTMLElement>, clip: TimelineClip, mode: DragState['mode']) => void;
   onClipPointerMove: (e: PointerEvent<HTMLElement>) => void;
@@ -203,6 +208,13 @@ type DirectorSnap = {
   voiceoverApplyProgress: { current: number; total: number; detail: string };
   applyScriptVoiceover: () => void;
   projectScope: { id: string; name: string } | null;
+  shots: FilmShot[];
+  assemblyRationale: string | null;
+  applyAutoAssemble: (targetSec: number) => void;
+  addShotToTimeline: (shotId: string) => void;
+  removeShot: (shotId: string) => void;
+  filmLoadError: string | null;
+  projectHydrated: boolean;
 };
 
 export interface SourceInput {
@@ -211,69 +223,7 @@ export interface SourceInput {
   name?: string;
   durationSec?: number;
   track?: TrackId;
-}
-
-function sessionMatchesHandoff(session: DirectorSession | null, handoff: ProjectHandoff): boolean {
-  if (!session) return false;
-  const have = session.bins
-    .filter((b) => b.kind === 'video' || b.kind === 'image')
-    .map((b) => b.path)
-    .sort();
-  const want = handoffPathsOf(handoff);
-  return have.length === want.length && have.every((path, i) => path === want[i]);
-}
-
-function sessionFromHandoff(handoff: ProjectHandoff): DirectorSession {
-  let t = 0;
-  const bins: BinItem[] = [];
-  const clips: TimelineClip[] = [];
-  for (const src of handoff.sources) {
-    const dur = src.durationSec ?? (src.kind === 'image' ? 4 : 8);
-    const binId = newId('bin');
-    bins.push({
-      id: binId,
-      kind: src.kind,
-      path: src.path,
-      name: src.name ?? fileName(src.path),
-      durationSec: dur,
-      inSec: 0,
-      outSec: dur,
-      durationKnown: src.kind === 'image',
-    });
-    clips.push({
-      id: newId('clip'),
-      binId,
-      track: 'v1',
-      startSec: t,
-      durationSec: dur,
-      sourceInSec: 0,
-      label: src.name ?? fileName(src.path),
-      autoLength: true,
-    });
-    t += dur;
-  }
-  const firstVideo = pickLongestVideoBin(bins) ?? bins.find((b) => b.kind === 'video');
-  const laidOut = applyStillCompose(bins, demoteShortClipsFromV1(bins, clips), 'intro');
-  return {
-    savedAt: Date.now(),
-    bins,
-    clips: laidOut,
-    stillCompose: 'intro',
-    playhead: 0,
-    selectedBin: firstVideo?.id ?? bins[0]?.id ?? null,
-    selectedClip: null,
-    captionDraft: '',
-    pxPerSec: 16,
-    trackLayout: ensureTrackVisible(DEFAULT_TRACK_LAYOUT, 'v2'),
-    overlayPos: {},
-    projectName: handoff.projectName,
-    voiceover: {
-      ...emptyVoiceoverSession(),
-      projectContext: handoff.brief ?? '',
-      sourcePath: firstVideo?.path ?? null,
-      sourceBinId: firstVideo?.id ?? null,
-    },
-  };
+  shotId?: string;
 }
 
 function resolveBoot(projectId?: string | null): {
@@ -281,32 +231,13 @@ function resolveBoot(projectId?: string | null): {
   scopeId: string | null;
   scopeName: string;
 } {
-  const handoff = takeProjectHandoff();
-  const scopeId = (projectId || handoff?.projectId || '').trim() || null;
-  const existing = loadDirectorSession(scopeId);
-  if (handoff && handoff.sources.length > 0) {
-    if (sessionMatchesHandoff(existing, handoff) && existing) {
-      return {
-        session: {
-          ...existing,
-          projectName: handoff.projectName || existing.projectName,
-          voiceover: {
-            ...emptyVoiceoverSession(),
-            ...existing.voiceover,
-            projectContext: existing.voiceover?.projectContext || handoff.brief || '',
-          },
-        },
-        scopeId,
-        scopeName: handoff.projectName || existing.projectName || '',
-      };
-    }
-    return {
-      session: sessionFromHandoff(handoff),
-      scopeId,
-      scopeName: handoff.projectName,
-    };
+  takeProjectHandoff();
+  const scopeId = (projectId || '').trim() || null;
+  if (scopeId) {
+    return { session: null, scopeId, scopeName: '' };
   }
-  return { session: existing, scopeId, scopeName: existing?.projectName || '' };
+  const existing = loadDirectorSession(null);
+  return { session: existing, scopeId: null, scopeName: existing?.projectName || '' };
 }
 
 function ipcMessage(err: unknown, fallback: string): string {
@@ -315,12 +246,40 @@ function ipcMessage(err: unknown, fallback: string): string {
   return cleaned || fallback;
 }
 
+function mergeShotBins(bins: BinItem[], shots: FilmShot[]): BinItem[] {
+  const paths = new Set(bins.map((bin) => bin.path));
+  const extra: BinItem[] = [];
+  for (const shot of shots) {
+    if (!shot.artifactPath || paths.has(shot.artifactPath)) continue;
+    extra.push({
+      id: newId('bin'),
+      kind: 'video',
+      path: shot.artifactPath,
+      name: shot.shotPurpose.replaceAll('_', ' ').toLowerCase(),
+      durationSec: Math.max(0.4, shot.duration || 1.7),
+      inSec: 0,
+      outSec: Math.max(0.4, shot.duration || 1.7),
+      durationKnown: true,
+      shotId: shot.id,
+    });
+    paths.add(shot.artifactPath);
+  }
+  return extra.length ? [...bins, ...extra] : bins;
+}
+
 export function DirectorProvider({ children, projectId = null }: DirectorProviderProps): ReactNode {
   const { t } = useTranslation();
   const bootPack = useRef(resolveBoot(projectId)).current;
   const boot = bootPack.session;
   const scopeIdRef = useRef(bootPack.scopeId);
-  const scopeName = bootPack.scopeName;
+  const [scopeName, setScopeName] = useState(bootPack.scopeName);
+  const [filmLoadError, setFilmLoadError] = useState<string | null>(null);
+  const [projectHydratedState, setProjectHydratedState] = useState(!bootPack.scopeId);
+  const [assembledPreview, setAssembledPreview] = useState<{
+    path: string;
+    durationSec: number;
+    fingerprint: string;
+  } | null>(null);
   const [bins, setBins] = useState<BinItem[]>(() => boot?.bins ?? []);
   const [clips, setClips] = useState<TimelineClip[]>(() => unstackAllTracks(boot?.clips ?? []));
   const [selectedBin, setSelectedBin] = useState<string | null>(() => boot?.selectedBin ?? null);
@@ -339,6 +298,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const [stillCompose, setStillComposeState] = useState<StillCompose>(
     () => boot?.stillCompose ?? inferStillCompose(boot?.bins ?? [], boot?.clips ?? []),
   );
+  const [shots, setShots] = useState<FilmShot[]>([]);
+  const [assemblyRationale, setAssemblyRationale] = useState<string | null>(null);
   const [viewW, setViewW] = useState(640);
   const fittedOnce = useRef(false);
   const lastFitRef = useRef(16);
@@ -417,6 +378,13 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   };
   const stillComposeRef = useRef(stillCompose);
   stillComposeRef.current = stillCompose;
+  const shotsRef = useRef(shots);
+  shotsRef.current = shots;
+  const assemblyRef = useRef(assemblyRationale);
+  assemblyRef.current = assemblyRationale;
+  const projectHydrated = useRef(!scopeIdRef.current);
+  const assembledPreviewRef = useRef(assembledPreview);
+  assembledPreviewRef.current = assembledPreview;
   const [voiceoverBusy, setVoiceoverBusy] = useState(false);
   const [voiceoverError, setVoiceoverError] = useState<string | null>(null);
   const [voiceoverProgress, setVoiceoverProgress] = useState({ stage: 'idle', percent: 0, detail: '' });
@@ -471,8 +439,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const activeClip = clips.find((c) => c.id === selectedClip) ?? null;
 
   const voiceoverSource = useMemo(
-    () => resolveVoiceoverSource(bins, clips, selectedBin, selectedClip),
-    [bins, clips, selectedBin, selectedClip],
+    () => resolveVoiceoverSource(bins, clips, selectedBin, selectedClip, assembledPreview),
+    [bins, clips, selectedBin, selectedClip, assembledPreview],
   );
 
   useEffect(() => {
@@ -492,6 +460,11 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       };
     });
   }, [voiceoverSource?.path, voiceoverSource?.binId]);
+
+  useEffect(() => {
+    const fp = visualTimelineFingerprint(clips, bins);
+    setAssembledPreview((prev) => (prev && prev.fingerprint !== fp ? null : prev));
+  }, [clips, bins]);
 
   useEffect(() => {
     const longest = pickLongestVideoBin(bins);
@@ -586,9 +559,142 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         ...sessionSnapRef.current,
       }, scopeIdRef.current);
     };
-    const timer = window.setTimeout(persist, 350);
+    const timer = window.setTimeout(() => {
+      persist();
+      const id = scopeIdRef.current;
+      if (!id || !projectHydrated.current || filmLoadError || !window.api?.loadProject || !window.api.saveProject) return;
+      void window.api.loadProject(id).then((doc) => {
+        if (!doc) return;
+        const timeline: FilmTimeline = {
+          bins: sessionSnapRef.current.bins,
+          clips: sessionSnapRef.current.clips,
+          trackLayout: sessionSnapRef.current.trackLayout,
+          overlayPos: sessionSnapRef.current.overlayPos,
+          playhead: sessionSnapRef.current.playhead,
+          pxPerSec: sessionSnapRef.current.pxPerSec,
+          stillCompose: sessionSnapRef.current.stillCompose,
+          assembly: assemblyRef.current
+            ? {
+                targetSec: sessionSnapRef.current.clips.reduce(
+                  (max, clip) => Math.max(max, clip.startSec + clip.durationSec),
+                  0,
+                ),
+                style: 'premium_ecommerce',
+                rationale: assemblyRef.current,
+                createdAt: Date.now(),
+              }
+            : (doc as ProjectDoc).timeline?.assembly,
+        };
+        return window.api.saveProject({
+          ...doc,
+          timeline,
+          shots: shotsRef.current.length ? shotsRef.current : (doc as ProjectDoc).shots ?? [],
+          assembledPath: assembledPreviewRef.current?.path ?? (doc as ProjectDoc).assembledPath,
+          assembledFingerprint: assembledPreviewRef.current?.fingerprint
+            ?? (doc as ProjectDoc).assembledFingerprint
+            ?? null,
+        });
+      }).catch(() => { /* keep local session */ });
+    }, 400);
     return () => window.clearTimeout(timer);
-  }, [bins, clips, playhead, selectedBin, selectedClip, captionDraft, pxPerSec, trackLayout, overlayPos, voiceover, stillCompose]);
+  }, [bins, clips, playhead, selectedBin, selectedClip, captionDraft, pxPerSec, trackLayout, overlayPos, voiceover, stillCompose, shots, assemblyRationale, filmLoadError]);
+
+  useEffect(() => {
+    const id = scopeIdRef.current;
+    if (!id || !window.api?.loadProject) {
+      projectHydrated.current = true;
+      return undefined;
+    }
+    let cancelled = false;
+    void window.api.loadProject(id).then((doc) => {
+      if (cancelled) return;
+      if (!doc || doc.id !== id) {
+        setFilmLoadError(t('projects.missing'));
+        projectHydrated.current = false;
+        setProjectHydratedState(true);
+        return;
+      }
+      const film = doc as ProjectDoc;
+      setFilmLoadError(null);
+      setScopeName(film.name || '');
+      if (Array.isArray(film.shots)) setShots(film.shots);
+      const tl = film.timeline;
+      if (tl && Array.isArray(tl.bins) && Array.isArray(tl.clips) && tl.clips.length > 0) {
+        setBins(tl.bins as BinItem[]);
+        setClips(unstackAllTracks(tl.clips as TimelineClip[]));
+        if (tl.trackLayout) setTrackLayout(tl.trackLayout);
+        if (tl.overlayPos) setOverlayPosState(tl.overlayPos);
+        if (typeof tl.playhead === 'number') {
+          paintPlayhead(tl.playhead);
+          setPlayhead(tl.playhead);
+        }
+        if (typeof tl.pxPerSec === 'number') setPxPerSec(tl.pxPerSec);
+        if (tl.assembly?.rationale) setAssemblyRationale(tl.assembly.rationale);
+      } else if (film.shots?.length) {
+        setBins((prev) => mergeShotBins(prev, film.shots));
+      } else if (film.assembledPath) {
+        const assembled = film.assembledPath;
+        const binId = newId('bin');
+        setBins((prev) => {
+          if (prev.some((bin) => bin.path === assembled)) return prev;
+          return [...prev, {
+            id: binId,
+            kind: 'video',
+            path: assembled,
+            name: film.name,
+            durationSec: 8,
+            inSec: 0,
+            outSec: 8,
+            durationKnown: false,
+          }];
+        });
+        setClips((prev) => (prev.length ? prev : [{
+          id: newId('clip'),
+          binId,
+          track: 'v1',
+          startSec: 0,
+          durationSec: 8,
+          sourceInSec: 0,
+          label: film.name,
+          autoLength: true,
+        }]));
+      }
+      if (film.productStillPath) {
+        const stillPath = film.productStillPath;
+        setBins((prev) => {
+          if (prev.some((bin) => bin.path === stillPath)) return prev;
+          const dur = 4;
+          return [...prev, {
+            id: newId('bin'),
+            kind: 'image',
+            path: stillPath,
+            name: fileName(stillPath),
+            durationSec: dur,
+            inSec: 0,
+            outSec: dur,
+            durationKnown: true,
+          }];
+        });
+      }
+      if (film.assembledPath && film.assembledFingerprint) {
+        setAssembledPreview({
+          path: film.assembledPath,
+          durationSec: 0,
+          fingerprint: film.assembledFingerprint,
+        });
+      }
+      projectHydrated.current = true;
+      setProjectHydratedState(true);
+    }).catch((err) => {
+      if (cancelled) return;
+      setFilmLoadError(ipcMessage(err, t('projects.missing')));
+      projectHydrated.current = false;
+      setProjectHydratedState(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const persist = () => {
@@ -618,10 +724,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         if (nextClip.durationSec !== clip.durationSec || nextClip.sourceInSec !== clip.sourceInSec) changed = true;
         return nextClip;
       });
-      const packed = packTrack(changed ? synced : prev, 'v1');
-      const packChanged = packed.some((clip, i) => Math.abs(clip.startSec - (changed ? synced : prev)[i].startSec) > 0.02);
-      if (!changed && !packChanged) return prev;
-      return packed;
+      if (!changed) return prev;
+      return packTrack(synced, 'v1');
     });
   }, [bins]);
 
@@ -709,6 +813,10 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       if ((e.key === 'Backspace' || e.key === 'Delete') && selectedClip) {
         e.preventDefault();
         removeClip(selectedClip);
+      }
+      if ((e.key === 's' || e.key === 'S') && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        splitAtPlayhead();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -804,6 +912,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         inSec: 0,
         outSec: dur,
         durationKnown: it.kind === 'image' || it.durationSec != null,
+        shotId: it.shotId,
       };
     });
     if (newBins.length === 0) return;
@@ -1314,33 +1423,143 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     return applyStillCompose(binsRef.current, demoted, stillComposeRef.current);
   };
 
-  const openVoiceover = () => {
-    const longest = pickLongestVideoBin(binsRef.current);
-    setClips((prev) => relayoutVoiceoverPicture(prev));
-    if (longest) setSelectedBin(longest.id);
-    setTrackLayout((layout) => ensureTrackVisible(layout, 'v2'));
-    setVoiceover((prev) => {
-      const path = longest?.path ?? voiceoverSource?.path ?? prev.sourcePath;
-      const samePath = path === prev.sourcePath && prev.analysis?.source_path === path;
-      return {
-        ...prev,
-        expanded: true,
-        sourcePath: path,
-        sourceBinId: longest?.id ?? voiceoverSource?.binId ?? prev.sourceBinId,
-        analysis: samePath ? prev.analysis : null,
-        script: samePath ? prev.script : null,
-        status: samePath ? prev.status : 'idle',
-      };
+  const ensureAssembledPreview = async (): Promise<{
+    path: string;
+    durationSec: number;
+    fingerprint: string;
+  } | null> => {
+    const binsNow = binsRef.current;
+    const clipsNow = clipsRef.current;
+    const picture = v1Clips(clipsNow);
+    if (picture.length === 0) return null;
+    const fingerprint = visualTimelineFingerprint(clipsNow, binsNow);
+    const existing = assembledPreviewRef.current;
+    if (existing?.path && existing.fingerprint === fingerprint) {
+      if (existing.durationSec > 0) return existing;
+      const probed = await window.api?.probeMediaDuration?.(existing.path).catch(() => 0) || 0;
+      const next = { ...existing, durationSec: probed || existing.durationSec };
+      setAssembledPreview(next);
+      return next;
+    }
+    const only = picture[0];
+    const onlyBin = binsNow.find((item) => item.id === only.binId);
+    if (
+      picture.length === 1
+      && onlyBin?.path
+      && Math.abs(only.sourceInSec) < 0.05
+      && Math.abs(only.durationSec - (onlyBin.durationSec || only.durationSec)) < 0.12
+    ) {
+      const next = { path: onlyBin.path, durationSec: only.durationSec, fingerprint };
+      setAssembledPreview(next);
+      return next;
+    }
+    if (!window.api?.renderTimeline) return null;
+    const rendered = await window.api.renderTimeline({
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      clips: picture.map((clip) => {
+        const bin = binsNow.find((item) => item.id === clip.binId);
+        return {
+          kind: clip.text ? 'text' : bin?.kind ?? 'video',
+          track: 'v1',
+          path: bin?.path ?? null,
+          text: clip.text ?? null,
+          start_sec: clip.startSec,
+          duration_sec: clip.durationSec,
+          source_in_sec: clip.sourceInSec,
+        };
+      }),
     });
+    let path = rendered.file_path;
+    const id = scopeIdRef.current;
+    if (id && window.api.importIntoProject) {
+      const copied = await window.api.importIntoProject({ projectId: id, path });
+      path = copied.file_path;
+    }
+    const durationSec = await window.api.probeMediaDuration(path).catch(
+      () => picture.reduce((sum, clip) => sum + clip.durationSec, 0),
+    );
+    const next = { path, durationSec, fingerprint };
+    setAssembledPreview(next);
+    if (id && window.api.loadProject && window.api.saveProject) {
+      const doc = await window.api.loadProject(id);
+      if (doc) {
+        await window.api.saveProject({
+          ...doc,
+          assembledPath: path,
+          assembledFingerprint: fingerprint,
+        });
+      }
+    }
+    return next;
+  };
+
+  const openVoiceover = async () => {
+    setVoiceover((prev) => ({ ...prev, expanded: true }));
+    if (hasScreencastBin(binsRef.current)) {
+      const longest = pickLongestVideoBin(binsRef.current);
+      setClips((prev) => relayoutVoiceoverPicture(prev));
+      if (longest) setSelectedBin(longest.id);
+      setTrackLayout((layout) => ensureTrackVisible(layout, 'v2'));
+      setVoiceover((prev) => {
+        const path = longest?.path ?? voiceoverSource?.path ?? prev.sourcePath;
+        const samePath = path === prev.sourcePath && prev.analysis?.source_path === path;
+        return {
+          ...prev,
+          expanded: true,
+          sourcePath: path,
+          sourceBinId: longest?.id ?? voiceoverSource?.binId ?? prev.sourceBinId,
+          analysis: samePath ? prev.analysis : null,
+          script: samePath ? prev.script : null,
+          status: samePath ? prev.status : 'idle',
+        };
+      });
+      return;
+    }
+    try {
+      const preview = await ensureAssembledPreview();
+      if (!preview?.path) {
+        setVoiceoverError(t('video.vo_no_video'));
+        return;
+      }
+      setVoiceover((prev) => {
+        const same = prev.sourcePath === preview.path && prev.analysis?.source_path === preview.path;
+        return {
+          ...prev,
+          expanded: true,
+          sourcePath: preview.path,
+          sourceBinId: null,
+          analysis: same ? prev.analysis : null,
+          script: same ? prev.script : null,
+          status: same ? prev.status : 'idle',
+        };
+      });
+    } catch (err) {
+      setVoiceoverError(ipcMessage(err, t('video.vo_no_video')));
+    }
   };
 
   const analyzeVoiceover = async (force = false) => {
-    setClips((prev) => relayoutVoiceoverPicture(prev));
-    const longest = pickLongestVideoBin(binsRef.current);
-    if (longest) setSelectedBin(longest.id);
-    const src = longest
-      ? { path: longest.path, binId: longest.id, name: longest.name }
-      : voiceoverSource;
+    let src: { path: string; binId: string | null; name?: string } | null = null;
+    if (hasScreencastBin(binsRef.current)) {
+      setClips((prev) => relayoutVoiceoverPicture(prev));
+      const longest = pickLongestVideoBin(binsRef.current);
+      if (longest) setSelectedBin(longest.id);
+      src = longest
+        ? { path: longest.path, binId: longest.id, name: longest.name }
+        : voiceoverSource;
+    } else {
+      try {
+        const preview = await ensureAssembledPreview();
+        if (preview?.path) {
+          src = { path: preview.path, binId: null, name: scopeName || fileName(preview.path) };
+        }
+      } catch (err) {
+        setVoiceoverError(ipcMessage(err, t('video.vo_no_video')));
+        return;
+      }
+    }
     if (!src?.path || !window.api?.analyzeVideo) {
       setVoiceoverError(t('video.vo_no_video'));
       return;
@@ -1712,6 +1931,76 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     if (selectedClip === id) setSelectedClip(null);
   };
 
+  const splitAtPlayhead = () => {
+    const at = playheadRef.current;
+    const target = selectedClip
+      ? clipsRef.current.find((clip) => clip.id === selectedClip)
+      : clipAtTime(clipsRef.current, 'v1', at);
+    if (!target) return;
+    const next = splitClipAt(clipsRef.current, target.id, at);
+    if (next === clipsRef.current) return;
+    setClips(next);
+  };
+
+  const addShotToTimeline = (shotId: string) => {
+    const shot = shotsRef.current.find((item) => item.id === shotId);
+    if (!shot?.artifactPath) return;
+    const existing = binsRef.current.find((bin) => bin.shotId === shot.id || bin.path === shot.artifactPath);
+    if (existing) {
+      placeOnTrack('v1', existing.id);
+      return;
+    }
+    addSources([{
+      kind: 'video',
+      path: shot.artifactPath,
+      name: shot.shotPurpose,
+      durationSec: shot.duration || 1.7,
+      shotId: shot.id,
+    }], true);
+  };
+
+  const removeShot = (shotId: string) => {
+    const shot = shotsRef.current.find((item) => item.id === shotId);
+    setShots((prev) => prev.filter((item) => item.id !== shotId));
+    if (!shot) return;
+    setBins((prev) => {
+      const drop = new Set(
+        prev
+          .filter((bin) => bin.shotId === shotId || bin.path === shot.artifactPath)
+          .map((bin) => bin.id),
+      );
+      setClips((clips) => clips.filter((clip) => !clip.binId || !drop.has(clip.binId)));
+      return prev.filter((bin) => !drop.has(bin.id));
+    });
+  };
+
+  const applyAutoAssemble = (targetSec: number) => {
+    const plan = assembleShots({
+      shots: shotsRef.current,
+      targetSec,
+      productStillPath: null,
+    });
+    if (plan.placements.length === 0) return;
+    const built = planToTimeline(plan);
+    setTrackLayout((prev) => ({
+      videos: Math.max(prev.videos, plan.trackLayout.videos),
+      audios: Math.max(prev.audios, plan.trackLayout.audios),
+      titles: Math.max(prev.titles, plan.trackLayout.titles),
+    }));
+    setBins((prev) => {
+      const kept = prev.filter((bin) => bin.kind === 'audio' || built.bins.some((next) => next.path === bin.path));
+      const extra = built.bins.filter((bin) => !kept.some((row) => row.path === bin.path));
+      return [...kept, ...extra];
+    });
+    setClips((prev) => {
+      const audioAndTitles = prev.filter((clip) => clip.track.startsWith('a') || clip.track.startsWith('t'));
+      return [...built.clips, ...audioAndTitles];
+    });
+    setAssemblyRationale(plan.rationale);
+    setPlayhead(0);
+    paintPlayhead(0);
+  };
+
   const clearTrack = (track: TrackId) => {
     setClips((prev) => prev.filter((c) => c.track !== track));
     if (activeClip?.track === track) setSelectedClip(null);
@@ -1970,6 +2259,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     setDropActive,
     addCaption,
     removeClip,
+    splitAtPlayhead,
     clearTrack,
     onClipPointerDown,
     onClipPointerMove,
@@ -2036,6 +2326,13 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     projectScope: scopeIdRef.current
       ? { id: scopeIdRef.current, name: scopeName }
       : null,
+    shots,
+    assemblyRationale,
+    applyAutoAssemble,
+    addShotToTimeline,
+    removeShot,
+    filmLoadError,
+    projectHydrated: projectHydratedState,
   };
 
   return <DirectorContext.Provider value={snap}>{children}</DirectorContext.Provider>;

@@ -13,7 +13,6 @@ import { FromRecordingPanel } from './FromRecordingPanel';
 import { VideoDock, VideoMenuBar, useDockLayout } from './VideoDock';
 import { VideoPipelineShell } from './VideoPipelineShell';
 import type { DockState } from '../model/videoDockLayout';
-import { peekProjectHandoff } from '../../projects/model/handoff';
 import { useWorkspaceBridgeStore } from '../../studio/store/workspaceBridgeStore';
 import styles from './VideoPage.module.css';
 
@@ -52,14 +51,15 @@ function RecordingPane(): ReactNode {
 
 function VideoStudioShell(): ReactNode {
   const { t } = useTranslation();
+  const [params] = useSearchParams();
+  const openVoice = params.get('voice') === '1';
   const [dock, setDock] = useDockLayout();
   const d = useDirector();
   const takePendingTitleCard = useWorkspaceBridgeStore((s) => s.takePendingTitleCard);
   const titleCardOnTimeline = d.bins.some((bin) => bin.kind === 'image');
 
   const openVoiceover = () => {
-    d.openVoiceover();
-    // Voiceover lives in the pipeline mode: one centered stage, no panel hunting.
+    void d.openVoiceover();
     setDock({
       ...dock,
       mode: 'pipeline',
@@ -82,14 +82,22 @@ function VideoStudioShell(): ReactNode {
   }, []);
 
   useEffect(() => {
-    if (!d.projectScope) return;
+    if (!openVoice) return;
+    if (!d.projectScope || !d.projectHydrated || d.filmLoadError) return;
     openVoiceover();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [d.projectScope?.id]);
+  }, [openVoice, d.projectScope?.id, d.projectHydrated, d.filmLoadError]);
 
   return (
     <>
-      {d.projectScope ? (
+      {d.filmLoadError ? (
+        <div className={styles.projectBanner}>
+          <Link className={styles.projectBannerBack} to="/projects">
+            {t('video.open_films')}
+          </Link>
+          <span>{d.filmLoadError}</span>
+        </div>
+      ) : d.projectScope ? (
         <div className={styles.projectBanner}>
           <Link className={styles.projectBannerBack} to={`/projects/${d.projectScope.id}`}>
             {t('video.back_to_project')}
@@ -136,9 +144,7 @@ function VideoStudioShell(): ReactNode {
 
 export function VideoPage(): ReactNode {
   const [params] = useSearchParams();
-  const fromQuery = params.get('project');
-  const fromHandoff = peekProjectHandoff()?.projectId || null;
-  const projectId = fromQuery || fromHandoff || null;
+  const projectId = (params.get('project') || '').trim() || null;
   const scopeKey = projectId || 'standalone';
   return (
     <div className={styles.container} data-mode="studio">

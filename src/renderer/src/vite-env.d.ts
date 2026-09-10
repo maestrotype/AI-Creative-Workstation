@@ -62,6 +62,10 @@ interface Window {
       image_path?: string;
       image_base64?: string;
       mode?: string;
+      num_frames?: number;
+      shot_index?: number;
+      shot_total?: number;
+      seed?: number;
     }) => Promise<{
       job_id: string;
       file_path: string | null;
@@ -79,6 +83,9 @@ interface Window {
         identity_mae?: number | null;
         identity_warning?: boolean;
         low_motion?: boolean;
+        prompt_wan?: string;
+        prompt_intent?: string;
+        prompt_english?: string;
       } | null;
     }>;
     generateImage: (payload: {
@@ -121,7 +128,11 @@ interface Window {
         clipPath: string | null;
         motion: 'still_motion' | 'import' | 'i2v';
       }>;
+      shots?: unknown[];
+      timeline?: unknown;
+      productStillPath?: string | null;
       assembledPath: string | null;
+      assembledFingerprint?: string | null;
       createdAt: number;
       updatedAt: number;
     }>;
@@ -143,7 +154,11 @@ interface Window {
         clipPath: string | null;
         motion: 'still_motion' | 'import' | 'i2v';
       }>;
+      shots?: unknown[];
+      timeline?: unknown;
+      productStillPath?: string | null;
       assembledPath: string | null;
+      assembledFingerprint?: string | null;
       createdAt: number;
       updatedAt: number;
     } | null>;
@@ -179,7 +194,17 @@ interface Window {
       }>;
     } | null>;
     saveVideoHistory: (payload: unknown) => Promise<boolean>;
-    listGeneratedStills: () => Promise<{ path: string; mtime: number; poster?: string | null }[]>;
+    listGeneratedStills: () => Promise<Array<{
+      path: string;
+      mtime: number;
+      poster?: string | null;
+      prompt?: string | null;
+      capability?: string | null;
+      prompt_consumed?: boolean | null;
+      status?: string | null;
+      provider_id?: string | null;
+      quality?: Record<string, unknown> | null;
+    }>>;
     deleteGeneratedStill: (sourcePath: string) => Promise<boolean>;
     pickVideo: () => Promise<string | null>;
     probeMediaDuration: (filePath: string) => Promise<number>;

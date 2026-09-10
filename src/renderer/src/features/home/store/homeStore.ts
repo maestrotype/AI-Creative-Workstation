@@ -101,17 +101,24 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
 
   addGeneratedAsset: (result) => {
     set((state) => {
+      const path = filePathFromAssetUrl(result.thumbnailUrl);
       const newAsset: Asset = {
-        id: result.id,
-        name: result.prompt.length > 48 ? `${result.prompt.slice(0, 45)}…` : result.prompt,
+        id: path || result.id,
+        name: result.prompt,
         kind: result.kind === 'video' ? 'video' : 'image',
         thumbnailUrl: result.thumbnailUrl,
         updatedAt: result.createdAt,
+        prompt: result.prompt,
+        capability: result.capability ?? null,
+        providerId: result.providerId ?? null,
+        promptConsumed: result.promptConsumed ?? null,
+        videoStatus: result.videoStatus ?? null,
+        quality: result.quality ?? null,
       };
       
       return {
         assetsStatus: 'ready',
-        recentAssets: [newAsset, ...state.recentAssets].slice(0, 6),
+        recentAssets: [newAsset, ...state.recentAssets.filter((asset) => asset.id !== newAsset.id)].slice(0, 80),
       };
     });
   },
@@ -186,7 +193,7 @@ export const useHomeStore = create<HomeState>()((set, get) => ({
             updatedAt: new Date().toISOString(),
           },
           ...state.recentAssets,
-        ].slice(0, 6),
+        ].slice(0, 80),
       }));
     }, 1_200);
   },

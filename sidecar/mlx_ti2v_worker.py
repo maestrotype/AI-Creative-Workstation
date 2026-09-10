@@ -26,6 +26,9 @@ def main() -> int:
     from mlx_video.models.wan_2.generate import generate_video
     import mlx.core as mx
 
+    if hasattr(mx, "reset_peak_memory"):
+        mx.reset_peak_memory()
+
     generate_video(
         model_dir=args.model_dir,
         prompt=args.prompt,
@@ -44,6 +47,8 @@ def main() -> int:
     del generate_video
     gc.collect()
     mx.clear_cache()
+    peak_gb = mx.get_peak_memory() / (1024 ** 3)
+    print(f"PEAK_MLX_GB {peak_gb:.2f}", flush=True)
     print(f"OK {args.output}", flush=True)
     return 0
 

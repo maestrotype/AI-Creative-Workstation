@@ -55,8 +55,8 @@ export function EngineMonitor(): ReactNode {
   const pythonRss = status.memory.sidecar_rss_bytes;
   const working = status.job.active || status.job.stage === 'releasing';
   const chipPct = status.job.active ? status.job.percent : usedPct;
-  const chipExtra = status.job.active
-    ? ` · ${chipPct}%`
+          const chipExtra = status.job.active
+    ? (status.job.detail ? ` · ${status.job.detail}` : ` · ${chipPct}%`)
     : status.job.stage === 'releasing'
       ? ''
       : pythonRss > 0

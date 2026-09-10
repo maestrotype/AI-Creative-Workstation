@@ -10,6 +10,7 @@ import {
   videoTracksForBin,
   type TrackId,
 } from '../model/directorTimeline';
+import { toAssetUrl } from '../model/directorMedia';
 import { DirectorPreview } from './DirectorPreview';
 import { useDirector } from './DirectorBoard';
 import { VoiceoverSection } from './VoiceoverSection';
@@ -140,6 +141,15 @@ export function DirectorTimelinePane(): ReactNode {
             title={d.t('video.dir_pack_hint')}
           >
             {d.t('video.dir_pack_gaps')}
+          </button>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            onClick={d.splitAtPlayhead}
+            disabled={!d.selectedClip && !d.clips.length}
+            title={d.t('video.dir_split_hint')}
+          >
+            {d.t('video.dir_split')}
           </button>
           <label className={styles.scaleLabel}>
             {d.t('video.dir_scale')}
@@ -334,6 +344,7 @@ export function DirectorSourcesPane({
   onOpenVoiceover?: () => void;
 } = {}): ReactNode {
   const d = useDirector();
+  const [assembleTarget, setAssembleTarget] = useState(10);
   const openVoiceover = onOpenVoiceover ?? d.openVoiceover;
   const onSourcesDragOver = (event: DragEvent<HTMLElement>) => {
     if (!hasOsFiles(event)) return;
@@ -365,6 +376,71 @@ export function DirectorSourcesPane({
         <button type="button" className={styles.toolBtn} onClick={d.pickImage}>{d.t('video.dir_add_image')}</button>
         <button type="button" className={styles.toolBtn} onClick={d.pickAudio}>{d.t('video.dir_add_audio')}</button>
       </div>
+
+      {d.shots.length > 0 ? (
+        <div className={styles.shotBin}>
+          <div className={styles.shotBinHead}>
+            <strong>{d.t('video.shot_bin', { count: d.shots.length })}</strong>
+            {d.assemblyRationale ? <span>{d.assemblyRationale}</span> : null}
+          </div>
+          <ul className={styles.shotList}>
+            {d.shots.map((shot) => (
+              <li key={shot.id} className={styles.shotRow} data-status={shot.validationStatus}>
+                {shot.artifactPath ? (
+                  <video
+                    className={styles.shotThumb}
+                    src={toAssetUrl(shot.artifactPath)}
+                    muted
+                    playsInline
+                    preload="metadata"
+                  />
+                ) : (
+                  <span className={styles.shotThumb} />
+                )}
+                <div className={styles.shotMeta}>
+                  <strong>{shot.shotPurpose.replaceAll('_', ' ')}</strong>
+                  <span>
+                    {shot.duration ? `${shot.duration.toFixed(1)}s` : '—'}
+                    {` · ${shot.modelId.split('/').pop() || shot.provider.split('/').pop() || shot.provider}`}
+                    {` · ${shot.validationStatus}`}
+                    {shot.productIdentityWarning ? ' · identity' : ''}
+                    {shot.createdAt ? ` · ${new Date(shot.createdAt).toLocaleDateString()}` : ''}
+                  </span>
+                </div>
+                <div className={styles.shotActions}>
+                  <button type="button" className={styles.toolBtn} onClick={() => d.addShotToTimeline(shot.id)}>
+                    {d.t('video.shot_add')}
+                  </button>
+                  <button type="button" className={styles.toolBtn} onClick={() => d.removeShot(shot.id)}>
+                    {d.t('video.shot_remove')}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className={styles.assembleRow}>
+            <label>
+              {d.t('video.assemble_target')}
+              <input
+                className={styles.num}
+                type="number"
+                min={4}
+                max={30}
+                step={1}
+                value={assembleTarget}
+                onChange={(e) => setAssembleTarget(Number(e.target.value) || 10)}
+              />
+            </label>
+            <button
+              type="button"
+              className={styles.toolPrimary}
+              onClick={() => d.applyAutoAssemble(assembleTarget)}
+            >
+              {d.t('video.assemble_draft')}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {d.voiceoverSource ? (
         <div className={styles.voEntryRow}>

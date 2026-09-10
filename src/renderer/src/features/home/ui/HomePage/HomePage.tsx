@@ -9,7 +9,7 @@
  * This is the first screen the user sees. It must feel cinematic and inviting,
  * encouraging creation from the moment of arrival.
  */
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Asset } from '../../../../core/types';
 import { useNavigate } from 'react-router-dom';
@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 
 import { IntentInput } from '../../../../shared/ui/IntentInput/IntentInput';
 import { filePathFromAssetUrl } from '../../../studio/store/workspaceBridgeStore';
+import { attachGeneratedToFilm } from '../../../projects/model/attachToFilm';
 import { useHomeStore } from '../../store/homeStore';
 import { useCreateStore } from '../../../create/store/createStore';
 import { ContinueWorking } from '../ContinueWorking/ContinueWorking';
@@ -47,6 +48,9 @@ export function HomePage(): ReactNode {
   const loadRecentAssets = useHomeStore((s) => s.loadRecentAssets);
   const deleteRecentAsset = useHomeStore((s) => s.deleteRecentAsset);
   const openFromAsset = useCreateStore((s) => s.openFromAsset);
+  const [assetsExpanded, setAssetsExpanded] = useState(false);
+  const [filmNote, setFilmNote] = useState<string | null>(null);
+  const [filmOpenId, setFilmOpenId] = useState<string | null>(null);
 
   const inspirationStatus = useHomeStore((s) => s.inspirationStatus);
   const inspirationItems = useHomeStore((s) => s.inspirationItems);
@@ -74,6 +78,27 @@ export function HomePage(): ReactNode {
   const openStillInCreate = (asset: Asset) => {
     openFromAsset(asset);
     navigate('/create');
+  };
+
+  const diskPathOf = (asset: Asset): string | null => {
+    if (asset.id.startsWith('/')) return asset.id;
+    return filePathFromAssetUrl(asset.thumbnailUrl);
+  };
+
+  const useInFilm = async (asset: Asset) => {
+    const path = diskPathOf(asset);
+    if (!path) return;
+    try {
+      const film = await attachGeneratedToFilm({
+        path,
+        kind: asset.kind === 'video' ? 'video' : 'image',
+        prompt: asset.name,
+      });
+      setFilmOpenId(film.projectId);
+      setFilmNote(t('home.added_to_film', { name: film.name }));
+    } catch (err) {
+      setFilmNote(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const downloadAsset = (asset: Asset) => {
@@ -145,12 +170,21 @@ export function HomePage(): ReactNode {
         <RecentAssets
           status={assetsStatus}
           assets={recentAssets}
+          expanded={assetsExpanded}
+          onToggleExpanded={() => setAssetsExpanded((on) => !on)}
           onOpen={openStillInCreate}
+          onUse={(asset) => { void useInFilm(asset); }}
+          useLabelFor={(asset) => (
+            asset.kind === 'video' ? t('home.use_in_film') : t('home.use_as_product')
+          )}
           onDownload={downloadAsset}
           onDelete={(asset) => {
             void deleteRecentAsset(asset);
           }}
           onRetry={loadRecentAssets}
+          note={filmNote}
+          noteHref={filmOpenId ? `/projects/${filmOpenId}` : null}
+          noteHrefLabel={t('home.open_this_film')}
         />
       </div>
 

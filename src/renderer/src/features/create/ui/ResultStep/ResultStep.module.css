@@ -20,8 +20,8 @@
 
 .imageArea {
   width: 100%;
-  aspect-ratio: 16 / 9; /* Adjusted dynamically in a real app based on format */
-  background-image: linear-gradient(135deg, var(--color-bg-elevated), var(--color-accent-subtle));
+  aspect-ratio: 16 / 9;
+  background: var(--color-bg-elevated);
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-xl);
   display: flex;
@@ -42,7 +42,32 @@
 .generatedImage {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  background: #0c0d12;
+}
+
+.videoHit {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: #0c0d12;
+  cursor: pointer;
+}
+
+.playMark {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 18px 0 18px 28px;
+  border-color: transparent transparent transparent color-mix(in srgb, white 90%, transparent);
+  filter: drop-shadow(0 2px 8px rgb(0 0 0 / 50%));
+  pointer-events: none;
 }
 
 .prompt {

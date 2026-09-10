@@ -1227,6 +1227,10 @@ function setupIpc() {
     image_path?: string;
     image_base64?: string;
     mode?: string;
+    num_frames?: number;
+    shot_index?: number;
+    shot_total?: number;
+    seed?: number;
   }) => {
     const ready = await ensureSidecarReady();
     if (!ready.ok) {
@@ -1283,8 +1287,12 @@ function setupIpc() {
         api_secret: apiSecret || null,
         h3_endpoint: h3Endpoint || null,
         mode,
+        num_frames: payload.num_frames ?? null,
+        shot_index: payload.shot_index ?? null,
+        shot_total: payload.shot_total ?? null,
+        seed: payload.seed ?? null,
       }),
-      signal: AbortSignal.timeout(30 * 60 * 1000),
+      signal: AbortSignal.timeout(60 * 60 * 1000),
     });
     const body = (await res.json().catch(() => ({}))) as {
       detail?: unknown;
@@ -1299,9 +1307,28 @@ function setupIpc() {
     if (!res.ok) {
       throw new Error(body.detail != null ? String(body.detail).slice(0, 400) : `HTTP ${res.status}`);
     }
+    const filePath = body.file_path ?? null;
+    if (filePath) {
+      try {
+        writeFileSync(
+          filePath.replace(/\.[^.]+$/i, '.json'),
+          JSON.stringify({
+            prompt: payload.prompt,
+            capability: body.capability ?? null,
+            prompt_consumed: Boolean(body.prompt_consumed),
+            status: body.status ?? 'completed',
+            quality: body.quality ?? null,
+            provider_id: body.provider_id ?? modelId,
+          }, null, 2),
+          'utf8',
+        );
+      } catch {
+        /* keep the mp4 even if metadata write fails */
+      }
+    }
     return {
       job_id: body.job_id,
-      file_path: body.file_path ?? null,
+      file_path: filePath,
       model_id: modelId,
       status: body.status ?? 'completed',
       capability: body.capability,
@@ -1442,6 +1469,19 @@ function setupIpc() {
 
   const videoHistoryPath = () => join(homedir(), 'Documents/Canvas/Generated/Video/idea-history.json');
 
+  const clipSidecarPath = (videoPath: string) => videoPath.replace(/\.[^.]+$/i, '.json');
+
+  const readClipSidecar = (videoPath: string): Record<string, unknown> | null => {
+    const file = clipSidecarPath(videoPath);
+    if (!existsSync(file)) return null;
+    try {
+      const parsed = JSON.parse(readFileSync(file, 'utf8')) as unknown;
+      return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+    } catch {
+      return null;
+    }
+  };
+
   ipcMain.handle('load-video-history', async () => {
     const p = videoHistoryPath();
     if (!existsSync(p)) return null;
@@ -1476,12 +1516,29 @@ function setupIpc() {
       }
     };
     pushIf(generated, (name) => /\.(png|jpe?g|webp)$/i.test(name));
-    pushIf(videoDir, (name) => /^vid_.*\.(mp4|mov|m4v|webm|mkv)$/i.test(name));
-    const listed = rows.sort((a, b) => b.mtime - a.mtime).slice(0, 24);
-    return listed.map((row) => ({
-      ...row,
-      poster: /\.(mp4|mov|m4v|webm|mkv)$/i.test(row.path) ? ensureClipPoster(row.path) : null,
-    }));
+    pushIf(videoDir, (name) => /\.(mp4|mov|m4v|webm|mkv)$/i.test(name));
+    const listed = rows.sort((a, b) => b.mtime - a.mtime).slice(0, 80);
+    return listed.map((row) => {
+      const video = /\.(mp4|mov|m4v|webm|mkv)$/i.test(row.path);
+      const meta = video ? readClipSidecar(row.path) : null;
+      const quality = meta?.quality && typeof meta.quality === 'object'
+        ? { ...(meta.quality as Record<string, unknown>) }
+        : ({} as Record<string, unknown>);
+      if (video && !(typeof quality.duration_sec === 'number' && quality.duration_sec > 0)) {
+        const probed = probeMediaDurationSec(row.path);
+        if (probed > 0) quality.duration_sec = Math.round(probed * 1000) / 1000;
+      }
+      return {
+        ...row,
+        poster: video ? ensureClipPoster(row.path) : null,
+        prompt: typeof meta?.prompt === 'string' ? meta.prompt : null,
+        capability: typeof meta?.capability === 'string' ? meta.capability : null,
+        prompt_consumed: typeof meta?.prompt_consumed === 'boolean' ? meta.prompt_consumed : null,
+        status: typeof meta?.status === 'string' ? meta.status : null,
+        provider_id: typeof meta?.provider_id === 'string' ? meta.provider_id : null,
+        quality: Object.keys(quality).length ? quality : null,
+      };
+    });
   });
 
   ipcMain.handle('delete-generated-still', async (_, sourcePath: string) => {
@@ -1499,7 +1556,11 @@ function setupIpc() {
     }
     unlinkSync(resolved);
     if (clip) {
-      for (const extra of [clipPosterPath(resolved), resolved.replace(/\.[^.]+$/i, '.poster.jpg')]) {
+      for (const extra of [
+        clipPosterPath(resolved),
+        resolved.replace(/\.[^.]+$/i, '.poster.jpg'),
+        clipSidecarPath(resolved),
+      ]) {
         if (existsSync(extra)) {
           try {
             unlinkSync(extra);

@@ -5,7 +5,6 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import type { NavId } from '../../../core/types';
 import { NAVIGATION_ITEMS, isValidNavId } from '../../../features/home/model/navigation';
 import { SideNavigation } from '../../../features/home/ui/SideNavigation/SideNavigation';
-import { readLastProjectId } from '../../../features/projects/model/handoff';
 import { cx } from '../../../shared/lib/cx';
 import { EngineMonitor } from './EngineMonitor';
 import styles from './Shell.module.css';
@@ -27,15 +26,6 @@ export function Shell(): ReactNode {
       return;
     }
     if (id === 'projects') {
-      const last = readLastProjectId();
-      if (last && !location.pathname.startsWith('/projects')) {
-        navigate(`/projects/${last}`);
-        return;
-      }
-      if (last && location.pathname === '/projects') {
-        navigate(`/projects/${last}`);
-        return;
-      }
       navigate('/projects');
       return;
     }

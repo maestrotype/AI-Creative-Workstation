@@ -39,6 +39,10 @@ export interface VideoGenerationOptions {
   readonly imageDataUrl?: string;
   readonly durationSec?: number;
   readonly mode?: 'ai_video' | 'image_animation' | 't2v';
+  readonly numFrames?: number;
+  readonly shotIndex?: number;
+  readonly shotTotal?: number;
+  readonly seed?: number;
 }
 
 const VIDEO_PROGRESS_MESSAGES: readonly string[] = [
@@ -239,6 +243,10 @@ export function runVideoGeneration(
         image_path: options.imagePath,
         image_base64: options.imageDataUrl,
         mode: options.mode ?? 'ai_video',
+        num_frames: options.numFrames,
+        shot_index: options.shotIndex,
+        shot_total: options.shotTotal,
+        seed: options.seed,
       });
       if (cancelled) throw new DOMException('Generation cancelled', 'AbortError');
       onProgress({ progress: 1, message: 'Done!', estimatedSecondsLeft: 0, elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000) });
@@ -252,6 +260,7 @@ export function runVideoGeneration(
         createdAt: new Date().toISOString(),
         kind: 'video',
         capability: data.capability,
+        providerId: data.provider_id,
         videoStatus: data.status,
         promptConsumed: data.prompt_consumed,
         quality: data.quality ?? undefined,

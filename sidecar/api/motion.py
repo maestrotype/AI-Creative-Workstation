@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Optional
 import asyncio
 import base64
+import json
 import os
 import tempfile
 import time
@@ -14,7 +15,7 @@ from api import h3_local
 from api import mlx_ti2v
 from api import runway_cloud
 from api.video import _ffmpeg_bin, _run_ffmpeg
-from video_capability import assert_mode_allowed, resolve_mode
+from video_capability import IMAGE_TO_VIDEO, assert_mode_allowed, resolve_mode
 
 router = APIRouter()
 
@@ -35,6 +36,10 @@ class VideoGenRequest(BaseModel):
     h3_endpoint: Optional[str] = None
     # ai_video | image_animation | t2v — never infer cinematic intent from SVD being installed.
     mode: Optional[str] = None
+    num_frames: Optional[int] = None
+    shot_index: Optional[int] = None
+    shot_total: Optional[int] = None
+    seed: Optional[int] = None
 
 
 def _is_ti2v(model_id: str) -> bool:
@@ -246,20 +251,38 @@ def _motion_report(frames, *, fps: int) -> dict:
 
 
 def _identity_vs_source(source, frames) -> dict:
-    """Warn when the first frame is obviously not the source product photo."""
+    """Warn when first/mid/last frames drift far from the source product photo.
+
+    First-frame-only checks miss late collapse and hallucinated objects.
+    """
     images = _frame_list(frames)
     if source is None or not images:
-        return {"identity_mae": None, "identity_warning": False}
+        return {"identity_mae": None, "identity_mae_last": None, "identity_warning": False}
     import numpy as np
 
     first = images[0].convert("RGB")
-    src = source.convert("RGB").resize(first.size)
-    mae = float(np.mean(np.abs(
-        np.asarray(src, dtype=np.float32) - np.asarray(first, dtype=np.float32)
-    )))
-    warning = mae >= _IDENTITY_MAE
-    print(f"[motion] identity mae={mae:.2f} warning={warning}", flush=True)
-    return {"identity_mae": round(mae, 3), "identity_warning": warning}
+    src = np.asarray(source.convert("RGB").resize(first.size), dtype=np.float32)
+
+    def mae(img) -> float:
+        return float(np.mean(np.abs(
+            src - np.asarray(img.convert("RGB"), dtype=np.float32)
+        )))
+
+    first_mae = mae(images[0])
+    mid_mae = mae(images[len(images) // 2])
+    last_mae = mae(images[-1])
+    mae_max = max(first_mae, mid_mae, last_mae)
+    warning = mae_max >= _IDENTITY_MAE
+    print(
+        f"[motion] identity first={first_mae:.2f} mid={mid_mae:.2f} last={last_mae:.2f} warning={warning}",
+        flush=True,
+    )
+    return {
+        "identity_mae": round(mae_max, 3),
+        "identity_mae_first": round(first_mae, 3),
+        "identity_mae_last": round(last_mae, 3),
+        "identity_warning": warning,
+    }
 
 
 def _frames_are_static(frames) -> bool:
@@ -295,16 +318,25 @@ def _infer_wan(pipe, request: VideoGenRequest, *, compact: bool):
 
 def _run_ti2v(request: VideoGenRequest, job_id: str):
     """Local prompt-conditioned I2V. Subprocess so MLX memory dies with the worker."""
+    shot_n = request.shot_index
+    shot_total = request.shot_total
+    if shot_n and shot_total:
+        detail = f"Shot {shot_n} of {shot_total}"
+    else:
+        detail = "Wan 2.2 TI2V"
+    frames_n = mlx_ti2v.frames_for_duration(request.duration_sec, request.num_frames)
     generation.set_runtime_job(
         active=True,
         kind="video",
         stage="load",
         percent=4,
-        detail="Wan 2.2 TI2V",
+        detail=detail,
         model_id=request.model_id,
         started_at=time.time(),
         error=None,
         cancel=False,
+        shot_index=shot_n,
+        shot_total=shot_total,
     )
     dropped = generation._unload_all_models()
     if dropped:
@@ -312,17 +344,28 @@ def _run_ti2v(request: VideoGenRequest, job_id: str):
     dest_dir = os.path.expanduser("~/Documents/Canvas/Generated/Video")
     os.makedirs(dest_dir, exist_ok=True)
     dest = os.path.join(dest_dir, f"{job_id}.mp4")
-    generation.set_runtime_job(stage="infer", percent=12, detail="mlx i2v")
+    generation.set_runtime_job(stage="infer", percent=12, detail=detail)
 
     def on_log(_line: str, percent: int) -> None:
-        generation.set_runtime_job(stage="infer", percent=percent, detail="mlx i2v")
+        generation.set_runtime_job(stage="infer", percent=percent, detail=detail)
 
+    seed = request.seed if request.seed is not None else int(time.time()) % 10_000
+    from api.ti2v_prompt import prepare_wan_prompt
+
+    prepared = prepare_wan_prompt(request.prompt, translate=True)
+    print(
+        f"[motion] TI2V intent={prepared['intent']} source={prepared['source']} "
+        f"wan={prepared['wan'][:160]!r}",
+        flush=True,
+    )
     mlx_ti2v.run_ti2v(
         image_path=request.image_path or "",
-        prompt=request.prompt,
+        prompt=prepared["wan"],
         dest=dest,
         model_id=request.model_id,
-        seed=int(time.time()) % 10_000,
+        seed=seed,
+        num_frames=frames_n,
+        duration_sec=request.duration_sec,
         should_cancel=generation.runtime_should_cancel,
         on_log=on_log,
     )
@@ -334,6 +377,11 @@ def _run_ti2v(request: VideoGenRequest, job_id: str):
         from PIL import Image
 
         quality.update(_identity_vs_source(Image.open(still_path), frames))
+    quality["num_frames_requested"] = frames_n
+    quality["seed"] = seed
+    quality["prompt_wan"] = prepared["wan"]
+    quality["prompt_intent"] = prepared["intent"]
+    quality["prompt_english"] = prepared["english"]
     del frames
     import gc
 
@@ -583,6 +631,25 @@ def _still_from_request(request: VideoGenRequest) -> str:
     return dest
 
 
+def _write_clip_sidecar(path: str, *, request: VideoGenRequest, spec: dict, quality: dict, status: str) -> None:
+    if not path:
+        return
+    side = os.path.splitext(path)[0] + ".json"
+    payload = {
+        "prompt": request.prompt,
+        "capability": spec.get("capability"),
+        "prompt_consumed": bool(spec.get("prompt_consumed")),
+        "status": status,
+        "quality": quality,
+        "provider_id": spec.get("id"),
+    }
+    try:
+        with open(side, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+    except OSError as err:
+        print(f"[motion] sidecar json skipped: {err}", flush=True)
+
+
 def _clip_payload(*, job_id: str, path: str, spec: dict, quality: dict, status: str = "completed") -> dict:
     return {
         "job_id": job_id,
@@ -688,7 +755,7 @@ async def generate_video(request: VideoGenRequest):
             generation.schedule_idle_release()
             raise HTTPException(status_code=500, detail=str(err)) from err
         generation.schedule_idle_release()
-    if quality.get("low_motion"):
+    if quality.get("low_motion") and spec.get("capability") != IMAGE_TO_VIDEO:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -698,4 +765,6 @@ async def generate_video(request: VideoGenRequest):
                 "An MP4 file is not a successful video generation."
             ),
         )
-    return _clip_payload(job_id=job_id, path=path, spec=spec, quality=quality, status="completed")
+    status = "low_motion" if quality.get("low_motion") else "completed"
+    _write_clip_sidecar(path, request=request, spec=spec, quality=quality, status=status)
+    return _clip_payload(job_id=job_id, path=path, spec=spec, quality=quality, status=status)
