@@ -6,6 +6,7 @@ import { useCreateStore } from '../../store/createStore';
 import { useHomeStore } from '../../../home/store/homeStore';
 import { filePathFromAssetUrl, useWorkspaceBridgeStore } from '../../../studio/store/workspaceBridgeStore';
 import { attachGeneratedToFilm } from '../../../projects/model/attachToFilm';
+import { isJobLikeId } from '../../model/resultStill';
 import { DownloadIcon, ImageIcon, RefreshIcon, TrashIcon } from '../../../../shared/ui/icons';
 import styles from './ResultStep.module.css';
 import { cx } from '../../../../shared/lib/cx';
@@ -74,7 +75,7 @@ export function ResultStep(): ReactNode {
   if (!result) return null;
   const resultPath = filePathFromAssetUrl(result.thumbnailUrl);
   const isVideoResult = result.kind === 'video' || Boolean(resultPath && /\.(mp4|mov|m4v|webm|mkv)$/i.test(resultPath));
-  const promptIsJobId = /^vid_[a-f0-9]+$/i.test(result.prompt.trim());
+  const promptMissing = !result.prompt.trim() || isJobLikeId(result.prompt) || isJobLikeId(result.id);
   const isSvd = result.capability === 'IMAGE_ANIMATION' || result.promptConsumed === false;
   const isAiVideo = result.capability === 'IMAGE_TO_VIDEO' || result.promptConsumed === true;
 
@@ -109,7 +110,10 @@ export function ResultStep(): ReactNode {
 
   const addToFilm = async () => {
     const path = filePathFromAssetUrl(result.thumbnailUrl);
-    if (!path) return;
+    if (!path) {
+      setDownloadError(t('create.error.need_still'));
+      return;
+    }
     setFilmBusy(true);
     setFilmStatus(null);
     setDownloadError(null);
@@ -132,7 +136,14 @@ export function ResultStep(): ReactNode {
 
   const downloadStill = async () => {
     const path = filePathFromAssetUrl(result.thumbnailUrl);
-    if (!path || !window.api?.saveMediaAs) return;
+    if (!path) {
+      setDownloadError(t('create.error.need_still'));
+      return;
+    }
+    if (!window.api?.saveMediaAs) {
+      setDownloadError(t('create.error.generation_failed'));
+      return;
+    }
     setDownloadError(null);
     try {
       await window.api.saveMediaAs(path);
@@ -214,8 +225,8 @@ export function ResultStep(): ReactNode {
       </div>
 
       <p className={styles.prompt}>
-        {isVideoResult && promptIsJobId
-          ? t('create.clip_unnamed')
+        {promptMissing
+          ? t(isVideoResult ? 'create.clip_unnamed' : 'create.still_unnamed')
           : `"${result.prompt}"`}
       </p>
       {isVideoResult ? (

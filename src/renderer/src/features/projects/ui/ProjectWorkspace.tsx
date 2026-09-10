@@ -70,7 +70,8 @@ export function ProjectWorkspace(): ReactNode {
   const [composing, setComposing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [shotBusy, setShotBusy] = useState(false);
-  const [assembleTarget, setAssembleTarget] = useState(10);
+  const [assembleTarget, setAssembleTarget] = useState(15);
+  const [shotLength, setShotLength] = useState(3.4);
 
   const docRef = useRef<ProjectDoc | null>(null);
   docRef.current = doc;
@@ -286,7 +287,7 @@ export function ProjectWorkspace(): ReactNode {
         const result = await window.api.generateVideo({
           prompt: spec.prompt,
           format: current.format === 'shorts' ? 'portrait' : 'wide',
-          duration_sec: 1.7,
+          duration_sec: shotLength,
           model_id: motionModel,
           image_path: still,
           mode: 'ai_video',
@@ -352,7 +353,9 @@ export function ProjectWorkspace(): ReactNode {
           assembly: {
             targetSec: plan.targetSec,
             style: plan.style,
-            rationale: plan.rationale,
+            rationale: plan.needMoreMaterial
+              ? `${plan.rationale} · ${plan.actualSec}s / ${plan.targetSec}s`
+              : plan.rationale,
             createdAt: Date.now(),
           },
         },
@@ -524,6 +527,17 @@ export function ProjectWorkspace(): ReactNode {
               {shotBusy ? t('projects.generating') : t('projects.generate_shots')}
             </button>
             <label className={styles.dur}>
+              {t('projects.shot_length')}
+              <select
+                value={shotLength}
+                onChange={(e) => setShotLength(Number(e.target.value) || 1.7)}
+              >
+                <option value={1.7}>1.7s</option>
+                <option value={3.4}>3.4s</option>
+                <option value={5}>5.0s</option>
+              </select>
+            </label>
+            <label className={styles.dur}>
               {t('projects.assemble_target')}
               <input
                 type="number"
@@ -559,6 +573,10 @@ export function ProjectWorkspace(): ReactNode {
                 {index + 1}. {shot.shotPurpose.replaceAll('_', ' ')}
                 {' · '}
                 {shot.duration ? `${shot.duration.toFixed(1)}s` : '—'}
+                {' · '}
+                {shot.provider && shot.provider !== 'unknown'
+                  ? (shot.modelId.split('/').pop() || shot.provider)
+                  : t('projects.meta_unavailable')}
                 {' · '}
                 {shot.validationStatus}
               </li>

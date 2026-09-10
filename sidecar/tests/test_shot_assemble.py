@@ -67,6 +67,30 @@ class AssembleTests(unittest.TestCase):
         self.assertAlmostEqual(plan["actualSec"], 5.1)
         for item in plan["placements"]:
             self.assertLessEqual(item["durationSec"], 1.7)
+        self.assertTrue(plan["needMoreMaterial"])
+
+    def test_hybrid_uploaded_then_ai(self):
+        plan = assemble(
+            [shot("a", "PRODUCT_HERO", 1.7), shot("b", "DETAIL", 1.7)],
+            15,
+            footage=[{"path": "/life.mp4", "duration": 8, "kind": "video"}],
+        )
+        purposes = [p["purpose"] for p in plan["placements"]]
+        self.assertEqual(purposes[0], "HOOK")
+        self.assertIn("PRODUCT_HERO", purposes)
+        self.assertIn("DETAIL", purposes)
+        self.assertLessEqual(plan["placements"][0]["durationSec"], 8)
+        for item in plan["placements"]:
+            if item["shotId"] in ("a", "b"):
+                self.assertLessEqual(item["durationSec"], 1.7)
+
+    def test_skips_low_motion_instead_of_padding(self):
+        plan = assemble([
+            shot("bad", "DETAIL", 3.4, generationMetadata={"low_motion": True}),
+            shot("ok", "PRODUCT_HERO", 1.7),
+        ], 12)
+        self.assertEqual([p["shotId"] for p in plan["placements"]], ["ok"])
+        self.assertTrue(plan["needMoreMaterial"])
 
 
 if __name__ == "__main__":

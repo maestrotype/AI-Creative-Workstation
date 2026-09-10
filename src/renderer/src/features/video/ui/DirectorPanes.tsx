@@ -10,6 +10,8 @@ import {
   videoTracksForBin,
   type TrackId,
 } from '../model/directorTimeline';
+import { promptForPurpose, SHOT_DURATION_PROFILES } from '../model/autoAssemble';
+import type { ShotPurpose } from '../../projects/model/project';
 import { toAssetUrl } from '../model/directorMedia';
 import { DirectorPreview } from './DirectorPreview';
 import { useDirector } from './DirectorBoard';
@@ -344,8 +346,25 @@ export function DirectorSourcesPane({
   onOpenVoiceover?: () => void;
 } = {}): ReactNode {
   const d = useDirector();
-  const [assembleTarget, setAssembleTarget] = useState(10);
+  const [assembleTarget, setAssembleTarget] = useState(15);
+  const [aiMode, setAiMode] = useState<'shot' | 'insert' | 'replace' | null>(null);
+  const [aiPurpose, setAiPurpose] = useState<ShotPurpose>('PRODUCT_HERO');
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiDur, setAiDur] = useState(3.4);
   const openVoiceover = onOpenVoiceover ?? d.openVoiceover;
+
+  useEffect(() => {
+    if (!aiMode) return;
+    setAiPrompt(promptForPurpose(aiPurpose, d.filmBrief));
+  }, [aiMode, aiPurpose, d.filmBrief]);
+
+  const openAi = (mode: 'shot' | 'insert' | 'replace') => {
+    setAiPurpose(mode === 'insert' ? 'DETAIL' : 'PRODUCT_HERO');
+    setAiMode(mode);
+  };
+
+  const hasUpload = d.bins.some((bin) => bin.kind === 'video' && !bin.shotId);
+  const hasDetail = d.shots.some((shot) => shot.shotPurpose === 'DETAIL' && shot.validationStatus === 'ok');
   const onSourcesDragOver = (event: DragEvent<HTMLElement>) => {
     if (!hasOsFiles(event)) return;
     event.preventDefault();
@@ -377,6 +396,98 @@ export function DirectorSourcesPane({
         <button type="button" className={styles.toolBtn} onClick={d.pickAudio}>{d.t('video.dir_add_audio')}</button>
       </div>
 
+      <div className={styles.shotBin}>
+        <div className={styles.toolRow}>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            disabled={d.aiBusy || !d.productStillPath}
+            onClick={() => openAi('shot')}
+          >
+            {d.t('video.ai_generate_shot')}
+          </button>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            disabled={d.aiBusy || !d.productStillPath}
+            onClick={() => openAi('insert')}
+          >
+            {d.t('video.ai_generate_insert')}
+          </button>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            disabled={d.aiBusy || !d.productStillPath || !d.activeClip || !d.activeClip.track.startsWith('v')}
+            onClick={() => openAi('replace')}
+          >
+            {d.t('video.ai_regenerate')}
+          </button>
+          {d.activeClip?.previousBinId ? (
+            <button type="button" className={styles.toolBtn} disabled={d.aiBusy} onClick={() => d.restoreClip(d.activeClip!.id)}>
+              {d.t('video.ai_restore')}
+            </button>
+          ) : null}
+        </div>
+        {!d.productStillPath ? <p className={styles.hintTight}>{d.t('video.ai_need_still')}</p> : null}
+        {hasUpload && d.productStillPath && !hasDetail ? (
+          <p className={styles.hintTight}>{d.t('video.ai_insert_suggest')}</p>
+        ) : null}
+        {aiMode ? (
+          <div className={styles.aiForm}>
+            <label>
+              {d.t('video.ai_purpose')}
+              <select
+                className={styles.num}
+                value={aiPurpose}
+                onChange={(e) => setAiPurpose(e.target.value as ShotPurpose)}
+              >
+                {(['PRODUCT_HERO', 'ANGLE', 'DETAIL', 'FEATURE', 'CTA'] as const).map((purpose) => (
+                  <option key={purpose} value={purpose}>{purpose.replaceAll('_', ' ')}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              {d.t('video.ai_duration')}
+              <select className={styles.num} value={aiDur} onChange={(e) => setAiDur(Number(e.target.value))}>
+                {SHOT_DURATION_PROFILES.map((row) => (
+                  <option key={row.sec} value={row.sec}>{row.sec.toFixed(1)}s</option>
+                ))}
+              </select>
+            </label>
+            <textarea
+              className={styles.aiPrompt}
+              rows={3}
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+            />
+            <p className={styles.hintTight}>{d.t('video.ai_motion_hint')}</p>
+            <div className={styles.toolRow}>
+              <button
+                type="button"
+                className={styles.toolPrimary}
+                disabled={d.aiBusy}
+                onClick={() => {
+                  d.generateAiClip({
+                    mode: aiMode,
+                    purpose: aiPurpose,
+                    prompt: aiPrompt,
+                    durationSec: aiDur,
+                  });
+                  setAiMode(null);
+                }}
+              >
+                {d.t('video.ai_run')}
+              </button>
+              <button type="button" className={styles.toolBtn} onClick={() => setAiMode(null)}>
+                {d.t('video.ai_cancel')}
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {d.aiBusy ? <p className={styles.hintTight}>{d.aiStatus || d.t('video.ai_generating')}</p> : null}
+        {d.aiError ? <p className={styles.voiceError}>{d.aiError}</p> : null}
+      </div>
+
       {d.shots.length > 0 ? (
         <div className={styles.shotBin}>
           <div className={styles.shotBinHead}>
@@ -401,9 +512,14 @@ export function DirectorSourcesPane({
                   <strong>{shot.shotPurpose.replaceAll('_', ' ')}</strong>
                   <span>
                     {shot.duration ? `${shot.duration.toFixed(1)}s` : '—'}
-                    {` · ${shot.modelId.split('/').pop() || shot.provider.split('/').pop() || shot.provider}`}
+                    {` · ${
+                      shot.provider && shot.provider !== 'unknown'
+                        ? (shot.modelId.split('/').pop() || shot.provider.split('/').pop() || shot.provider)
+                        : d.t('video.meta_unavailable')
+                    }`}
                     {` · ${shot.validationStatus}`}
                     {shot.productIdentityWarning ? ' · identity' : ''}
+                    {shot.replacesShotId ? ` · ${d.t('video.ai_retake')}` : ''}
                     {shot.createdAt ? ` · ${new Date(shot.createdAt).toLocaleDateString()}` : ''}
                   </span>
                 </div>

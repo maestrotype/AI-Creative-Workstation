@@ -367,8 +367,9 @@
   font-size: var(--text-caption);
 }
 
-.dur input {
-  width: 4rem;
+.dur input,
+.dur select {
+  width: 4.5rem;
   padding: 4px 6px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border-default);

@@ -960,6 +960,32 @@
   font-size: var(--text-caption);
 }
 
+.aiForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.aiForm label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+}
+
+.aiPrompt {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  font-size: var(--text-caption);
+  color: inherit;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.4rem 0.5rem;
+}
+
 .binItem {
   flex: 1;
   min-width: 0;

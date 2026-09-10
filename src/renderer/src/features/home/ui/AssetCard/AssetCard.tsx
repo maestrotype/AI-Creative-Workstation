@@ -156,6 +156,11 @@ export function AssetCard({
               <span className={styles.kindLabel}>{provider}</span>
               <span className={styles.separator} aria-hidden="true">·</span>
             </>
+          ) : asset.kind === 'video' ? (
+            <>
+              <span className={styles.kindLabel}>{t('home.meta_unavailable')}</span>
+              <span className={styles.separator} aria-hidden="true">·</span>
+            </>
           ) : null}
           {duration ? (
             <>

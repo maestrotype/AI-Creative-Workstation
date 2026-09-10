@@ -1347,6 +1347,20 @@ async def generate_image(request: GenerationRequest):
             raise HTTPException(status_code=500, detail=str(e))
 
     schedule_idle_release()
+    if file_path:
+        try:
+            from api.still_meta import write_still_sidecar
+            write_still_sidecar(
+                file_path,
+                prompt=request.prompt,
+                job=request.job,
+                fmt=request.format,
+                style=request.style,
+                model_id=request.model_id,
+                english_prompt=request.english_prompt,
+            )
+        except Exception as err:  # noqa: BLE001
+            print(f"[{job_id}] still json skipped: {err}", flush=True)
     return {"job_id": job_id, "status": "completed", "file_path": file_path}
 
 

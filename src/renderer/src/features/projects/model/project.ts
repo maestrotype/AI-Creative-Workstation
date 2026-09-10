@@ -30,6 +30,8 @@ export interface FilmShot {
   productIdentityWarning: boolean;
   shotPurpose: ShotPurpose;
   createdAt: number;
+  /** Previous take kept in shots[] when this row replaced a timeline clip. */
+  replacesShotId?: string | null;
 }
 
 export interface FilmTimelineClip {
@@ -42,6 +44,8 @@ export interface FilmTimelineClip {
   label: string;
   text?: string;
   autoLength?: boolean;
+  previousBinId?: string;
+  previousDurationSec?: number;
 }
 
 export interface FilmTimelineBin {
