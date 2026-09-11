@@ -5,6 +5,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import type { NavId } from '../../../core/types';
 import { NAVIGATION_ITEMS, isValidNavId } from '../../../features/home/model/navigation';
 import { SideNavigation } from '../../../features/home/ui/SideNavigation/SideNavigation';
+import { readLastProjectId } from '../../../features/projects/model/handoff';
 import { cx } from '../../../shared/lib/cx';
 import { EngineMonitor } from './EngineMonitor';
 import styles from './Shell.module.css';
@@ -28,6 +29,19 @@ export function Shell(): ReactNode {
     if (id === 'projects') {
       navigate('/projects');
       return;
+    }
+    /* When the user clicks "Video" (Director) in the sidebar, preserve
+       the current film context so the Director opens the correct Film
+       instead of falling back to a stale standalone localStorage session. */
+    if (id === 'video') {
+      const currentProjectId =
+        new URLSearchParams(location.search).get('project')
+        || (location.pathname.startsWith('/projects/') ? location.pathname.split('/')[2] : null)
+        || readLastProjectId();
+      if (currentProjectId) {
+        navigate(`/video?project=${encodeURIComponent(currentProjectId)}`);
+        return;
+      }
     }
     navigate(`/${id}`);
   };

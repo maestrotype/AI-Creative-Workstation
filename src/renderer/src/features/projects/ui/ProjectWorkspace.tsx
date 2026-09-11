@@ -130,33 +130,38 @@ export function ProjectWorkspace(): ReactNode {
   }
 
   const patch = (partial: Partial<ProjectDoc>) => {
-    void persist({ ...doc, ...partial });
+    const latest = docRef.current ?? doc;
+    void persist({ ...latest, ...partial });
   };
 
   const patchScene = (id: string, partial: Partial<ProjectScene>) => {
+    const latest = docRef.current ?? doc;
     void persist({
-      ...doc,
-      scenes: doc.scenes.map((scene) => (scene.id === id ? { ...scene, ...partial } : scene)),
+      ...latest,
+      scenes: latest.scenes.map((scene) => (scene.id === id ? { ...scene, ...partial } : scene)),
     });
   };
 
   const addScene = () => {
+    const latest = docRef.current ?? doc;
     void persist({
-      ...doc,
-      scenes: [...doc.scenes, newScene(t('projects.scene_n', { n: doc.scenes.length + 1 }))],
+      ...latest,
+      scenes: [...latest.scenes, newScene(t('projects.scene_n', { n: latest.scenes.length + 1 }))],
     });
   };
 
   const seedTemplateChapters = () => {
+    const latest = docRef.current ?? doc;
     void persist({
-      ...doc,
-      brief: doc.brief.trim() || t('projects.brief_default'),
+      ...latest,
+      brief: latest.brief.trim() || t('projects.brief_default'),
       scenes: templateChapters(t),
     });
   };
 
   const removeScene = (id: string) => {
-    void persist({ ...doc, scenes: doc.scenes.filter((scene) => scene.id !== id) });
+    const latest = docRef.current ?? doc;
+    void persist({ ...latest, scenes: latest.scenes.filter((scene) => scene.id !== id) });
   };
 
   const generateStillFile = async (scene: ProjectScene): Promise<string> => {
@@ -327,41 +332,48 @@ export function ProjectWorkspace(): ReactNode {
     }
   };
 
+  const openDirector = (voice = false) => {
+    const latest = docRef.current ?? doc;
+    writeLastProjectId(latest.id);
+    navigate(`/video?project=${encodeURIComponent(latest.id)}${voice ? '&voice=1' : ''}`);
+  };
+
   const openEditorFromShots = async (assemble: boolean, voice = false) => {
     const latest = docRef.current ?? doc;
+    if (!assemble) {
+      openDirector(voice);
+      return;
+    }
     const usable = (latest.shots ?? []).filter((shot) => shot.validationStatus !== 'failed' && shot.artifactPath);
     if (usable.length < 1) {
       setError(t('projects.need_shots'));
       return;
     }
-    let next = latest;
-    if (assemble) {
-      const plan = assembleShots({
-        shots: latest.shots ?? [],
-        targetSec: assembleTarget,
-        productStillPath: latest.productStillPath,
-      });
-      const built = planToTimeline(plan);
-      next = {
-        ...latest,
-        timeline: {
-          bins: built.bins,
-          clips: built.clips,
-          trackLayout: plan.trackLayout,
-          playhead: 0,
-          pxPerSec: 16,
-          assembly: {
-            targetSec: plan.targetSec,
-            style: plan.style,
-            rationale: plan.needMoreMaterial
-              ? `${plan.rationale} · ${plan.actualSec}s / ${plan.targetSec}s`
-              : plan.rationale,
-            createdAt: Date.now(),
-          },
+    const plan = assembleShots({
+      shots: latest.shots ?? [],
+      targetSec: assembleTarget,
+      productStillPath: latest.productStillPath,
+    });
+    const built = planToTimeline(plan);
+    const next: ProjectDoc = {
+      ...latest,
+      timeline: {
+        bins: built.bins,
+        clips: built.clips,
+        trackLayout: plan.trackLayout,
+        playhead: 0,
+        pxPerSec: 16,
+        assembly: {
+          targetSec: plan.targetSec,
+          style: plan.style,
+          rationale: plan.needMoreMaterial
+            ? `${plan.rationale} · ${plan.actualSec}s / ${plan.targetSec}s`
+            : plan.rationale,
+          createdAt: Date.now(),
         },
-      };
-      await persist(next);
-    }
+      },
+    };
+    await persist(next);
     writeLastProjectId(next.id);
     navigate(`/video?project=${encodeURIComponent(next.id)}${voice ? '&voice=1' : ''}`);
   };
@@ -496,11 +508,32 @@ export function ProjectWorkspace(): ReactNode {
         </select>
       </header>
 
-      <ol className={styles.filmSteps}>
-        <li data-on={filmStep === 'shots'}>{t('projects.step_shots')}</li>
-        <li data-on={filmStep === 'picture'}>{t('projects.step_picture')}</li>
-        <li data-on={filmStep === 'voice'}>{t('projects.step_voice')}</li>
-      </ol>
+      <nav className={styles.filmSteps} aria-label="Этапы фильма">
+        <button
+          type="button"
+          className={styles.stepBtn}
+          data-active="true"
+          title={t('projects.step_shots')}
+        >
+          {t('projects.step_shots')}
+        </button>
+        <button
+          type="button"
+          className={styles.stepBtn}
+          onClick={() => openDirector(false)}
+          title={t('projects.step_picture')}
+        >
+          {t('projects.step_picture')}
+        </button>
+        <button
+          type="button"
+          className={styles.stepBtn}
+          onClick={() => openDirector(true)}
+          title={t('projects.step_voice')}
+        >
+          {t('projects.step_voice')}
+        </button>
+      </nav>
       <p className={styles.lead}>{t(`projects.preset_lead_${preset}`)}</p>
 
       <section className={styles.productPanel}>
@@ -559,8 +592,7 @@ export function ProjectWorkspace(): ReactNode {
             <button
               type="button"
               className={styles.textBtn}
-              disabled={(doc.shots ?? []).length === 0}
-              onClick={() => void openEditorFromShots(false)}
+              onClick={() => openDirector(false)}
             >
               {t('projects.open_editor')}
             </button>

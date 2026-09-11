@@ -32,18 +32,35 @@
   padding: 0;
 }
 
-.filmSteps li {
-  padding: 0.35rem 0.75rem;
+.stepBtn {
+  padding: 0.35rem 0.85rem;
   border-radius: var(--radius-full);
   border: 1px solid var(--color-border-subtle);
+  background: transparent;
   color: var(--color-text-secondary);
+  font: inherit;
   font-size: var(--text-caption);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 
-.filmSteps li[data-on='true'] {
+.stepBtn:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.05);
+  transform: translateY(-1px);
+}
+
+.stepBtn[data-active='true'] {
   border-color: var(--color-accent);
   color: var(--color-text-primary);
   background: var(--color-bg-card);
+  box-shadow: 0 0 12px rgba(234, 179, 8, 0.18);
+  font-weight: var(--weight-medium);
+  cursor: default;
 }
 
 .title {
@@ -193,10 +210,15 @@
   font-size: var(--text-caption);
 }
 
+.cardActions {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .cardDelete {
-  position: absolute;
-  top: var(--space-2);
-  right: var(--space-2);
   padding: 2px 8px;
   border: none;
   border-radius: var(--radius-full);
@@ -205,6 +227,7 @@
   font: inherit;
   font-size: var(--text-micro);
   cursor: pointer;
+  margin-left: auto;
 }
 
 .workHead {

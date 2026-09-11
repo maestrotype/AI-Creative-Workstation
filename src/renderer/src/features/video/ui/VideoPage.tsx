@@ -58,6 +58,13 @@ function VideoStudioShell(): ReactNode {
   const takePendingTitleCard = useWorkspaceBridgeStore((s) => s.takePendingTitleCard);
   const titleCardOnTimeline = d.bins.some((bin) => bin.kind === 'image');
 
+  const openMontage = () => {
+    setDock({
+      ...dock,
+      mode: 'dock',
+    });
+  };
+
   const openVoiceover = () => {
     void d.openVoiceover();
     setDock({
@@ -105,6 +112,33 @@ function VideoStudioShell(): ReactNode {
           <span>
             {t('video.finishing_project', { name: d.projectScope.name || t('projects.untitled') })}
           </span>
+          <nav className={styles.filmBannerSteps} aria-label="Этапы фильма">
+            <Link
+              to={`/projects/${d.projectScope.id}`}
+              className={styles.bannerStepBtn}
+              title={t('projects.step_shots')}
+            >
+              {t('projects.step_shots')}
+            </Link>
+            <button
+              type="button"
+              className={styles.bannerStepBtn}
+              data-active={dock.mode !== 'pipeline'}
+              onClick={openMontage}
+              title={t('projects.step_picture')}
+            >
+              {t('projects.step_picture')}
+            </button>
+            <button
+              type="button"
+              className={styles.bannerStepBtn}
+              data-active={dock.mode === 'pipeline'}
+              onClick={openVoiceover}
+              title={t('projects.step_voice')}
+            >
+              {t('projects.step_voice')}
+            </button>
+          </nav>
         </div>
       ) : (
         <div className={styles.projectBanner}>
