@@ -26,6 +26,13 @@ import type { ReferenceImage } from '../../../shared/ui/IntentInput/IntentInput'
 import { filePathFromAssetUrl } from '../../studio/store/workspaceBridgeStore';
 import { toAssetUrl } from '../../video/model/directorMedia';
 import { modeForMedium } from '../model/videoCapability';
+import {
+  isJobLikeId,
+  isVideoPath,
+  promptForVideoAction,
+  stillFromState,
+  stillPathFromCreateState,
+} from '../model/resultStill';
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
 
@@ -105,24 +112,6 @@ const INITIAL: Pick<
   clipStillPath: null,
 };
 
-function isVideoPath(path: string | null | undefined): boolean {
-  return Boolean(path && /\.(mp4|mov|m4v|webm|mkv)(\?|$)/i.test(path));
-}
-
-function stillFromState(state: {
-  referenceImages: ReferenceImage[];
-  result: GenerationResult | null;
-  clipStillPath: string | null;
-}): { path?: string; dataUrl?: string } {
-  const photo = state.referenceImages.find((ref) => ref.kind !== 'video');
-  if (photo?.sourcePath) return { path: photo.sourcePath };
-  if (state.clipStillPath && !isVideoPath(state.clipStillPath)) return { path: state.clipStillPath };
-  const resultPath = filePathFromAssetUrl(state.result?.thumbnailUrl);
-  if (resultPath && !isVideoPath(resultPath)) return { path: resultPath };
-  if (photo?.dataUrl) return { dataUrl: photo.dataUrl };
-  return {};
-}
-
 /* ─── Store ─────────────────────────────────────────────────────────── */
 
 export const useCreateStore = create<CreateState>()((set, get) => ({
@@ -146,8 +135,33 @@ export const useCreateStore = create<CreateState>()((set, get) => ({
   /* ── Generation ─────────────────────────────────────────────── */
   startGeneration: (stillPath, modelId) => {
     const state = get();
-    const { prompt, format, style, job, medium, referenceImages, onResultReady } = state;
-    if (!prompt.trim()) return;
+    const { format, style, job, medium, referenceImages, onResultReady } = state;
+    const videoMode = modeForMedium(medium);
+    let prompt = state.prompt.trim();
+    if (!prompt) {
+      if (videoMode) {
+        prompt = promptForVideoAction(
+          state.prompt,
+          state.result?.prompt || '',
+          medium === 'animate' ? 'animate' : 'video',
+        );
+        set({ prompt });
+      } else {
+        const fromResult = (state.result?.prompt || '').trim();
+        if (fromResult && !isJobLikeId(fromResult)) {
+          prompt = fromResult;
+          set({ prompt });
+        } else {
+          set({
+            step: 'error',
+            error: { message: 'Prompt is empty', kind: 'generation_failed' },
+            generationProgress: null,
+            cancel: null,
+          });
+          return;
+        }
+      }
+    }
 
     set({ step: 'generating', generationProgress: null, cancel: null, result: null, error: null });
 
@@ -156,7 +170,6 @@ export const useCreateStore = create<CreateState>()((set, get) => ({
       set({ clipStillPath: still.path });
     }
 
-    const videoMode = modeForMedium(medium);
     const { promise, cancel } = videoMode
       ? runVideoGeneration(
         {
@@ -207,23 +220,45 @@ export const useCreateStore = create<CreateState>()((set, get) => ({
     const state = get();
     const resultPath = filePathFromAssetUrl(state.result?.thumbnailUrl);
     if (state.result?.kind === 'video' || isVideoPath(resultPath)) {
-      get().startGeneration(state.clipStillPath || undefined);
+      const prompt = promptForVideoAction(state.prompt, state.result?.prompt || '', 'video');
+      set({ prompt });
+      get().startGeneration(state.clipStillPath || stillPathFromCreateState(state) || undefined);
       return;
     }
     get().startGeneration();
   },
 
   makeClipFromResult: () => {
-    const still = filePathFromAssetUrl(get().result?.thumbnailUrl);
-    if (!still || isVideoPath(still)) return;
-    set({ medium: 'video', clipStillPath: still });
+    const state = get();
+    const still = stillPathFromCreateState(state);
+    if (!still) {
+      set({
+        step: 'error',
+        error: { message: 'IMAGE_REQUIRED', kind: 'need_still' },
+        generationProgress: null,
+        cancel: null,
+      });
+      return;
+    }
+    const prompt = promptForVideoAction(state.prompt, state.result?.prompt || '', 'video');
+    set({ medium: 'video', clipStillPath: still, prompt });
     get().startGeneration(still);
   },
 
   animateFromResult: () => {
-    const still = stillFromState(get()).path;
-    if (!still || isVideoPath(still)) return;
-    set({ medium: 'animate', clipStillPath: still });
+    const state = get();
+    const still = stillPathFromCreateState(state);
+    if (!still) {
+      set({
+        step: 'error',
+        error: { message: 'IMAGE_REQUIRED', kind: 'need_still' },
+        generationProgress: null,
+        cancel: null,
+      });
+      return;
+    }
+    const prompt = promptForVideoAction(state.prompt, state.result?.prompt || '', 'animate');
+    set({ medium: 'animate', clipStillPath: still, prompt });
     get().startGeneration(still);
   },
 
@@ -244,14 +279,18 @@ export const useCreateStore = create<CreateState>()((set, get) => ({
       : filePathFromAssetUrl(asset.thumbnailUrl);
     const video = asset.kind === 'video' || isVideoPath(mediaPath);
     const storedPrompt = (asset.prompt || '').trim();
-    const nameIsJobId = /^vid_[a-f0-9]+$/i.test((asset.name || '').trim());
-    const prompt = storedPrompt || (nameIsJobId ? '' : asset.name);
+    const nameIsJobId = isJobLikeId(asset.name) || isJobLikeId(storedPrompt);
+    const prompt = storedPrompt && !isJobLikeId(storedPrompt)
+      ? storedPrompt
+      : (nameIsJobId ? '' : (asset.name || '').trim());
     set({
       step: 'result',
       medium: video ? 'video' : 'image',
+      prompt,
+      clipStillPath: video ? get().clipStillPath : (mediaPath && !isVideoPath(mediaPath) ? mediaPath : null),
       result: {
         id: asset.id,
-        prompt: prompt || asset.name,
+        prompt,
         thumbnailUrl: mediaPath
           ? toAssetUrl(mediaPath)
           : asset.thumbnailUrl,

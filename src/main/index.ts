@@ -1520,7 +1520,7 @@ function setupIpc() {
     const listed = rows.sort((a, b) => b.mtime - a.mtime).slice(0, 80);
     return listed.map((row) => {
       const video = /\.(mp4|mov|m4v|webm|mkv)$/i.test(row.path);
-      const meta = video ? readClipSidecar(row.path) : null;
+      const meta = readClipSidecar(row.path);
       const quality = meta?.quality && typeof meta.quality === 'object'
         ? { ...(meta.quality as Record<string, unknown>) }
         : ({} as Record<string, unknown>);
@@ -1555,10 +1555,11 @@ function setupIpc() {
       throw new Error('Only generated stills and clips can be deleted');
     }
     unlinkSync(resolved);
-    if (clip) {
+    if (still || clip) {
       for (const extra of [
-        clipPosterPath(resolved),
-        resolved.replace(/\.[^.]+$/i, '.poster.jpg'),
+        ...(clip
+          ? [clipPosterPath(resolved), resolved.replace(/\.[^.]+$/i, '.poster.jpg')]
+          : []),
         clipSidecarPath(resolved),
       ]) {
         if (existsSync(extra)) {

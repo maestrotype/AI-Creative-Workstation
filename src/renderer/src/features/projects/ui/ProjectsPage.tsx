@@ -144,16 +144,40 @@ export function ProjectsPage(): ReactNode {
                   </span>
                 </div>
               </button>
-              <button
-                type="button"
-                className={styles.cardDelete}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void remove(item.id, item.name);
-                }}
-              >
-                {t('projects.delete')}
-              </button>
+              <div className={styles.cardActions}>
+                <button
+                  type="button"
+                  className={styles.ghostBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    writeLastProjectId(item.id);
+                    navigate(`/video?project=${encodeURIComponent(item.id)}`);
+                  }}
+                >
+                  {t('projects.open_in_editor')}
+                </button>
+                <button
+                  type="button"
+                  className={styles.ghostBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    writeLastProjectId(item.id);
+                    navigate(`/video?project=${encodeURIComponent(item.id)}&voice=1`);
+                  }}
+                >
+                  {t('projects.narrate_film')}
+                </button>
+                <button
+                  type="button"
+                  className={styles.cardDelete}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void remove(item.id, item.name);
+                  }}
+                >
+                  {t('projects.delete')}
+                </button>
+              </div>
             </li>
           ))}
         </ul>

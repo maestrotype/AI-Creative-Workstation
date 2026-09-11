@@ -35,6 +35,7 @@ export interface FilmShot {
   productIdentityWarning: boolean;
   shotPurpose: ShotPurpose;
   createdAt: number;
+  replacesShotId?: string | null;
 }
 
 export interface FilmTimeline {

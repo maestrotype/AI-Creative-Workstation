@@ -19,7 +19,25 @@ def _round(n: float) -> float:
     return round(n * 10) / 10
 
 
-def assemble(shots: list[dict], target_sec: float = 10.0) -> dict:
+def _push(placements: list, skipped: list, cursor: float, remaining: float, item: dict) -> float:
+    if remaining < MIN_CLIP:
+        skipped.append({"id": item["shotId"], "reason": "no_budget"})
+        return cursor
+    duration = _round(min(float(item["duration"]), remaining))
+    if duration < MIN_CLIP:
+        skipped.append({"id": item["shotId"], "reason": "too_short"})
+        return cursor
+    placements.append({
+        "shotId": item["shotId"],
+        "startSec": cursor,
+        "durationSec": duration,
+        "purpose": item["purpose"],
+        "path": item.get("path"),
+    })
+    return _round(cursor + duration)
+
+
+def assemble(shots: list[dict], target_sec: float = 10.0, footage: list[dict] | None = None, still_path: str | None = None) -> dict:
     skipped = []
     usable = []
     for shot in shots:
@@ -47,40 +65,57 @@ def assemble(shots: list[dict], target_sec: float = 10.0) -> dict:
         unique.append(shot)
     cta = next((s for s in unique if s["shotPurpose"] == "CTA"), None)
     body = [s for s in unique if s["shotPurpose"] != "CTA"]
+    shot_paths = {s.get("artifactPath") for s in usable}
+    uploads = [
+        row for row in (footage or [])
+        if row.get("kind") == "video" and float(row.get("duration") or 0) >= MIN_CLIP and row.get("path") not in shot_paths
+    ]
     placements = []
     cursor = 0.0
     reserve = min(CTA_RESERVE, float(cta["duration"]), max(0.0, target_sec * 0.2)) if cta else 0.0
-    budget = max(MIN_CLIP, target_sec - reserve)
-    for shot in body:
-        remaining = budget - cursor
-        if remaining < MIN_CLIP:
-            break
-        duration = min(float(shot["duration"]), remaining)
-        if duration < MIN_CLIP:
-            break
-        duration = _round(duration)
-        placements.append({
-            "shotId": shot["id"],
-            "startSec": cursor,
-            "durationSec": duration,
-            "purpose": shot["shotPurpose"],
+    if uploads:
+        hook_cap = max(2.0, target_sec * 0.35)
+        cursor = _push(placements, skipped, cursor, max(MIN_CLIP, target_sec - reserve - cursor), {
+            "shotId": f"upload:{uploads[0]['path']}",
+            "duration": min(float(uploads[0]["duration"]), hook_cap),
+            "purpose": "HOOK",
+            "path": uploads[0]["path"],
         })
-        cursor += duration
+    for shot in body:
+        cursor = _push(placements, skipped, cursor, max(0.0, target_sec - reserve - cursor), {
+            "shotId": shot["id"],
+            "duration": float(shot["duration"]),
+            "purpose": shot["shotPurpose"],
+            "path": shot["artifactPath"],
+        })
+    for extra in uploads[1:]:
+        cursor = _push(placements, skipped, cursor, max(0.0, target_sec - reserve - cursor), {
+            "shotId": f"upload:{extra['path']}",
+            "duration": float(extra["duration"]),
+            "purpose": "LIFESTYLE",
+            "path": extra["path"],
+        })
     if cta:
-        remaining = target_sec - cursor
-        duration = min(float(cta["duration"]), max(MIN_CLIP, remaining))
-        if duration >= MIN_CLIP:
-            duration = _round(duration)
-            placements.append({
-                "shotId": cta["id"],
-                "startSec": cursor,
-                "durationSec": duration,
-                "purpose": "CTA",
-            })
-            cursor += duration
+        cursor = _push(placements, skipped, cursor, max(MIN_CLIP, target_sec - cursor), {
+            "shotId": cta["id"],
+            "duration": float(cta["duration"]),
+            "purpose": "CTA",
+            "path": cta["artifactPath"],
+        })
+    if not placements and still_path:
+        cursor = _push(placements, skipped, 0.0, target_sec, {
+            "shotId": "still",
+            "duration": min(4.0, target_sec),
+            "purpose": "PRODUCT_HERO",
+            "path": still_path,
+        })
+    actual = _round(cursor)
+    need = _round(max(0.0, target_sec - actual))
     return {
-        "actualSec": _round(cursor),
+        "actualSec": actual,
         "placements": placements,
         "skipped": skipped,
         "rationale": " → ".join(p["purpose"] for p in placements),
+        "needMoreMaterial": need > 0.8,
+        "needMoreSec": need,
     }

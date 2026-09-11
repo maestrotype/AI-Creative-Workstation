@@ -25,6 +25,7 @@ import {
   packTrack,
   snapStart,
   splitClipAt,
+  insertClipOnTrack,
   trackHasGap,
   maxDurationBeforeNext,
   syncClipDuration,
@@ -39,8 +40,8 @@ import {
   type TrackId,
   type TrackLayout,
 } from '../model/directorTimeline';
-import { assembleShots, planToTimeline } from '../model/autoAssemble';
-import type { FilmShot, FilmTimeline, ProjectDoc } from '../../projects/model/project';
+import { assembleShots, planToTimeline, promptForPurpose, type AssembleFootage } from '../model/autoAssemble';
+import { shotFromGeneration, type FilmShot, type FilmTimeline, type ProjectDoc, type ShotPurpose } from '../../projects/model/project';
 import { DEFAULT_TRACK_LAYOUT } from '../model/directorTimeline';
 import { takeProjectHandoff } from '../../projects/model/handoff';
 import { loadDirectorSession, saveDirectorSession, type DirectorSession } from '../model/directorSessionStore';
@@ -215,6 +216,18 @@ type DirectorSnap = {
   removeShot: (shotId: string) => void;
   filmLoadError: string | null;
   projectHydrated: boolean;
+  productStillPath: string | null;
+  filmBrief: string;
+  aiBusy: boolean;
+  aiError: string | null;
+  aiStatus: string | null;
+  generateAiClip: (args: {
+    mode: 'shot' | 'insert' | 'replace';
+    purpose: ShotPurpose;
+    prompt: string;
+    durationSec: number;
+  }) => void;
+  restoreClip: (clipId: string) => void;
 };
 
 export interface SourceInput {
@@ -300,6 +313,12 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   );
   const [shots, setShots] = useState<FilmShot[]>([]);
   const [assemblyRationale, setAssemblyRationale] = useState<string | null>(null);
+  const [productStillPath, setProductStillPath] = useState<string | null>(null);
+  const [filmBrief, setFilmBrief] = useState('');
+  const [filmFormat, setFilmFormat] = useState<'landscape' | 'shorts'>('landscape');
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiStatus, setAiStatus] = useState<string | null>(null);
   const [viewW, setViewW] = useState(640);
   const fittedOnce = useRef(false);
   const lastFitRef = useRef(16);
@@ -617,6 +636,9 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       const film = doc as ProjectDoc;
       setFilmLoadError(null);
       setScopeName(film.name || '');
+      setFilmBrief(film.brief || '');
+      setFilmFormat(film.format === 'shorts' ? 'shorts' : 'landscape');
+      setProductStillPath(film.productStillPath || null);
       if (Array.isArray(film.shots)) setShots(film.shots);
       const tl = film.timeline;
       if (tl && Array.isArray(tl.bins) && Array.isArray(tl.clips) && tl.clips.length > 0) {
@@ -1974,11 +1996,165 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     });
   };
 
+  const restoreClip = (clipId: string) => {
+    const clip = clipsRef.current.find((item) => item.id === clipId);
+    if (!clip?.previousBinId) return;
+    const bin = binsRef.current.find((item) => item.id === clip.previousBinId);
+    if (!bin) return;
+    setClips((prev) => prev.map((item) => (
+      item.id !== clipId
+        ? item
+        : {
+            ...item,
+            binId: bin.id,
+            durationSec: clip.previousDurationSec ?? clipSpan(bin),
+            sourceInSec: bin.inSec,
+            label: bin.name,
+            previousBinId: undefined,
+            previousDurationSec: undefined,
+            autoLength: false,
+          }
+    )));
+    setSelectedBin(bin.id);
+  };
+
+  const generateAiClip = async (args: {
+    mode: 'shot' | 'insert' | 'replace';
+    purpose: ShotPurpose;
+    prompt: string;
+    durationSec: number;
+  }) => {
+    if (aiBusy) return;
+    if (!productStillPath) {
+      setAiError(t('video.ai_need_still'));
+      return;
+    }
+    if (!window.api?.generateVideo) {
+      setAiError(t('projects.no_ai_video'));
+      return;
+    }
+    if (args.mode === 'replace' && !selectedClip) {
+      setAiError(t('video.ai_need_clip'));
+      return;
+    }
+    const replaceClipId = args.mode === 'replace' ? selectedClip : null;
+    setAiBusy(true);
+    setAiError(null);
+    setAiStatus(t('video.ai_generating'));
+    try {
+      const motionModel = await window.api.getActiveVideoModel?.();
+      if (!motionModel || !/runway|minimax|h3|ti2v|anes1032/i.test(motionModel)) {
+        setAiError(t('projects.no_ai_video'));
+        return;
+      }
+      const durationSec = [1.7, 3.4, 5].reduce(
+        (best, n) => (Math.abs(n - args.durationSec) < Math.abs(best - args.durationSec) ? n : best),
+        1.7,
+      );
+      const prompt = (args.prompt || '').trim() || promptForPurpose(args.purpose, filmBrief);
+      const result = await window.api.generateVideo({
+        prompt,
+        format: filmFormat === 'shorts' ? 'portrait' : 'wide',
+        duration_sec: durationSec,
+        model_id: motionModel,
+        image_path: productStillPath,
+        mode: 'ai_video',
+        shot_index: 1,
+        shot_total: 1,
+      });
+      if (!result.file_path) throw new Error(t('projects.generate_fail'));
+      const duration = result.quality?.duration_sec
+        ?? await window.api.probeMediaDuration(result.file_path).catch(() => durationSec);
+      const replacing = replaceClipId
+        ? clipsRef.current.find((clip) => clip.id === replaceClipId)
+        : null;
+      const replacingBin = replacing?.binId
+        ? binsRef.current.find((bin) => bin.id === replacing.binId)
+        : null;
+      const shot = {
+        ...shotFromGeneration({
+          path: result.file_path,
+          prompt,
+          purpose: args.purpose,
+          provider: result.provider_id || motionModel,
+          modelId: result.provider_id || motionModel,
+          sourceAsset: productStillPath,
+          projectId: scopeIdRef.current,
+          quality: { ...result.quality, duration_sec: duration },
+          status: result.status,
+        }),
+        replacesShotId: replacingBin?.shotId ?? null,
+      };
+      setShots((prev) => [...prev, shot]);
+      const dur = Math.max(0.4, duration || durationSec);
+      const bin: BinItem = {
+        id: newId('bin'),
+        kind: 'video',
+        path: shot.artifactPath,
+        name: shot.shotPurpose.replaceAll('_', ' ').toLowerCase(),
+        durationSec: dur,
+        inSec: 0,
+        outSec: dur,
+        durationKnown: true,
+        shotId: shot.id,
+      };
+      setBins((prev) => [...prev, bin]);
+      if (args.mode === 'replace' && replacing) {
+        setClips((prev) => prev.map((item) => (
+          item.id !== replacing.id
+            ? item
+            : {
+                ...item,
+                binId: bin.id,
+                durationSec: dur,
+                sourceInSec: 0,
+                label: bin.name,
+                autoLength: false,
+                previousBinId: item.previousBinId ?? replacing.binId ?? undefined,
+                previousDurationSec: item.previousDurationSec ?? replacing.durationSec,
+              }
+        )));
+        setSelectedBin(bin.id);
+      } else {
+        const at = playheadRef.current;
+        const clip: TimelineClip = {
+          id: newId('clip'),
+          binId: bin.id,
+          track: 'v1',
+          startSec: at,
+          durationSec: dur,
+          sourceInSec: 0,
+          label: bin.name,
+          autoLength: false,
+        };
+        setClips((prev) => insertClipOnTrack(prev, 'v1', at, clip));
+        setSelectedClip(clip.id);
+        setSelectedBin(bin.id);
+      }
+      setAiStatus(null);
+    } catch (err) {
+      setAiError(ipcMessage(err, t('projects.generate_fail')));
+      setAiStatus(null);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   const applyAutoAssemble = (targetSec: number) => {
+    const footage: AssembleFootage[] = binsRef.current
+      .filter((bin) => bin.kind === 'video' || bin.kind === 'image')
+      .filter((bin) => bin.path !== productStillPath)
+      .map((bin) => ({
+        path: bin.path,
+        durationSec: Math.max(0.4, bin.durationSec || 0),
+        label: bin.name,
+        kind: bin.kind === 'image' ? 'image' : 'video',
+      }));
     const plan = assembleShots({
       shots: shotsRef.current,
       targetSec,
-      productStillPath: null,
+      productStillPath,
+      footage,
     });
     if (plan.placements.length === 0) return;
     const built = planToTimeline(plan);
@@ -1988,15 +2164,23 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       titles: Math.max(prev.titles, plan.trackLayout.titles),
     }));
     setBins((prev) => {
-      const kept = prev.filter((bin) => bin.kind === 'audio' || built.bins.some((next) => next.path === bin.path));
-      const extra = built.bins.filter((bin) => !kept.some((row) => row.path === bin.path));
-      return [...kept, ...extra];
+      const extra = built.bins.filter((bin) => !prev.some((row) => row.path === bin.path));
+      return extra.length ? [...prev, ...extra] : prev;
     });
     setClips((prev) => {
       const audioAndTitles = prev.filter((clip) => clip.track.startsWith('a') || clip.track.startsWith('t'));
-      return [...built.clips, ...audioAndTitles];
+      const binsNow = [...binsRef.current, ...built.bins];
+      const resolved = built.clips.map((clip) => {
+        const fresh = built.bins.find((bin) => bin.id === clip.binId);
+        const existing = binsNow.find((bin) => bin.path === fresh?.path);
+        return existing ? { ...clip, binId: existing.id } : clip;
+      });
+      return [...resolved, ...audioAndTitles];
     });
-    setAssemblyRationale(plan.rationale);
+    const note = plan.needMoreMaterial
+      ? `${plan.rationale} · ${plan.actualSec}s / ${plan.targetSec}s`
+      : plan.rationale;
+    setAssemblyRationale(note);
     setPlayhead(0);
     paintPlayhead(0);
   };
@@ -2333,6 +2517,13 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     removeShot,
     filmLoadError,
     projectHydrated: projectHydratedState,
+    productStillPath,
+    filmBrief,
+    aiBusy,
+    aiError,
+    aiStatus,
+    generateAiClip: (args) => { void generateAiClip(args); },
+    restoreClip,
   };
 
   return <DirectorContext.Provider value={snap}>{children}</DirectorContext.Provider>;

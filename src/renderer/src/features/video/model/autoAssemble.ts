@@ -19,11 +19,26 @@ export const PURPOSE_ORDER: readonly ShotPurpose[] = [
 
 export type AssemblyStyle = 'premium_ecommerce';
 
+/** Honest Wan lengths at 24 fps (4n+1). Do not fake duration. */
+export const SHOT_DURATION_PROFILES = [
+  { sec: 1.7, frames: 41 },
+  { sec: 3.4, frames: 81 },
+  { sec: 5.0, frames: 121 },
+] as const;
+
+export interface AssembleFootage {
+  path: string;
+  durationSec: number;
+  label: string;
+  kind: 'video' | 'image';
+}
+
 export interface AssembleInput {
   shots: FilmShot[];
   targetSec: number;
   style?: AssemblyStyle;
   productStillPath?: string | null;
+  footage?: AssembleFootage[];
 }
 
 export interface AssemblePlacement {
@@ -45,6 +60,8 @@ export interface AssemblePlan {
   skipped: Array<{ shotId: string; reason: string }>;
   placements: AssemblePlacement[];
   trackLayout: TrackLayout;
+  needMoreMaterial: boolean;
+  needMoreSec: number;
 }
 
 const MIN_CLIP = 0.5;
@@ -92,6 +109,41 @@ function pickUnique(shots: FilmShot[]): FilmShot[] {
   return out;
 }
 
+function pushPlacement(
+  placements: AssemblePlacement[],
+  skipped: AssemblePlan['skipped'],
+  cursor: number,
+  remaining: number,
+  item: {
+    shotId: string;
+    duration: number;
+    purpose: ShotPurpose;
+    path: string;
+    label: string;
+  },
+): number {
+  if (remaining < MIN_CLIP) {
+    skipped.push({ shotId: item.shotId, reason: 'no_budget' });
+    return cursor;
+  }
+  const duration = roundTenths(Math.min(item.duration, remaining));
+  if (duration < MIN_CLIP) {
+    skipped.push({ shotId: item.shotId, reason: 'too_short' });
+    return cursor;
+  }
+  placements.push({
+    shotId: item.shotId,
+    startSec: cursor,
+    durationSec: duration,
+    sourceInSec: 0,
+    sourceDurationSec: item.duration,
+    purpose: item.purpose,
+    path: item.path,
+    label: item.label,
+  });
+  return roundTenths(cursor + duration);
+}
+
 export function assembleShots(input: AssembleInput): AssemblePlan {
   const style: AssemblyStyle = input.style ?? 'premium_ecommerce';
   const target = Math.max(2, Number(input.targetSec) || 10);
@@ -108,85 +160,87 @@ export function assembleShots(input: AssembleInput): AssemblePlan {
   const unique = pickUnique(usable);
   const cta = unique.find((s) => s.shotPurpose === 'CTA');
   const body = unique.filter((s) => s.shotPurpose !== 'CTA');
+  const shotPaths = new Set(usable.map((s) => s.artifactPath));
+  const uploads = (input.footage || []).filter(
+    (row) => row.kind === 'video' && row.durationSec >= MIN_CLIP && !shotPaths.has(row.path),
+  );
+
   const placements: AssemblePlacement[] = [];
   let cursor = 0;
   const reserve = cta ? Math.min(CTA_RESERVE, cta.duration, Math.max(0, target * 0.2)) : 0;
-  const bodyBudget = Math.max(MIN_CLIP, target - reserve);
+
+  if (uploads[0]) {
+    const hookCap = Math.max(2, target * 0.35);
+    cursor = pushPlacement(placements, skipped, cursor, Math.max(MIN_CLIP, target - reserve - cursor), {
+      shotId: `upload:${uploads[0].path}`,
+      duration: Math.min(uploads[0].durationSec, hookCap),
+      purpose: 'HOOK',
+      path: uploads[0].path,
+      label: uploads[0].label || 'Footage',
+    });
+  }
 
   for (const shot of body) {
-    const remaining = bodyBudget - cursor;
-    if (remaining < MIN_CLIP) break;
-    const duration = Math.min(shot.duration, remaining);
-    if (duration < MIN_CLIP) break;
-    placements.push({
+    cursor = pushPlacement(placements, skipped, cursor, Math.max(0, target - reserve - cursor), {
       shotId: shot.id,
-      startSec: cursor,
-      durationSec: roundTenths(duration),
-      sourceInSec: 0,
-      sourceDurationSec: shot.duration,
+      duration: shot.duration,
       purpose: shot.shotPurpose,
       path: shot.artifactPath,
       label: shotLabel(shot),
     });
-    cursor += roundTenths(duration);
+  }
+
+  for (const extra of uploads.slice(1)) {
+    cursor = pushPlacement(placements, skipped, cursor, Math.max(0, target - reserve - cursor), {
+      shotId: `upload:${extra.path}`,
+      duration: extra.durationSec,
+      purpose: 'LIFESTYLE',
+      path: extra.path,
+      label: extra.label || 'Footage',
+    });
   }
 
   if (cta) {
-    const remaining = target - cursor;
-    const duration = Math.min(cta.duration, Math.max(MIN_CLIP, remaining));
-    if (duration >= MIN_CLIP) {
-      placements.push({
-        shotId: cta.id,
-        startSec: cursor,
-        durationSec: roundTenths(duration),
-        sourceInSec: 0,
-        sourceDurationSec: cta.duration,
-        purpose: 'CTA',
-        path: cta.artifactPath,
-        label: shotLabel(cta),
-      });
-      cursor += roundTenths(duration);
-    }
+    cursor = pushPlacement(placements, skipped, cursor, Math.max(MIN_CLIP, target - cursor), {
+      shotId: cta.id,
+      duration: cta.duration,
+      purpose: 'CTA',
+      path: cta.artifactPath,
+      label: shotLabel(cta),
+    });
   }
 
   if (placements.length === 0 && input.productStillPath) {
-    placements.push({
+    cursor = pushPlacement(placements, skipped, 0, target, {
       shotId: 'still',
-      startSec: 0,
-      durationSec: Math.min(4, target),
-      sourceInSec: 0,
-      sourceDurationSec: Math.min(4, target),
+      duration: Math.min(4, target),
       purpose: 'PRODUCT_HERO',
       path: input.productStillPath,
       label: 'Product still',
     });
-    cursor = placements[0].durationSec;
   } else if (cursor < target - 0.8 && input.productStillPath) {
-    const hold = roundTenths(Math.min(4, target - cursor));
-    if (hold >= MIN_CLIP) {
-      placements.push({
-        shotId: 'still',
-        startSec: cursor,
-        durationSec: hold,
-        sourceInSec: 0,
-        sourceDurationSec: hold,
-        purpose: 'CTA',
-        path: input.productStillPath,
-        label: 'Product still',
-      });
-      cursor += hold;
-    }
+    cursor = pushPlacement(placements, skipped, cursor, target - cursor, {
+      shotId: 'still',
+      duration: Math.min(4, target - cursor),
+      purpose: 'CTA',
+      path: input.productStillPath,
+      label: 'Product still',
+    });
   }
 
+  const actual = roundTenths(cursor);
+  const needMoreSec = roundTenths(Math.max(0, target - actual));
   const rationale = placements.map((p) => purposeWord(p.purpose)).join(' → ') || 'No usable shots';
   return {
     style,
     targetSec: target,
-    actualSec: roundTenths(cursor),
+    actualSec: actual,
     rationale,
     skipped,
     placements,
     trackLayout: { videos: 2, audios: 2, titles: 1 },
+    needMoreMaterial: needMoreSec > 0.8,
+    needMoreSec,
   };
 }
 
@@ -199,6 +253,7 @@ export function planToTimeline(plan: AssemblePlan): { bins: BinItem[]; clips: Ti
     if (!bin) {
       const isImage = /\.(png|jpe?g|webp|gif|bmp)$/i.test(place.path);
       const sourceDur = Math.max(place.sourceDurationSec || place.durationSec, 0.4);
+      const linkedShot = place.shotId !== 'still' && !place.shotId.startsWith('upload:');
       bin = {
         id: newId('bin'),
         kind: isImage ? 'image' : 'video',
@@ -208,7 +263,7 @@ export function planToTimeline(plan: AssemblePlan): { bins: BinItem[]; clips: Ti
         inSec: 0,
         outSec: sourceDur,
         durationKnown: true,
-        shotId: place.shotId === 'still' ? undefined : place.shotId,
+        shotId: linkedShot ? place.shotId : undefined,
       };
       byPath.set(place.path, bin);
       bins.push(bin);
@@ -237,7 +292,7 @@ function shotLabel(shot: FilmShot): string {
   return purposeWord(shot.shotPurpose);
 }
 
-function purposeWord(purpose: ShotPurpose): string {
+export function purposeWord(purpose: ShotPurpose): string {
   switch (purpose) {
     case 'HOOK': return 'Hook';
     case 'PRODUCT_HERO': return 'Hero';
@@ -251,32 +306,39 @@ function purposeWord(purpose: ShotPurpose): string {
   }
 }
 
-export function productShotPresets(brief = ''): Array<{ purpose: ShotPurpose; prompt: string }> {
+export function promptForPurpose(purpose: ShotPurpose, brief = ''): string {
   const context = brief.trim();
   const prefix = context
     ? `Ecommerce product film. Brief: ${context}\n`
     : 'Ecommerce product film.\n';
+  const lock = 'Preserve the exact product shape, colors, materials and proportions. Keep the product as the visual focus. No additional products or unrelated objects.';
+  switch (purpose) {
+    case 'HOOK':
+      return `${prefix}Opening look at the product. Slow cinematic push-in. ${lock}`;
+    case 'DETAIL':
+      return `${prefix}Close-up of the product material and construction. Subtle cinematic push-in. Visible camera motion, not a still photo. ${lock}`;
+    case 'ANGLE':
+      return `${prefix}Subtle cinematic orbit showing the side profile of the product. ${lock}`;
+    case 'FEATURE':
+      return `${prefix}Show a visible product feature from the brief (logo, stitching, or construction). Slow cinematic push-in. ${lock}`;
+    case 'LIFESTYLE':
+      return `${prefix}Product as the visual focus with a slow cinematic push-in. ${lock}`;
+    case 'CTA':
+      return `${prefix}Clean premium ecommerce presentation. Slight slow push-in, product centered. Do not pull the camera back. ${lock}`;
+    case 'TRANSITION':
+      return `${prefix}Short connecting push-in on the product. ${lock}`;
+    case 'PRODUCT_HERO':
+    default:
+      return `${prefix}Premium ecommerce hero shot. Slow cinematic push-in toward the product. ${lock}`;
+  }
+}
+
+export function productShotPresets(brief = ''): Array<{ purpose: ShotPurpose; prompt: string }> {
   return [
-    {
-      purpose: 'PRODUCT_HERO',
-      prompt:
-        `${prefix}Hero product presentation. Slow cinematic push-in toward the product. Preserve the exact product shape, colors, materials and proportions. Keep the product as the visual focus. No additional products or unrelated objects.`,
-    },
-    {
-      purpose: 'ANGLE',
-      prompt:
-        `${prefix}Subtle cinematic orbit showing the side profile of the product. Preserve the exact product shape, colors, materials and proportions. Keep the product as the visual focus.`,
-    },
-    {
-      purpose: 'DETAIL',
-      prompt:
-        `${prefix}Close-up emphasizing material texture and construction of the product. Slow, stable camera. Preserve the exact product shape, colors, materials and proportions.`,
-    },
-    {
-      purpose: 'CTA',
-      prompt:
-        `${prefix}Clean wide premium ecommerce presentation. Slight slow push-in, product centered, generous negative space. Do not pull the camera back. Preserve the exact product shape, colors, materials and proportions.`,
-    },
+    { purpose: 'PRODUCT_HERO', prompt: promptForPurpose('PRODUCT_HERO', brief) },
+    { purpose: 'ANGLE', prompt: promptForPurpose('ANGLE', brief) },
+    { purpose: 'DETAIL', prompt: promptForPurpose('DETAIL', brief) },
+    { purpose: 'CTA', prompt: promptForPurpose('CTA', brief) },
   ];
 }
 

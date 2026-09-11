@@ -50,6 +50,9 @@ export interface TimelineClip {
   text?: string;
   /** Clip length follows bin In/Out until the user trims on the timeline. */
   autoLength?: boolean;
+  /** Bin to restore after an AI regenerate. Original file stays in the library. */
+  previousBinId?: string;
+  previousDurationSec?: number;
 }
 
 export interface DirectorSeed {
@@ -440,6 +443,27 @@ export function syncClipDuration(clip: TimelineClip, bin: BinItem): TimelineClip
     durationSec: clipSpan(bin),
     sourceInSec: bin.inSec,
   };
+}
+
+/** Place a clip at `atSec` on a track, splitting if needed and shifting later clips. Does not stretch. */
+export function insertClipOnTrack(
+  clips: TimelineClip[],
+  track: TrackId,
+  atSec: number,
+  clip: TimelineClip,
+): TimelineClip[] {
+  const at = Math.max(0, atSec);
+  let next = clips;
+  const hit = clipAtTime(next, track, at);
+  if (hit && at > hit.startSec + 0.08 && at < hit.startSec + hit.durationSec - 0.08) {
+    next = splitClipAt(next, hit.id, at);
+  }
+  const duration = Math.max(0.4, clip.durationSec);
+  next = next.map((item) => {
+    if (item.track !== track || item.startSec < at - 0.001) return item;
+    return { ...item, startSec: item.startSec + duration };
+  });
+  return [...next, { ...clip, track, startSec: at, durationSec: duration }];
 }
 
 export function splitClipAt(
