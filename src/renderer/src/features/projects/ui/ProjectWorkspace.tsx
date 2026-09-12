@@ -599,21 +599,64 @@ export function ProjectWorkspace(): ReactNode {
           </div>
         </div>
         {(doc.shots ?? []).length > 0 ? (
-          <ul className={styles.shotChips}>
+          <div className={styles.shotsGallery}>
             {(doc.shots ?? []).map((shot, index) => (
-              <li key={shot.id}>
-                {index + 1}. {shot.shotPurpose.replaceAll('_', ' ')}
-                {' · '}
-                {shot.duration ? `${shot.duration.toFixed(1)}s` : '—'}
-                {' · '}
-                {shot.provider && shot.provider !== 'unknown'
-                  ? (shot.modelId.split('/').pop() || shot.provider)
-                  : t('projects.meta_unavailable')}
-                {' · '}
-                {shot.validationStatus}
-              </li>
+              <div key={shot.id} className={styles.shotGalleryCard}>
+                <div className={styles.shotGalleryVideoWrap}>
+                  {shot.artifactPath ? (
+                    <video
+                      className={styles.shotGalleryVideo}
+                      src={toAssetUrl(shot.artifactPath)}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      onLoadedMetadata={(e) => {
+                        const vid = e.currentTarget;
+                        if (vid.duration > 0) {
+                          vid.currentTime = Math.min(1.5, vid.duration / 2);
+                        }
+                      }}
+                      onMouseEnter={(e) => {
+                        const vid = e.currentTarget;
+                        vid.loop = true;
+                        void vid.play().catch(() => {});
+                      }}
+                      onMouseLeave={(e) => {
+                        const vid = e.currentTarget;
+                        vid.pause();
+                        if (vid.duration > 0) {
+                          vid.currentTime = Math.min(1.5, vid.duration / 2);
+                        }
+                      }}
+                      onClick={() => openDirector(false)}
+                      title="Наведите для воспроизведения или нажмите для перехода в монтаж"
+                    />
+                  ) : (
+                    <div className={styles.shotPlaceholder}>🎬</div>
+                  )}
+                  <span className={styles.shotBadge}>
+                    {index + 1}. {shot.shotPurpose.replaceAll('_', ' ')}
+                  </span>
+                  <span className={styles.shotDur}>
+                    {shot.duration ? `${shot.duration.toFixed(1)}s` : '3.4s'}
+                  </span>
+                </div>
+                <div className={styles.shotCardFooter}>
+                  <span className={styles.shotMetaText}>
+                    {shot.modelId.split('/').pop() || shot.provider}
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.ghostBtn}
+                    onClick={() => openDirector(false)}
+                    title={t('projects.open_editor')}
+                  >
+                    ▶ В монтаж
+                  </button>
+                </div>
+              </div>
             ))}
-          </ul>
+          </div>
         ) : null}
       </section>
 

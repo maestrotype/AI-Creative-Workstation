@@ -365,6 +365,20 @@ export function DirectorSourcesPane({
 
   const hasUpload = d.bins.some((bin) => bin.kind === 'video' && !bin.shotId);
   const hasDetail = d.shots.some((shot) => shot.shotPurpose === 'DETAIL' && shot.validationStatus === 'ok');
+
+  const previewShot = (shotId: string) => {
+    const shot = d.shots.find((s) => s.id === shotId);
+    if (!shot) return;
+    const bin = d.bins.find((b) => b.shotId === shot.id);
+    const clip = bin ? d.clips.find((c) => c.binId === bin.id) : null;
+    if (clip) {
+      d.seekTo(clip.startSec);
+      if (!d.playing) d.togglePlay();
+    } else {
+      d.addShotToTimeline(shot.id);
+    }
+  };
+
   const onSourcesDragOver = (event: DragEvent<HTMLElement>) => {
     if (!hasOsFiles(event)) return;
     event.preventDefault();
@@ -504,6 +518,26 @@ export function DirectorSourcesPane({
                     muted
                     playsInline
                     preload="metadata"
+                    onLoadedMetadata={(e) => {
+                      const vid = e.currentTarget;
+                      if (vid.duration > 0) {
+                        vid.currentTime = Math.min(1.5, vid.duration / 2);
+                      }
+                    }}
+                    onMouseEnter={(e) => {
+                      const vid = e.currentTarget;
+                      vid.loop = true;
+                      void vid.play().catch(() => {});
+                    }}
+                    onMouseLeave={(e) => {
+                      const vid = e.currentTarget;
+                      vid.pause();
+                      if (vid.duration > 0) {
+                        vid.currentTime = Math.min(1.5, vid.duration / 2);
+                      }
+                    }}
+                    onClick={() => previewShot(shot.id)}
+                    title={d.t('video.shot_add')}
                   />
                 ) : (
                   <span className={styles.shotThumb} />
