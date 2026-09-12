@@ -36,9 +36,9 @@ function binFor(clip: TimelineClip | null, bins: BinItem[]): BinItem | null {
 }
 
 function playbackUrl(bin: BinItem | null, blobs: Record<string, string>): string | null {
-  if (!bin) return null;
+  if (!bin?.path) return null;
   if (bin.kind === 'image') return toAssetUrl(bin.path);
-  return blobs[bin.path] ?? null;
+  return blobs[bin.path] || toAssetUrl(bin.path);
 }
 
 export function DirectorPreview({
