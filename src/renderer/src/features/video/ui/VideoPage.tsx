@@ -61,7 +61,7 @@ function VideoStudioShell(): ReactNode {
   const openMontage = () => {
     setDock({
       ...dock,
-      mode: 'dock',
+      mode: 'tile',
     });
   };
 

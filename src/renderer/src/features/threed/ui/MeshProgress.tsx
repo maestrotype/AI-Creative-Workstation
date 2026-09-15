@@ -88,8 +88,9 @@ export function MeshProgress({ kind, elapsedSec, stillPercent, mesh, engine }: M
       {kind === 'mesh' ? (
         <ol className={styles.steps}>
           {stages.filter((s) => s !== 'done').map((s) => {
-            const idx = stages.indexOf(s);
-            const cur = stages.indexOf(stageKey as typeof stages[number]);
+            const stageList = stages as readonly string[];
+            const idx = stageList.indexOf(s);
+            const cur = stageList.indexOf(stageKey);
             const done = cur > idx || stageKey === 'done';
             const active = stageKey === s;
             return (

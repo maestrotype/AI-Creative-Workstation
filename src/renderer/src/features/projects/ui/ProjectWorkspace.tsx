@@ -59,6 +59,187 @@ function formatClock(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+function ProductBrollPanel({
+  doc,
+  shotBusy,
+  busyScene,
+  shotLength,
+  setShotLength,
+  assembleTarget,
+  setAssembleTarget,
+  pickProductStill,
+  generateProductShots,
+  openEditorFromShots,
+  openDirector,
+  showBroll,
+  setShowBroll,
+}: {
+  doc: ProjectDoc;
+  shotBusy: boolean;
+  busyScene: string | null;
+  shotLength: number;
+  setShotLength: (v: number) => void;
+  assembleTarget: number;
+  setAssembleTarget: (v: number) => void;
+  pickProductStill: () => Promise<void>;
+  generateProductShots: () => Promise<void>;
+  openEditorFromShots: (assemble: boolean) => Promise<void>;
+  openDirector: (voice?: boolean) => void;
+  showBroll: boolean;
+  setShowBroll: (v: boolean | ((prev: boolean) => boolean)) => void;
+}): ReactNode {
+  const { t } = useTranslation();
+  return (
+    <section className={styles.productPanel}>
+      <div
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+        onClick={() => setShowBroll((v) => !v)}
+      >
+        <div>
+          <h2 className={styles.h2} style={{ marginBottom: 4 }}>
+            {showBroll ? '▾ ' : '▸ '} {t('projects.product_shots')}
+          </h2>
+          <p className={styles.muted}>{t('projects.product_shots_lead')}</p>
+        </div>
+        <button
+          type="button"
+          className={styles.ghostBtn}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowBroll((v) => !v);
+          }}
+        >
+          {showBroll ? t('projects.collapse_broll', 'Свернуть') : t('projects.expand_broll', 'Настроить B-roll')}
+        </button>
+      </div>
+
+      {showBroll ? (
+        <>
+          <div className={styles.productRow}>
+            <div className={styles.thumb}>
+              {doc.productStillPath ? (
+                <img src={toAssetUrl(doc.productStillPath)} alt="" />
+              ) : (
+                <span>📷</span>
+              )}
+            </div>
+            <div className={styles.productActions}>
+              <button type="button" className={styles.ghostBtn} onClick={() => void pickProductStill()} disabled={shotBusy}>
+                {t('projects.pick_product_still')}
+              </button>
+              <button
+                type="button"
+                className={styles.newButton}
+                disabled={shotBusy || busyScene !== null || !doc.productStillPath}
+                onClick={() => void generateProductShots()}
+              >
+                {shotBusy ? t('projects.generating') : t('projects.generate_shots')}
+              </button>
+              <label className={styles.dur}>
+                {t('projects.shot_length')}
+                <select
+                  value={shotLength}
+                  onChange={(e) => setShotLength(Number(e.target.value) || 1.7)}
+                >
+                  <option value={1.7}>1.7s</option>
+                  <option value={3.4}>3.4s</option>
+                  <option value={5}>5.0s</option>
+                </select>
+              </label>
+              <label className={styles.dur}>
+                {t('projects.assemble_target')}
+                <input
+                  type="number"
+                  min={4}
+                  max={30}
+                  step={1}
+                  value={assembleTarget}
+                  onChange={(e) => setAssembleTarget(Number(e.target.value) || 10)}
+                />
+              </label>
+              <button
+                type="button"
+                className={styles.ghostBtn}
+                disabled={shotBusy || (doc.shots ?? []).length === 0}
+                onClick={() => void openEditorFromShots(true)}
+              >
+                {t('projects.assemble_and_edit')}
+              </button>
+              <button
+                type="button"
+                className={styles.textBtn}
+                onClick={() => openDirector(false)}
+              >
+                {t('projects.open_editor')}
+              </button>
+            </div>
+          </div>
+          {(doc.shots ?? []).length > 0 ? (
+            <div className={styles.shotsGallery}>
+              {(doc.shots ?? []).map((shot, index) => (
+                <div key={shot.id} className={styles.shotGalleryCard}>
+                  <div className={styles.shotGalleryVideoWrap}>
+                    {shot.artifactPath ? (
+                      <video
+                        className={styles.shotGalleryVideo}
+                        src={toAssetUrl(shot.artifactPath)}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        onLoadedMetadata={(e) => {
+                          const vid = e.currentTarget;
+                          if (vid.duration > 0) {
+                            vid.currentTime = Math.min(1.5, vid.duration / 2);
+                          }
+                        }}
+                        onMouseEnter={(e) => {
+                          const vid = e.currentTarget;
+                          vid.loop = true;
+                          void vid.play().catch(() => {});
+                        }}
+                        onMouseLeave={(e) => {
+                          const vid = e.currentTarget;
+                          vid.pause();
+                          if (vid.duration > 0) {
+                            vid.currentTime = Math.min(1.5, vid.duration / 2);
+                          }
+                        }}
+                        onClick={() => openDirector(false)}
+                        title="Наведите для воспроизведения или нажмите для перехода в монтаж"
+                      />
+                    ) : (
+                      <div className={styles.shotPlaceholder}>🎬</div>
+                    )}
+                    <span className={styles.shotBadge}>
+                      {index + 1}. {shot.shotPurpose.replaceAll('_', ' ')}
+                    </span>
+                    <span className={styles.shotDur}>
+                      {shot.duration ? `${shot.duration.toFixed(1)}s` : '3.4s'}
+                    </span>
+                  </div>
+                  <div className={styles.shotCardFooter}>
+                    <span className={styles.shotMetaText}>
+                      {shot.modelId.split('/').pop() || shot.provider}
+                    </span>
+                    <button
+                      type="button"
+                      className={styles.ghostBtn}
+                      onClick={() => openDirector(false)}
+                      title={t('projects.open_editor')}
+                    >
+                      ▶ В монтаж
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 export function ProjectWorkspace(): ReactNode {
   const { t } = useTranslation();
   const { projectId } = useParams<{ projectId: string }>();
@@ -72,6 +253,7 @@ export function ProjectWorkspace(): ReactNode {
   const [shotBusy, setShotBusy] = useState(false);
   const [assembleTarget, setAssembleTarget] = useState(15);
   const [shotLength, setShotLength] = useState(3.4);
+  const [showBroll, setShowBroll] = useState(false);
 
   const docRef = useRef<ProjectDoc | null>(null);
   docRef.current = doc;
@@ -112,6 +294,9 @@ export function ProjectWorkspace(): ReactNode {
         assembledFingerprint: loaded.assembledFingerprint ?? null,
       } as ProjectDoc;
       writeLastProjectId(loaded.id);
+      if (next.productStillPath || (next.shots && next.shots.length > 0)) {
+        setShowBroll(true);
+      }
       if (!loaded.brief.trim()) {
         void persist(next);
       } else {
@@ -482,7 +667,6 @@ export function ProjectWorkspace(): ReactNode {
   const hasShots = (doc.shots ?? []).some((shot) => shot.artifactPath);
   const hasSceneMedia = doc.scenes.some(sceneHasMedia);
   const canFinish = hasShots || hasSceneMedia;
-  const filmStep = !doc.scenes.some(sceneHasMedia) ? 'shots' : doc.assembledPath ? 'voice' : 'picture';
 
   return (
     <div className={styles.container}>
@@ -535,130 +719,6 @@ export function ProjectWorkspace(): ReactNode {
         </button>
       </nav>
       <p className={styles.lead}>{t(`projects.preset_lead_${preset}`)}</p>
-
-      <section className={styles.productPanel}>
-        <h2 className={styles.h2}>{t('projects.product_shots')}</h2>
-        <p className={styles.muted}>{t('projects.product_shots_lead')}</p>
-        <div className={styles.productRow}>
-          <div className={styles.thumb}>
-            {doc.productStillPath ? (
-              <img src={toAssetUrl(doc.productStillPath)} alt="" />
-            ) : (
-              <span>📷</span>
-            )}
-          </div>
-          <div className={styles.productActions}>
-            <button type="button" className={styles.ghostBtn} onClick={() => void pickProductStill()} disabled={shotBusy}>
-              {t('projects.pick_product_still')}
-            </button>
-            <button
-              type="button"
-              className={styles.newButton}
-              disabled={shotBusy || busyScene !== null || !doc.productStillPath}
-              onClick={() => void generateProductShots()}
-            >
-              {shotBusy ? t('projects.generating') : t('projects.generate_shots')}
-            </button>
-            <label className={styles.dur}>
-              {t('projects.shot_length')}
-              <select
-                value={shotLength}
-                onChange={(e) => setShotLength(Number(e.target.value) || 1.7)}
-              >
-                <option value={1.7}>1.7s</option>
-                <option value={3.4}>3.4s</option>
-                <option value={5}>5.0s</option>
-              </select>
-            </label>
-            <label className={styles.dur}>
-              {t('projects.assemble_target')}
-              <input
-                type="number"
-                min={4}
-                max={30}
-                step={1}
-                value={assembleTarget}
-                onChange={(e) => setAssembleTarget(Number(e.target.value) || 10)}
-              />
-            </label>
-            <button
-              type="button"
-              className={styles.ghostBtn}
-              disabled={shotBusy || (doc.shots ?? []).length === 0}
-              onClick={() => void openEditorFromShots(true)}
-            >
-              {t('projects.assemble_and_edit')}
-            </button>
-            <button
-              type="button"
-              className={styles.textBtn}
-              onClick={() => openDirector(false)}
-            >
-              {t('projects.open_editor')}
-            </button>
-          </div>
-        </div>
-        {(doc.shots ?? []).length > 0 ? (
-          <div className={styles.shotsGallery}>
-            {(doc.shots ?? []).map((shot, index) => (
-              <div key={shot.id} className={styles.shotGalleryCard}>
-                <div className={styles.shotGalleryVideoWrap}>
-                  {shot.artifactPath ? (
-                    <video
-                      className={styles.shotGalleryVideo}
-                      src={toAssetUrl(shot.artifactPath)}
-                      muted
-                      playsInline
-                      preload="metadata"
-                      onLoadedMetadata={(e) => {
-                        const vid = e.currentTarget;
-                        if (vid.duration > 0) {
-                          vid.currentTime = Math.min(1.5, vid.duration / 2);
-                        }
-                      }}
-                      onMouseEnter={(e) => {
-                        const vid = e.currentTarget;
-                        vid.loop = true;
-                        void vid.play().catch(() => {});
-                      }}
-                      onMouseLeave={(e) => {
-                        const vid = e.currentTarget;
-                        vid.pause();
-                        if (vid.duration > 0) {
-                          vid.currentTime = Math.min(1.5, vid.duration / 2);
-                        }
-                      }}
-                      onClick={() => openDirector(false)}
-                      title="Наведите для воспроизведения или нажмите для перехода в монтаж"
-                    />
-                  ) : (
-                    <div className={styles.shotPlaceholder}>🎬</div>
-                  )}
-                  <span className={styles.shotBadge}>
-                    {index + 1}. {shot.shotPurpose.replaceAll('_', ' ')}
-                  </span>
-                  <span className={styles.shotDur}>
-                    {shot.duration ? `${shot.duration.toFixed(1)}s` : '3.4s'}
-                  </span>
-                </div>
-                <div className={styles.shotCardFooter}>
-                  <span className={styles.shotMetaText}>
-                    {shot.modelId.split('/').pop() || shot.provider}
-                  </span>
-                  <button
-                    type="button"
-                    className={styles.ghostBtn}
-                    onClick={() => openDirector(false)}
-                    title={t('projects.open_editor')}
-                  >
-                    ▶ В монтаж
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </section>
 
       <label className={styles.field}>
         <span>{t('projects.brief')}</span>
@@ -808,6 +868,22 @@ export function ProjectWorkspace(): ReactNode {
           })}
         </ol>
       )}
+
+      <ProductBrollPanel
+        doc={doc}
+        shotBusy={shotBusy}
+        busyScene={busyScene}
+        shotLength={shotLength}
+        setShotLength={setShotLength}
+        assembleTarget={assembleTarget}
+        setAssembleTarget={setAssembleTarget}
+        pickProductStill={pickProductStill}
+        generateProductShots={generateProductShots}
+        openEditorFromShots={openEditorFromShots}
+        openDirector={openDirector}
+        showBroll={showBroll}
+        setShowBroll={setShowBroll}
+      />
 
       {(() => {
         const hasMedia = hasSceneMedia || hasShots;
