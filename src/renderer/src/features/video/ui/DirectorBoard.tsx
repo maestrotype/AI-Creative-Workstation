@@ -25,6 +25,7 @@ import {
   packTrack,
   snapStart,
   splitClipAt,
+  detachAudioFromClip,
   insertClipOnTrack,
   trackHasGap,
   maxDurationBeforeNext,
@@ -140,6 +141,10 @@ type DirectorSnap = {
   addCaption: () => void;
   removeClip: (id: string) => void;
   splitAtPlayhead: () => void;
+  canDetachAudio: boolean;
+  isSelectedClipMuted: boolean;
+  detachSelectedAudio: () => void;
+  toggleSelectedMute: () => void;
   clearTrack: (track: TrackId) => void;
   onClipPointerDown: (e: PointerEvent<HTMLElement>, clip: TimelineClip, mode: DragState['mode']) => void;
   onClipPointerMove: (e: PointerEvent<HTMLElement>) => void;
@@ -1014,6 +1019,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
             start_sec: clip.startSec,
             duration_sec: clip.durationSec,
             source_in_sec: clip.sourceInSec,
+            muted: Boolean(clip.muted),
           };
         }),
       });
@@ -1490,6 +1496,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           start_sec: clip.startSec,
           duration_sec: clip.durationSec,
           source_in_sec: clip.sourceInSec,
+          muted: Boolean(clip.muted),
         };
       }),
     });
@@ -1962,6 +1969,33 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     const next = splitClipAt(clipsRef.current, target.id, at);
     if (next === clipsRef.current) return;
     setClips(next);
+  };
+
+  const currentSelectedClipObj = selectedClip ? clips.find((c) => c.id === selectedClip) : null;
+  const isSelectedClipMuted = Boolean(currentSelectedClipObj?.muted);
+
+  const canDetachAudio = Boolean(
+    currentSelectedClipObj &&
+    currentSelectedClipObj.track.startsWith('v') &&
+    currentSelectedClipObj.binId &&
+    bins.some((b) => b.id === currentSelectedClipObj.binId && b.kind === 'video'),
+  );
+
+  const toggleSelectedMute = () => {
+    if (!selectedClip) return;
+    setClips((prev) =>
+      prev.map((c) => (c.id === selectedClip ? { ...c, muted: !c.muted } : c)),
+    );
+  };
+
+  const detachSelectedAudio = () => {
+    if (!selectedClip) return;
+    const { nextClips, nextBins, newClipId } = detachAudioFromClip(clipsRef.current, binsRef.current, selectedClip);
+    if (newClipId) {
+      setBins(nextBins);
+      setClips(nextClips);
+      setSelectedClip(newClipId);
+    }
   };
 
   const addShotToTimeline = (shotId: string) => {
@@ -2444,6 +2478,10 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     addCaption,
     removeClip,
     splitAtPlayhead,
+    canDetachAudio,
+    isSelectedClipMuted,
+    detachSelectedAudio,
+    toggleSelectedMute,
     clearTrack,
     onClipPointerDown,
     onClipPointerMove,

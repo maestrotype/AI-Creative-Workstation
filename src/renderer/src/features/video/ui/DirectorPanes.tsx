@@ -153,6 +153,24 @@ export function DirectorTimelinePane(): ReactNode {
           >
             {d.t('video.dir_split')}
           </button>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            onClick={d.detachSelectedAudio}
+            disabled={!d.canDetachAudio}
+            title={d.t('video.dir_detach_audio_hint')}
+          >
+            {d.t('video.dir_detach_audio')}
+          </button>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            onClick={d.toggleSelectedMute}
+            disabled={!d.selectedClip}
+            title={d.t('video.dir_mute_hint')}
+          >
+            {d.isSelectedClipMuted ? d.t('video.dir_unmute') : d.t('video.dir_mute')}
+          </button>
           <label className={styles.scaleLabel}>
             {d.t('video.dir_scale')}
             <input
@@ -240,7 +258,7 @@ export function DirectorTimelinePane(): ReactNode {
                         onPointerDown={(e) => { e.stopPropagation(); d.onClipPointerDown(e, clip, 'in'); }}
                       />
                       <span className={styles.blockLabel} title={clip.label}>
-                        {clip.label.replace(/\.[^.]+$/, '')}
+                        {clip.muted ? '🔇 ' : ''}{clip.label.replace(/\.[^.]+$/, '')}
                       </span>
                       <button
                         type="button"

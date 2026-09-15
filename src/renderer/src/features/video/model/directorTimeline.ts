@@ -53,6 +53,7 @@ export interface TimelineClip {
   /** Bin to restore after an AI regenerate. Original file stays in the library. */
   previousBinId?: string;
   previousDurationSec?: number;
+  muted?: boolean;
 }
 
 export interface DirectorSeed {
@@ -490,3 +491,51 @@ export function splitClipAt(
   };
   return clips.flatMap((item) => (item.id === clipId ? [left, right] : [item]));
 }
+
+export function detachAudioFromClip(
+  clips: TimelineClip[],
+  bins: BinItem[],
+  clipId: string,
+): { nextClips: TimelineClip[]; nextBins: BinItem[]; newClipId: string | null } {
+  const target = clips.find((c) => c.id === clipId);
+  if (!target || !target.binId || !target.track.startsWith('v')) {
+    return { nextClips: clips, nextBins: bins, newClipId: null };
+  }
+  const bin = bins.find((b) => b.id === target.binId);
+  if (!bin || bin.kind !== 'video') {
+    return { nextClips: clips, nextBins: bins, newClipId: null };
+  }
+
+  const existingAudioBin = bins.find((b) => b.path === bin.path && b.kind === 'audio');
+  let audioBinId = existingAudioBin?.id;
+  let nextBins = bins;
+
+  if (!audioBinId) {
+    audioBinId = newId('bin');
+    const newBin: BinItem = {
+      ...bin,
+      id: audioBinId,
+      kind: 'audio',
+      name: `${bin.name.replace(/\.[^.]+$/, '')} (Аудио)`,
+    };
+    nextBins = [...bins, newBin];
+  }
+
+  const newAudioClipId = newId('clip');
+  const audioClip: TimelineClip = {
+    id: newAudioClipId,
+    binId: audioBinId,
+    track: 'a1',
+    startSec: target.startSec,
+    durationSec: target.durationSec,
+    sourceInSec: target.sourceInSec,
+    label: `${target.label.replace(/\.[^.]+$/, '')} (Аудио)`,
+    autoLength: target.autoLength,
+  };
+
+  const nextClips = clips.map((c) => (c.id === target.id ? { ...c, muted: true } : c));
+  nextClips.push(audioClip);
+
+  return { nextClips, nextBins, newClipId: newAudioClipId };
+}
+

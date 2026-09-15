@@ -117,7 +117,7 @@ export function DirectorPreview({
       else el.addEventListener('loadeddata', apply, { once: true });
     };
 
-    attach(v1Ref.current, v1IsVideo ? v1Url : null, v1IsVideo ? mainClip : null, playing && active, false);
+    attach(v1Ref.current, v1IsVideo ? v1Url : null, v1IsVideo ? mainClip : null, playing && active, Boolean(mainClip?.muted));
 
     for (const { id, clip } of pipOverlays) {
       const bin = binFor(clip, bins);
@@ -132,6 +132,7 @@ export function DirectorPreview({
     }
   }, [
     mainClip?.id,
+    mainClip?.muted,
     v1Url,
     v1IsVideo,
     playing,

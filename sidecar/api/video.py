@@ -354,6 +354,7 @@ class TimelineClipModel(BaseModel):
     duration_sec: float
     source_in_sec: float = 0.0
     effect: Optional[str] = None
+    muted: Optional[bool] = False
 
 
 class RenderTimelineRequest(BaseModel):
@@ -455,7 +456,10 @@ def _encode_segment(ffmpeg: str, clip: TimelineClipModel, dur: float, index: int
             out,
         ]
     else:
-        audio_map = ["-map", "0:a"] if _has_audio(src) else ["-map", "1:a"]
+        if clip.muted:
+            audio_map = ["-map", "1:a"]
+        else:
+            audio_map = ["-map", "0:a"] if _has_audio(src) else ["-map", "1:a"]
         cmd = [
             ffmpeg, "-y",
             "-ss", f"{max(0.0, clip.source_in_sec):.3f}", "-t", f"{dur:.3f}", "-i", src,
