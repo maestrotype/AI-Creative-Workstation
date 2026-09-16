@@ -406,7 +406,7 @@ def _reference_info() -> Dict[str, Any]:
     single biggest cause of drifting timbre and noise in the output.
     """
     empty = {"sample_sec": None, "sample_warning": None, "sample_peak_db": None}
-    if not os.path.isfile(SPEAKER_WAV):
+    if not os.path.isfile(SPEAKER_WAV) or os.path.getsize(SPEAKER_WAV) <= 44:
         return empty
     try:
         seconds = audio_duration_sec(SPEAKER_WAV)
@@ -421,7 +421,9 @@ def _reference_info() -> Dict[str, Any]:
         peak = _measure_levels(SPEAKER_WAV).get("peak_db")
 
     warning = None
-    if isinstance(peak, (int, float)) and peak < MIN_REFERENCE_PEAK_DB:
+    if seconds < 0.5:
+        warning = "SAMPLE_EMPTY"
+    elif isinstance(peak, (int, float)) and peak < MIN_REFERENCE_PEAK_DB:
         warning = "SAMPLE_TOO_QUIET"
     elif seconds < MIN_REFERENCE_SEC:
         warning = "SAMPLE_TOO_SHORT"
@@ -442,14 +444,20 @@ def voice_status(refresh: bool = False):
     else:
         engine = "xtts" if _xtts_venv_present() else "none"
     meta = _read_source_meta()
+    ref = _reference_info()
+    has_valid_sample = bool(
+        os.path.isfile(SPEAKER_WAV)
+        and os.path.getsize(SPEAKER_WAV) > 44
+        and (ref.get("sample_sec") or 0) >= 0.5
+    )
     return {
-        "has_sample": os.path.isfile(SPEAKER_WAV),
-        "file_path": SPEAKER_WAV if os.path.isfile(SPEAKER_WAV) else None,
+        "has_sample": has_valid_sample,
+        "file_path": SPEAKER_WAV if has_valid_sample else None,
         "source_path": meta.get("path") if meta else None,
         "source_name": meta.get("name") if meta else None,
-        "tts_ready": engine == "xtts",
+        "tts_ready": engine == "xtts" and has_valid_sample,
         "engine": engine,
-        **_reference_info(),
+        **ref,
     }
 
 
@@ -532,6 +540,31 @@ def _convert_reference(src: str, dest: str) -> Dict[str, Optional[float]]:
     except subprocess.CalledProcessError:
         # Trimming can fail on odd inputs; a plain mono conversion still works.
         _convert(src, dest, "wav")
+
+    dest_ok = False
+    if os.path.isfile(dest) and os.path.getsize(dest) > 44:
+        try:
+            dur = audio_duration_sec(dest)
+            if dur >= 0.5:
+                dest_ok = True
+        except Exception:
+            pass
+
+    if not dest_ok:
+        # silenceremove stripped all audio; fallback to direct conversion with gain
+        fallback_filters: List[str] = []
+        if gain_db > 0.1:
+            fallback_filters.extend(["-af", f"volume={gain_db:.1f}dB"])
+        fallback_cmd = [
+            _ffmpeg_bin(), "-y", "-i", src, "-vn",
+            *fallback_filters,
+            "-ac", "1", "-ar", "22050", "-c:a", "pcm_s16le", dest,
+        ]
+        try:
+            subprocess.run(fallback_cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError:
+            _convert(src, dest, "wav")
+
     return levels
 
 
@@ -542,13 +575,19 @@ def save_voice(request: SaveVoiceRequest):
     levels = _convert_reference(src, SPEAKER_WAV)
     _write_source_meta(src, levels)
     meta = _read_source_meta()
+    ref = _reference_info()
+    has_valid_sample = bool(
+        os.path.isfile(SPEAKER_WAV)
+        and os.path.getsize(SPEAKER_WAV) > 44
+        and (ref.get("sample_sec") or 0) >= 0.5
+    )
     return {
         "status": "saved",
-        "file_path": SPEAKER_WAV,
-        "has_sample": True,
+        "file_path": SPEAKER_WAV if has_valid_sample else None,
+        "has_sample": has_valid_sample,
         "source_path": meta.get("path") if meta else src,
         "source_name": meta.get("name") if meta else os.path.basename(src),
-        **_reference_info(),
+        **ref,
     }
 
 
@@ -656,16 +695,34 @@ async def fix_pronunciation(request: LexiconFixRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _assert_valid_speaker() -> None:
+    if not os.path.isfile(SPEAKER_WAV) or os.path.getsize(SPEAKER_WAV) <= 44:
+        raise HTTPException(
+            status_code=400,
+            detail="Образец голоса пуст или отсутствует. Запишите образец голоса (от 5-10 сек).",
+        )
+    try:
+        dur = audio_duration_sec(SPEAKER_WAV)
+        if dur < 0.5:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Образец голоса слишком короткий ({dur:.1f} сек) или пустой. Запишите образец голоса заново (5-15 сек).",
+            )
+    except Exception as exc:
+        if isinstance(exc, HTTPException):
+            raise
+        raise HTTPException(
+            status_code=400,
+            detail=f"Не удалось прочитать образец голоса: {exc}",
+        ) from exc
+
+
 @router.post("/audio/tts")
 def synthesize_voice(request: TtsRequest):
     raw = (request.text or "").strip()
     if not raw:
         raise HTTPException(status_code=400, detail="text is required")
-    if not os.path.isfile(SPEAKER_WAV):
-        raise HTTPException(
-            status_code=400,
-            detail="No voice sample yet. Record your voice first (10+ seconds, clear speech).",
-        )
+    _assert_valid_speaker()
     if not _coqui_available():
         raise HTTPException(status_code=503, detail="CLONE_ENGINE_MISSING")
 
@@ -765,11 +822,7 @@ def synthesize_batch(request: TtsBatchRequest):
     """Synthesize all voiceover segments with one shared speaker conditioning."""
     if not request.items:
         raise HTTPException(status_code=400, detail="items is required")
-    if not os.path.isfile(SPEAKER_WAV):
-        raise HTTPException(
-            status_code=400,
-            detail="No voice sample yet. Record your voice first (10+ seconds, clear speech).",
-        )
+    _assert_valid_speaker()
     if not _coqui_available():
         raise HTTPException(status_code=503, detail="CLONE_ENGINE_MISSING")
 

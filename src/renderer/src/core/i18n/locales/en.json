@@ -542,6 +542,8 @@
     "health_gap": "⚠ {{start}}–{{end}}: picture continues but nothing is said — check if this should be a pause or a missing line.",
     "health_overrun": "⚠ {{start}}: speech is {{sec}}s longer than the visual window.",
     "vo_sample_short": "Voice sample is only {{sec}}s — a stable clone needs 15–30s of clean speech. With a short sample the voice drifts between segments.",
+    "vo_sample_empty": "Voice sample file is empty or contains only silence. Please record a new sample (10–20 sec).",
+    "vo_sample_need_record": "Please record or choose a voice sample (10–20 sec) above first.",
     "vo_sample_quiet": "The voice sample is almost silent: peak {{peak}} dB instead of a normal −3…−6 dB. The model is cloning silence — that is what causes the shifting voice, noise and broken speech.",
     "vo_sample_quiet_fix": "Check which microphone is selected in System Settings → Sound → Input and that the input level is not at zero. Then record 15–30 seconds of normal speech again — the level meter should move clearly while recording.",
     "pipe_fix_toggle": "Pronunciation",

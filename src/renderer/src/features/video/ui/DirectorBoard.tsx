@@ -1251,7 +1251,12 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     try {
       const profile = await window.api?.getVoiceProfile?.();
       if (profile) {
-        hasSample = Boolean(profile.has_sample);
+        hasSample = Boolean(
+          profile.has_sample &&
+          profile.sample_sec != null &&
+          profile.sample_sec >= 0.5 &&
+          profile.sample_warning !== 'SAMPLE_EMPTY',
+        );
         engineReady = Boolean(profile.tts_ready);
         setVoiceSampleSec(profile.sample_sec ?? null);
         setVoiceSampleWarning(profile.sample_warning ?? null);

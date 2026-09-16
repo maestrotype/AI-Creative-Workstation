@@ -120,6 +120,11 @@ export function VoiceSampleSetup(): ReactNode {
       {d.voiceSampleRecording ? (
         <p className={styles.hintTight}>{d.t('video.vo_voice_sample_recording')}</p>
       ) : null}
+      {d.voiceSampleWarning === 'SAMPLE_EMPTY' ? (
+        <div className={styles.voSampleAlert}>
+          <p className={styles.error}>{d.t('video.vo_sample_empty')}</p>
+        </div>
+      ) : null}
       {d.voiceSampleWarning === 'SAMPLE_TOO_QUIET' ? (
         <div className={styles.voSampleAlert}>
           <p className={styles.error}>

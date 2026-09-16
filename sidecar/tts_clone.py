@@ -17,6 +17,29 @@ def main() -> int:
         print(json.dumps({"ok": False, "error": "usage: tts_clone.py speaker.wav dest.wav lang text"}))
         return 2
     speaker, dest, lang, text = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+    if not speaker or not os.path.isfile(speaker) or os.path.getsize(speaker) <= 44:
+        print(json.dumps({
+            "ok": False,
+            "error": "Файл образца голоса пуст или отсутствует. Запишите голос заново (рекомендуется от 5-10 сек)."
+        }))
+        return 2
+
+    try:
+        import soundfile as sf
+        info = sf.info(speaker)
+        if info.frames == 0 or info.duration < 0.5:
+            print(json.dumps({
+                "ok": False,
+                "error": f"Образец голоса слишком короткий ({info.duration:.1f} сек) или пустой. Запишите образец заново (от 5-10 сек)."
+            }))
+            return 2
+    except Exception as exc:
+        print(json.dumps({
+            "ok": False,
+            "error": f"Не удалось прочитать образец голоса: {exc}"
+        }))
+        return 2
+
     try:
         emit("import", 8, "Loading Coqui TTS")
         from TTS.api import TTS as CoquiTTS

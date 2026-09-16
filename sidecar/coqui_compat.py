@@ -39,6 +39,10 @@ def patch_torchaudio_load() -> None:
             import soundfile as sf
 
             data, sr = sf.read(path, dtype="float32", always_2d=True)
+            if data.size == 0 or data.shape[0] == 0:
+                raise ValueError(
+                    f"Voice reference file '{os.path.basename(path)}' contains no audio frames (0 samples or empty recording)."
+                )
             if data.ndim == 1:
                 tensor = torch.from_numpy(data).unsqueeze(0)
             else:
