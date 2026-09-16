@@ -42,9 +42,9 @@ import {
   type TrackLayout,
 } from '../model/directorTimeline';
 import { assembleShots, planToTimeline, promptForPurpose, type AssembleFootage } from '../model/autoAssemble';
-import { shotFromGeneration, type FilmShot, type FilmTimeline, type ProjectDoc, type ShotPurpose } from '../../projects/model/project';
+import { sceneHasMedia, shotFromGeneration, type FilmShot, type FilmTimeline, type ProjectDoc, type ShotPurpose } from '../../projects/model/project';
 import { DEFAULT_TRACK_LAYOUT } from '../model/directorTimeline';
-import { takeProjectHandoff } from '../../projects/model/handoff';
+import { sourcesFromScenes, takeProjectHandoff } from '../../projects/model/handoff';
 import { loadDirectorSession, saveDirectorSession, type DirectorSession } from '../model/directorSessionStore';
 import {
   applyStillCompose,
@@ -453,7 +453,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     const layout = effectiveTrackLayout(list, trackLayoutRef.current);
     const key = buildTrackList(layout).map(({ id }) => clipAtTime(list, id, sec)?.id).join('|');
     const now = performance.now();
-    if (!force && key === liveKeyRef.current) return;
+    if (!force && key === liveKeyRef.current && now - lastReactRef.current < 120) return;
     liveKeyRef.current = key;
     lastReactRef.current = now;
     setPlayhead(sec);
@@ -489,6 +489,47 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     const fp = visualTimelineFingerprint(clips, bins);
     setAssembledPreview((prev) => (prev && prev.fingerprint !== fp ? null : prev));
   }, [clips, bins]);
+
+  useEffect(() => {
+    if (!voiceoverSource?.path) return;
+    const path = voiceoverSource.path;
+    const dur = Math.max(0.5, voiceoverSource.durationSec || 10);
+    setClips((prev) => {
+      const hasV1Video = prev.some((c) => {
+        if (c.track !== 'v1') return false;
+        const b = binsRef.current.find((item) => item.id === c.binId);
+        return b?.kind === 'video';
+      });
+      if (hasV1Video) return prev;
+      let bin = binsRef.current.find((b) => b.path === path);
+      let binId = bin?.id;
+      if (!bin) {
+        binId = newId('bin');
+        const newBin: BinItem = {
+          id: binId,
+          kind: 'video',
+          path,
+          name: voiceoverSource.name || fileName(path),
+          durationSec: dur,
+          inSec: 0,
+          outSec: dur,
+          durationKnown: true,
+        };
+        setBins((bPrev) => (bPrev.some((x) => x.id === binId) ? bPrev : [...bPrev, newBin]));
+      }
+      const clip: TimelineClip = {
+        id: newId('clip'),
+        binId: binId!,
+        track: 'v1',
+        startSec: 0,
+        durationSec: dur,
+        sourceInSec: 0,
+        label: voiceoverSource.name || fileName(path),
+        autoLength: true,
+      };
+      return [clip, ...prev.filter((c) => c.track !== 'v1')];
+    });
+  }, [voiceoverSource?.path, voiceoverSource?.durationSec]);
 
   useEffect(() => {
     const longest = pickLongestVideoBin(bins);
@@ -538,7 +579,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     [clips, trackLayout],
   );
   const tracks = useMemo(() => buildTrackList(effectiveLayout), [effectiveLayout]);
-  const total = timelineLength(clips, 8);
+  const total = Math.max(timelineLength(clips, 8), voiceoverSource?.durationSec ?? 0);
   totalRef.current = total;
   const fitPxPerSec = Math.max(1.2, (Math.max(viewW, 240) - LABEL_W - 20) / Math.max(total, 1));
   const minPxPerSec = fitPxPerSec;
@@ -657,6 +698,38 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         }
         if (typeof tl.pxPerSec === 'number') setPxPerSec(tl.pxPerSec);
         if (tl.assembly?.rationale) setAssemblyRationale(tl.assembly.rationale);
+      } else if (film.scenes && Array.isArray(film.scenes) && film.scenes.some(sceneHasMedia)) {
+        const sceneSources = sourcesFromScenes(film);
+        let vCursor = 0;
+        const newBins: BinItem[] = [];
+        const newClips: TimelineClip[] = [];
+        for (const s of sceneSources) {
+          const binId = newId('bin');
+          const dur = Math.max(0.5, s.durationSec || 8);
+          newBins.push({
+            id: binId,
+            kind: s.kind,
+            path: s.path,
+            name: s.name || fileName(s.path),
+            durationSec: dur,
+            inSec: 0,
+            outSec: dur,
+            durationKnown: true,
+          });
+          newClips.push({
+            id: newId('clip'),
+            binId,
+            track: 'v1',
+            startSec: vCursor,
+            durationSec: dur,
+            sourceInSec: 0,
+            label: s.name || fileName(s.path),
+            autoLength: true,
+          });
+          vCursor += dur;
+        }
+        setBins(newBins);
+        setClips(newClips);
       } else if (film.shots?.length) {
         setBins((prev) => mergeShotBins(prev, film.shots));
       } else if (film.assembledPath) {
@@ -819,7 +892,9 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   };
 
   const togglePlay = () => {
-    if (clipsRef.current.length === 0) return;
+    const hasClips = clipsRef.current.length > 0;
+    const hasVoiceSource = Boolean(voiceoverSource?.path);
+    if (!hasClips && !hasVoiceSource) return;
     if (playheadRef.current >= totalRef.current - 0.05) {
       paintPlayhead(0);
       pushPlayheadReact(0, true);

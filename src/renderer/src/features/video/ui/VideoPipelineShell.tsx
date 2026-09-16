@@ -701,6 +701,7 @@ function StageScript({ active }: { active: boolean }): ReactNode {
           overlayPos={d.overlayPos}
           onOverlayMove={d.setOverlayPos}
           active={active}
+          fallbackSource={d.voiceoverSource}
           onDecodeFail={(binId) => {
             const bin = d.bins.find((item) => item.id === binId);
             if (!bin || bin.proxying) return;
@@ -712,7 +713,7 @@ function StageScript({ active }: { active: boolean }): ReactNode {
             type="button"
             className={vp.toolBtn}
             onClick={d.togglePlay}
-            disabled={d.clips.length === 0}
+            disabled={d.clips.length === 0 && !d.voiceoverSource?.path}
           >
             {d.playing ? d.t('video.dir_pause') : d.t('video.dir_play')}
           </button>
