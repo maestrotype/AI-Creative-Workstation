@@ -254,6 +254,8 @@ export function ProjectWorkspace(): ReactNode {
   const [assembleTarget, setAssembleTarget] = useState(15);
   const [shotLength, setShotLength] = useState(3.4);
   const [showBroll, setShowBroll] = useState(false);
+  const [previewMedia, setPreviewMedia] = useState<{ url: string; title: string; isVideo: boolean } | null>(null);
+  const [dragOverSceneId, setDragOverSceneId] = useState<string | null>(null);
 
   const docRef = useRef<ProjectDoc | null>(null);
   docRef.current = doc;
@@ -584,10 +586,11 @@ export function ProjectWorkspace(): ReactNode {
     }
   };
 
-  const importClip = async (scene: ProjectScene) => {
-    const picked = await window.api.pickVideo?.();
+  const importClip = async (scene: ProjectScene, specificPath?: string) => {
+    const picked = specificPath ?? (await window.api.pickVideo?.());
     if (!picked || !window.api.importIntoProject) return;
     setBusyScene(scene.id);
+    setBusyKind('import');
     try {
       const latest = docRef.current ?? doc;
       const copied = await window.api.importIntoProject({ projectId: latest.id, path: picked });
@@ -596,14 +599,22 @@ export function ProjectWorkspace(): ReactNode {
         ...latest,
         scenes: latest.scenes.map((row) => (
           row.id === scene.id
-            ? { ...row, clipPath: copied.file_path, durationSec: duration > 0 ? Math.round(duration * 10) / 10 : row.durationSec, motion: 'import' }
+            ? {
+                ...row,
+                clipPath: copied.file_path,
+                stillPath: copied.poster_path || row.stillPath,
+                durationSec: duration > 0 ? Math.round(duration * 10) / 10 : row.durationSec,
+                motion: 'import',
+              }
             : row
         )),
       });
+      setStatus(t('projects.clip_attached'));
     } catch (err) {
       setError(ipcMessage(err));
     } finally {
       setBusyScene(null);
+      setBusyKind(null);
     }
   };
 
@@ -751,18 +762,63 @@ export function ProjectWorkspace(): ReactNode {
         <ol className={styles.sceneList}>
           {doc.scenes.map((scene, index) => {
             const thumb = scene.stillPath || scene.clipPath;
+            const isDragOver = dragOverSceneId === scene.id;
             return (
-              <li key={scene.id} className={styles.sceneCard}>
-                <div className={styles.thumb}>
+              <li
+                key={scene.id}
+                className={`${styles.sceneCard} ${isDragOver ? styles.dragOver : ''}`}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDragOverSceneId(scene.id);
+                }}
+                onDragLeave={() => {
+                  setDragOverSceneId((prev) => (prev === scene.id ? null : prev));
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDragOverSceneId(null);
+                  const file = e.dataTransfer.files?.[0];
+                  const p = (file as unknown as { path?: string })?.path;
+                  if (p) {
+                    void importClip(scene, p);
+                  }
+                }}
+              >
+                <div
+                  className={`${styles.thumb} ${thumb ? styles.thumbInteractive : ''}`}
+                  onClick={() => {
+                    if (scene.clipPath) {
+                      setPreviewMedia({
+                        url: toAssetUrl(scene.clipPath),
+                        title: scene.title || `Глава ${index + 1}`,
+                        isVideo: true,
+                      });
+                    } else if (scene.stillPath) {
+                      setPreviewMedia({
+                        url: toAssetUrl(scene.stillPath),
+                        title: scene.title || `Глава ${index + 1}`,
+                        isVideo: false,
+                      });
+                    }
+                  }}
+                  title={thumb ? t('projects.click_to_preview') : undefined}
+                >
                   {thumb ? (
-                    scene.clipPath && !scene.stillPath ? (
-                      <video src={toAssetUrl(scene.clipPath)} muted playsInline />
-                    ) : (
-                      <img src={toAssetUrl(scene.stillPath ?? thumb)} alt="" />
-                    )
+                    scene.stillPath ? (
+                      <img src={toAssetUrl(scene.stillPath)} alt="" />
+                    ) : scene.clipPath ? (
+                      <video src={`${toAssetUrl(scene.clipPath)}#t=0.1`} preload="metadata" playsInline />
+                    ) : null
                   ) : (
                     <span>{index + 1}</span>
                   )}
+                  {scene.clipPath ? (
+                    <div className={styles.thumbOverlay}>
+                      <span>▶</span>
+                    </div>
+                  ) : null}
                 </div>
                 <div className={styles.sceneBody}>
                   <div className={styles.sceneRow}>
@@ -822,7 +878,7 @@ export function ProjectWorkspace(): ReactNode {
                       disabled={busyScene === scene.id}
                       onClick={() => void importClip(scene)}
                     >
-                      {t('projects.import_clip')}
+                      {scene.clipPath ? t('projects.replace_clip') : t('projects.import_clip')}
                     </button>
                     <button
                       type="button"
@@ -857,7 +913,9 @@ export function ProjectWorkspace(): ReactNode {
                       {busyScene === scene.id && busyKind === 'video' ? t('projects.generating') : t('projects.animate_optional')}
                     </button>
                     {scene.clipPath ? (
-                      <span className={styles.ok}>{t(`projects.motion_${scene.motion ?? 'import'}`)}</span>
+                      <span className={styles.clipAttachedBadge} title={scene.clipPath}>
+                        ✓ {t('projects.clip_attached')} ({scene.durationSec}s)
+                      </span>
                     ) : scene.stillPath ? (
                       <span className={styles.ok}>{t('projects.motion_still_motion')}</span>
                     ) : null}
@@ -920,6 +978,26 @@ export function ProjectWorkspace(): ReactNode {
       </footer>
       {status ? <p className={styles.status}>{status}</p> : null}
       {error ? <p className={styles.error}>{error}</p> : null}
+
+      {previewMedia ? (
+        <div className={styles.previewModalOverlay} onClick={() => setPreviewMedia(null)}>
+          <div className={styles.previewModalContent} onClick={(e) => e.stopPropagation()}>
+            <header className={styles.previewModalHeader}>
+              <span>{previewMedia.title}</span>
+              <button type="button" className={styles.textBtn} onClick={() => setPreviewMedia(null)}>
+                ✕
+              </button>
+            </header>
+            <div className={styles.previewModalBody}>
+              {previewMedia.isVideo ? (
+                <video src={previewMedia.url} controls autoPlay playsInline />
+              ) : (
+                <img src={previewMedia.url} alt={previewMedia.title} />
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

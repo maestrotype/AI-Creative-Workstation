@@ -1432,7 +1432,25 @@ function setupIpc() {
   ipcMain.handle('delete-project', async (_, id: string) => ({ deleted: deleteProject(id) }));
 
   ipcMain.handle('import-into-project', async (_, payload: { projectId: string; path: string }) => {
-    return { file_path: importIntoProject(payload.projectId, payload.path) };
+    const filePath = importIntoProject(payload.projectId, payload.path);
+    let posterPath: string | null = null;
+    const isVideo = /\.(mp4|mov|m4v|webm|mkv)$/i.test(filePath);
+    if (isVideo) {
+      try {
+        const outPoster = `${filePath}.poster.jpg`;
+        await runFfmpeg(['-y', '-ss', '0.5', '-i', filePath, '-vframes', '1', '-q:v', '2', outPoster]);
+        if (existsSync(outPoster)) posterPath = outPoster;
+      } catch {
+        try {
+          const outPoster = `${filePath}.poster.jpg`;
+          await runFfmpeg(['-y', '-ss', '0.0', '-i', filePath, '-vframes', '1', '-q:v', '2', outPoster]);
+          if (existsSync(outPoster)) posterPath = outPoster;
+        } catch {
+          // ignore poster error
+        }
+      }
+    }
+    return { file_path: filePath, poster_path: posterPath };
   });
 
   ipcMain.handle('render-timeline', async (_, payload: {

@@ -164,7 +164,7 @@ interface Window {
     } | null>;
     saveProject: (doc: unknown) => Promise<unknown>;
     deleteProject: (id: string) => Promise<{ deleted: boolean }>;
-    importIntoProject: (payload: { projectId: string; path: string }) => Promise<{ file_path: string }>;
+    importIntoProject: (payload: { projectId: string; path: string }) => Promise<{ file_path: string; poster_path?: string | null }>;
     renderTimeline: (payload: {
       clips: Array<{
         kind: string;

@@ -149,8 +149,39 @@ function ollamaManifestExists(model: string): boolean {
   }
 }
 
+function ollamaModelsFromDisk(): string[] {
+  const baseDir = path.join(
+    os.homedir(),
+    '.ollama',
+    'models',
+    'manifests',
+    'registry.ollama.ai',
+    'library',
+  );
+  if (!fs.existsSync(baseDir)) return [];
+  const results: string[] = [];
+  try {
+    const modelFolders = fs.readdirSync(baseDir, { withFileTypes: true });
+    for (const folder of modelFolders) {
+      if (!folder.isDirectory()) continue;
+      const modelPath = path.join(baseDir, folder.name);
+      const tagFiles = fs.readdirSync(modelPath, { withFileTypes: true });
+      for (const tag of tagFiles) {
+        if (!tag.name.startsWith('.')) {
+          results.push(`${folder.name}:${tag.name}`);
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return results;
+}
+
 function ollamaModelOnDisk(model: string): boolean {
   if (ollamaManifestExists(model)) return true;
+  const diskModels = ollamaModelsFromDisk();
+  if (diskModels.some((name) => modelNameMatches(name, model))) return true;
   const bin = ollamaBin();
   if (!bin) return false;
   return namesFromOllamaListCli(bin).some((name) => modelNameMatches(name, model));
@@ -165,11 +196,10 @@ function broadcastStatus(broadcast: BroadcastFn): void {
 export async function ollamaEngineStatusPayload(): Promise<OllamaEngineStatus> {
   const binary = Boolean(ollamaBin());
   const server = binary ? await ollamaServerRunning() : false;
-  const installedModels = server
-    ? await ollamaNamesFromServer()
-    : binary
-      ? namesFromOllamaListCli(ollamaBin()!)
-      : [];
+  const diskModels = ollamaModelsFromDisk();
+  const serverModels = server ? await ollamaNamesFromServer() : [];
+  const allModelsSet = new Set<string>([...diskModels, ...serverModels]);
+  const installedModels = Array.from(allModelsSet);
   const onDisk = installedModels.some((name) =>
     modelNameMatches(name, DEFAULT_LLM_MODEL) ||
     modelNameMatches(name, 'qwen2.5:14b') ||

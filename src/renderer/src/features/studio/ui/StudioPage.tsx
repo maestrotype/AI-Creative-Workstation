@@ -761,7 +761,19 @@ export function StudioPage(): ReactNode {
                     {isDownloading && (
                       <DownloadProgress progress={downloadProgress[m.id]} />
                     )}
-                    {isReady && <span className={styles.status}>✓ {t('studio.installed')}</span>}
+                    {isReady && (
+                      <div className={styles.voiceActions}>
+                        <span className={styles.status}>✓ {t('studio.installed')}</span>
+                        <button
+                          type="button"
+                          className={styles.textButton}
+                          disabled={unloadingId === m.id}
+                          onClick={() => { void handleDelete(m.id); }}
+                        >
+                          {t('studio.delete')}
+                        </button>
+                      </div>
+                    )}
                     {isError && (
                       <div className={styles.errorActions}>
                         {localModel?.errorMessage && (
