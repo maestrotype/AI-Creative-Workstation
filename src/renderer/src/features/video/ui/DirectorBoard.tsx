@@ -168,6 +168,8 @@ type DirectorSnap = {
   voiceSampleWarning: string | null;
   voiceSamplePeakDb: number | null;
   voiceSampleName: string | null;
+  voiceSamplePath: string | null;
+  voiceSampleSourcePath: string | null;
   libraryAudio: Array<{ path: string; name: string }>;
   toggleVoiceRecord: () => void;
   voiceSampleRecording: boolean;
@@ -426,6 +428,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const [voiceSampleWarning, setVoiceSampleWarning] = useState<string | null>(null);
   const [voiceSamplePeakDb, setVoiceSamplePeakDb] = useState<number | null>(null);
   const [voiceSampleName, setVoiceSampleName] = useState<string | null>(null);
+  const [voiceSamplePath, setVoiceSamplePath] = useState<string | null>(null);
+  const [voiceSampleSourcePath, setVoiceSampleSourcePath] = useState<string | null>(null);
   const [libraryAudio, setLibraryAudio] = useState<Array<{ path: string; name: string }>>([]);
   const blobs = useFileBlobs(bins.filter((b) => b.kind !== 'image' && !b.proxying).map((b) => b.path));
 
@@ -1337,9 +1341,15 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         setVoiceSampleWarning(profile.sample_warning ?? null);
         setVoiceSamplePeakDb(profile.sample_peak_db ?? null);
         setVoiceSampleName(profile.source_name ?? profile.source_path ?? null);
+        setVoiceSamplePath(hasSample ? (profile.file_path ?? null) : null);
+        setVoiceSampleSourcePath(profile.source_path ?? null);
+      } else {
+        setVoiceSamplePath(null);
+        setVoiceSampleSourcePath(null);
       }
     } catch {
-      /* optional */
+      setVoiceSamplePath(null);
+      setVoiceSampleSourcePath(null);
     }
     try {
       const engine = await window.api?.getVoiceEngineStatus?.();
@@ -2586,6 +2596,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     voiceSampleWarning,
     voiceSamplePeakDb,
     voiceSampleName,
+    voiceSamplePath,
+    voiceSampleSourcePath,
     libraryAudio,
     toggleVoiceRecord: () => { void toggleVoiceRecord(); },
     toggleVoiceSampleRecord: () => { void toggleVoiceSampleRecord(); },
