@@ -33,7 +33,7 @@ function catalogSize(modelId: string): string | null {
 }
 
 export function StudioPage(): ReactNode {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const family: EngineFamily = isFamily(searchParams.get('family')) ? searchParams.get('family') as EngineFamily : 'image';
   const returnTo = safeStudioFrom(searchParams.get('from'));
@@ -59,7 +59,7 @@ export function StudioPage(): ReactNode {
     cache_path: '',
   });
   const [voiceBusy, setVoiceBusy] = useState(false);
-  const [ollamaEngine, setOllamaEngine] = useState({
+  const [ollamaEngine, setOllamaEngine] = useState<NonNullable<Awaited<ReturnType<NonNullable<Window['api']>['getOllamaEngineStatus']>>>>({
     binary_found: false,
     server_running: false,
     model_on_disk: false,
@@ -69,6 +69,7 @@ export function StudioPage(): ReactNode {
     percent: 0,
     detail: '',
     model: 'qwen2.5:7b',
+    installed_models: [],
     started_by_app: false,
   });
   const [ollamaBusy, setOllamaBusy] = useState(false);
@@ -230,17 +231,27 @@ export function StudioPage(): ReactNode {
     }
   };
 
-  const handleOllamaDownload = async () => {
-    if (!window.api?.installOllamaEngine) return;
+  const handlePullModel = async (modelName: string) => {
+    if (!window.api?.pullOllamaModel) return;
     setOllamaBusy(true);
     setUnloadError(null);
     try {
-      await window.api.installOllamaEngine();
+      await window.api.pullOllamaModel(modelName);
       await refreshOllama();
     } catch (err: unknown) {
       setUnloadError(err instanceof Error ? err.message : String(err));
     } finally {
       setOllamaBusy(false);
+    }
+  };
+
+  const handleSetActiveLlmModel = async (modelName: string) => {
+    if (!window.api?.setOllamaActiveModel) return;
+    try {
+      await window.api.setOllamaActiveModel(modelName);
+      await refreshOllama();
+    } catch (err: unknown) {
+      setUnloadError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -520,31 +531,48 @@ export function StudioPage(): ReactNode {
           <p className={styles.hint}>{t('studio.voice_xtts_license')}</p>
           <Link className={styles.textButton} to="/assets">{t('studio.voice_record_in_assets')}</Link>
         </>
-      ) : family === 'llm' ? (
+      ) : family === 'llm' ? (() => {
+        const installedList = ollamaEngine.installed_models ?? [];
+        const has7b = installedList.some((m) => m.includes('7b') && !m.includes('vl'));
+        const has14b = installedList.some((m) => m.includes('14b') && !m.includes('vl'));
+        const is14bActive = (ollamaEngine.model || '').includes('14b');
+        const is7bActive = (ollamaEngine.model || '').includes('7b');
+        return (
         <>
+          {/* Qwen 2.5 14B Card */}
           <div className={styles.modelCard}>
             <div className={styles.modelInfo}>
-              <span className={styles.modelName}>Qwen 2.5 7B</span>
-              <span className={styles.modelType}>{t('studio.llm_qwen_size')}</span>
+              <span className={styles.modelName}>Qwen 2.5 14B</span>
+              <span className={styles.modelType}>~9.0 GB · {i18n.language.startsWith('ru') ? 'Продвинутая (рекомендуется для точных таймингов)' : 'Advanced (recommended for precise timing)'}</span>
               <div className={styles.stateRow}>
                 <span className={styles.stateChip} data-on={ollamaEngine.binary_found}>
                   {ollamaEngine.binary_found ? t('studio.llm_binary_on') : t('studio.llm_binary_off')}
                 </span>
-                <span className={styles.stateChip} data-on={ollamaEngine.model_on_disk}>
-                  {ollamaEngine.model_on_disk ? t('studio.llm_model_on') : t('studio.llm_model_off')}
+                <span className={styles.stateChip} data-on={has14b}>
+                  {has14b ? t('studio.llm_model_on') : t('studio.llm_model_off')}
                 </span>
                 <span className={styles.stateChip} data-on={ollamaEngine.server_running}>
                   {ollamaEngine.server_running ? t('studio.llm_server_on') : t('studio.llm_server_off')}
                 </span>
-                <span className={styles.stateChip} data-on={ollamaEngine.model_ready}>
-                  {ollamaEngine.model_ready ? t('studio.llm_ready_on') : t('studio.llm_ready_off')}
+                <span className={styles.stateChip} data-on={has14b && ollamaEngine.server_running}>
+                  {has14b && ollamaEngine.server_running ? t('studio.llm_ready_on') : t('studio.llm_ready_off')}
                 </span>
               </div>
             </div>
             <div className={styles.voiceActions}>
-              {ollamaEngine.model_ready ? (
-                <span className={styles.status}>✓ {t('studio.llm_ready_on')}</span>
-              ) : ollamaEngine.model_on_disk && !ollamaEngine.server_running ? (
+              {has14b && ollamaEngine.server_running ? (
+                is14bActive ? (
+                  <span className={styles.status}>✓ {i18n.language.startsWith('ru') ? 'Активная модель' : 'Active'}</span>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.downloadButton}
+                    onClick={() => { void handleSetActiveLlmModel('qwen2.5:14b'); }}
+                  >
+                    {i18n.language.startsWith('ru') ? 'Выбрать 14B' : 'Use 14B'}
+                  </button>
+                )
+              ) : has14b && !ollamaEngine.server_running ? (
                 <button
                   type="button"
                   className={styles.downloadButton}
@@ -558,24 +586,81 @@ export function StudioPage(): ReactNode {
                   type="button"
                   className={styles.downloadButton}
                   disabled={ollamaBusy || ollamaEngine.installing}
-                  onClick={() => { void handleOllamaDownload(); }}
+                  onClick={() => { void handlePullModel('qwen2.5:14b'); }}
                 >
-                  {ollamaEngine.installing ? t('studio.llm_downloading') : t('studio.download')}
+                  {ollamaEngine.installing ? t('studio.llm_downloading') : `${t('studio.download')} 14B (~9 GB)`}
                 </button>
               )}
-              {ollamaEngine.binary_found && !ollamaEngine.server_running && ollamaEngine.model_on_disk ? null : (
-                ollamaEngine.binary_found && !ollamaEngine.server_running && !ollamaEngine.installing ? (
+              {has14b && !ollamaEngine.installing ? (
+                <button
+                  type="button"
+                  className={styles.textButton}
+                  disabled={ollamaBusy}
+                  onClick={() => {
+                    if (window.confirm(i18n.language.startsWith('ru') ? 'Удалить qwen2.5:14b с диска?' : 'Remove qwen2.5:14b?')) {
+                      void window.api?.deleteOllamaModel?.('qwen2.5:14b').then(refreshOllama);
+                    }
+                  }}
+                >
+                  {t('studio.llm_delete')}
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Qwen 2.5 7B Card */}
+          <div className={styles.modelCard}>
+            <div className={styles.modelInfo}>
+              <span className={styles.modelName}>Qwen 2.5 7B</span>
+              <span className={styles.modelType}>{t('studio.llm_qwen_size')}</span>
+              <div className={styles.stateRow}>
+                <span className={styles.stateChip} data-on={ollamaEngine.binary_found}>
+                  {ollamaEngine.binary_found ? t('studio.llm_binary_on') : t('studio.llm_binary_off')}
+                </span>
+                <span className={styles.stateChip} data-on={has7b}>
+                  {has7b ? t('studio.llm_model_on') : t('studio.llm_model_off')}
+                </span>
+                <span className={styles.stateChip} data-on={ollamaEngine.server_running}>
+                  {ollamaEngine.server_running ? t('studio.llm_server_on') : t('studio.llm_server_off')}
+                </span>
+                <span className={styles.stateChip} data-on={has7b && ollamaEngine.server_running}>
+                  {has7b && ollamaEngine.server_running ? t('studio.llm_ready_on') : t('studio.llm_ready_off')}
+                </span>
+              </div>
+            </div>
+            <div className={styles.voiceActions}>
+              {has7b && ollamaEngine.server_running ? (
+                is7bActive ? (
+                  <span className={styles.status}>✓ {i18n.language.startsWith('ru') ? 'Активная модель' : 'Active'}</span>
+                ) : (
                   <button
                     type="button"
-                    className={styles.textButton}
-                    disabled={ollamaBusy}
-                    onClick={() => { void handleOllamaStart(); }}
+                    className={styles.downloadButton}
+                    onClick={() => { void handleSetActiveLlmModel('qwen2.5:7b'); }}
                   >
-                    {t('studio.llm_start_server')}
+                    {i18n.language.startsWith('ru') ? 'Выбрать 7B' : 'Use 7B'}
                   </button>
-                ) : null
+                )
+              ) : has7b && !ollamaEngine.server_running ? (
+                <button
+                  type="button"
+                  className={styles.downloadButton}
+                  disabled={ollamaBusy || ollamaEngine.installing}
+                  onClick={() => { void handleOllamaStart(); }}
+                >
+                  {ollamaBusy ? t('studio.llm_starting') : t('studio.llm_start_server')}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={styles.downloadButton}
+                  disabled={ollamaBusy || ollamaEngine.installing}
+                  onClick={() => { void handlePullModel('qwen2.5:7b'); }}
+                >
+                  {ollamaEngine.installing ? t('studio.llm_downloading') : `${t('studio.download')} 7B (~4.7 GB)`}
+                </button>
               )}
-              {ollamaEngine.model_on_disk && !ollamaEngine.installing ? (
+              {has7b && !ollamaEngine.installing ? (
                 <button
                   type="button"
                   className={styles.textButton}
@@ -606,7 +691,8 @@ export function StudioPage(): ReactNode {
             {returnTo ? t(studioReturnLabelKey(returnTo)) : t('studio.llm_use_in_video')}
           </Link>
         </>
-      ) : (
+        );
+      })() : (
         <>
           <div>
             <h3>{t('studio.my_models')}</h3>

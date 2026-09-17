@@ -119,6 +119,18 @@ export function ProjectsPage(): ReactNode {
         </div>
       ) : (
         <ul className={styles.grid}>
+          <li>
+            <button
+              type="button"
+              className={styles.createCard}
+              onClick={() => void create()}
+              disabled={creating}
+            >
+              <div className={styles.createCardIcon}>+</div>
+              <span className={styles.createCardTitle}>{t('projects.new_project')}</span>
+              <span className={styles.createCardHint}>{t('projects.create_card_hint')}</span>
+            </button>
+          </li>
           {items.map((item) => (
             <li key={item.id}>
               <button type="button" className={styles.card} onClick={() => navigate(`/projects/${item.id}`)}>

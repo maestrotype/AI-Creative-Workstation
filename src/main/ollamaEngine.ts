@@ -32,6 +32,7 @@ export interface OllamaEngineStatus {
   percent: number;
   detail: string;
   model: string;
+  installed_models?: string[];
   started_by_app: boolean;
 }
 
@@ -46,6 +47,7 @@ const ollamaInstallJob = {
 
 let ollamaServeProc: ChildProcess | null = null;
 let ollamaStartedByApp = false;
+let preferredLlmModel: string | null = null;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -163,7 +165,19 @@ function broadcastStatus(broadcast: BroadcastFn): void {
 export async function ollamaEngineStatusPayload(): Promise<OllamaEngineStatus> {
   const binary = Boolean(ollamaBin());
   const server = binary ? await ollamaServerRunning() : false;
-  const onDisk = binary ? (server ? await ollamaModelPulled(DEFAULT_LLM_MODEL) : ollamaModelOnDisk(DEFAULT_LLM_MODEL)) : false;
+  const installedModels = server
+    ? await ollamaNamesFromServer()
+    : binary
+      ? namesFromOllamaListCli(ollamaBin()!)
+      : [];
+  const onDisk = installedModels.some((name) =>
+    modelNameMatches(name, DEFAULT_LLM_MODEL) ||
+    modelNameMatches(name, 'qwen2.5:14b') ||
+    modelNameMatches(name, 'qwen2.5') ||
+    modelNameMatches(name, 'qwen')
+  );
+  const has14b = installedModels.some((name) => modelNameMatches(name, 'qwen2.5:14b'));
+  const activeModel = preferredLlmModel || (has14b ? 'qwen2.5:14b' : DEFAULT_LLM_MODEL);
   return {
     binary_found: binary,
     server_running: server,
@@ -173,7 +187,8 @@ export async function ollamaEngineStatusPayload(): Promise<OllamaEngineStatus> {
     stage: ollamaInstallJob.stage,
     percent: ollamaInstallJob.percent,
     detail: ollamaInstallJob.detail,
-    model: DEFAULT_LLM_MODEL,
+    model: activeModel,
+    installed_models: installedModels,
     started_by_app: ollamaStartedByApp,
   };
 }
@@ -294,6 +309,30 @@ export async function prepareOllamaForScript(broadcast: BroadcastFn): Promise<vo
   }
 }
 
+async function pullOllamaModelByName(modelName: string, broadcast: BroadcastFn): Promise<void> {
+  const bin = ollamaBin();
+  if (!bin) throw new Error('Ollama is not installed.');
+  ollamaInstallJob.stage = 'pull';
+  ollamaInstallJob.percent = 10;
+  ollamaInstallJob.detail = `Downloading ${modelName}…`;
+  broadcastStatus(broadcast);
+
+  await new Promise<void>((resolve, reject) => {
+    const proc = spawn(bin, ['pull', modelName], { stdio: ['ignore', 'pipe', 'pipe'] });
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      for (const line of chunk.toString().split(/\r?\n/)) parseOllamaPullLine(line, broadcast);
+    });
+    proc.stderr?.on('data', (chunk: Buffer) => {
+      for (const line of chunk.toString().split(/\r?\n/)) parseOllamaPullLine(line, broadcast);
+    });
+    proc.on('error', reject);
+    proc.on('close', async (code) => {
+      if (code === 0 && (await ollamaModelPulled(modelName))) resolve();
+      else reject(new Error(ollamaInstallJob.detail || `Could not pull ${modelName}.`));
+    });
+  });
+}
+
 export function registerOllamaIpc(ipcMain: IpcMain, broadcast: BroadcastFn): void {
   ipcMain.handle('get-ollama-engine-status', async () => ollamaEngineStatusPayload());
 
@@ -302,6 +341,39 @@ export function registerOllamaIpc(ipcMain: IpcMain, broadcast: BroadcastFn): voi
     await ensureOllamaServe(broadcast);
     broadcastStatus(broadcast);
     return { ok: true };
+  });
+
+  ipcMain.handle('set-ollama-active-model', async (_, modelName: string) => {
+    preferredLlmModel = (modelName || '').trim() || null;
+    broadcastStatus(broadcast);
+    return { ok: true, model: preferredLlmModel };
+  });
+
+  ipcMain.handle('pull-ollama-model', async (_, modelName: string) => {
+    if (ollamaInstallJob.active) throw new Error('LLM install is already running.');
+    const target = (modelName || 'qwen2.5:14b').trim();
+    ollamaInstallJob.active = true;
+    ollamaInstallJob.stage = 'prepare';
+    ollamaInstallJob.percent = 2;
+    ollamaInstallJob.detail = `Preparing ${target}`;
+    broadcastStatus(broadcast);
+
+    try {
+      await installOllamaBinary(broadcast);
+      await ensureOllamaServe(broadcast);
+      if (!(await ollamaModelPulled(target))) {
+        await pullOllamaModelByName(target, broadcast);
+      }
+      preferredLlmModel = target;
+      ollamaInstallJob.percent = 100;
+      ollamaInstallJob.stage = 'done';
+      ollamaInstallJob.detail = `${target} ready`;
+      broadcastStatus(broadcast);
+      return { ok: true };
+    } finally {
+      ollamaInstallJob.active = false;
+      broadcastStatus(broadcast);
+    }
   });
 
   ipcMain.handle('install-ollama-engine', async () => {
@@ -329,21 +401,22 @@ export function registerOllamaIpc(ipcMain: IpcMain, broadcast: BroadcastFn): voi
     }
   });
 
-  ipcMain.handle('delete-ollama-model', async () => {
+  ipcMain.handle('delete-ollama-model', async (_, targetModel?: string) => {
     if (ollamaInstallJob.active) throw new Error('Wait until the LLM install finishes.');
     const bin = ollamaBin();
     if (!bin) return { deleted: false };
     if (!(await ollamaServerRunning())) {
       await ensureOllamaServe(broadcast);
     }
+    const toDelete = (targetModel || DEFAULT_LLM_MODEL).trim();
     await new Promise<void>((resolve, reject) => {
-      const proc = spawn(bin, ['rm', DEFAULT_LLM_MODEL], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const proc = spawn(bin, ['rm', toDelete], { stdio: ['ignore', 'pipe', 'pipe'] });
       let err = '';
       proc.stderr?.on('data', (chunk: Buffer) => { err += chunk.toString(); });
       proc.on('error', reject);
       proc.on('close', (code) => {
         if (code === 0) resolve();
-        else reject(new Error(err.trim() || `Could not remove ${DEFAULT_LLM_MODEL}.`));
+        else reject(new Error(err.trim() || `Could not remove ${toDelete}.`));
       });
     });
     broadcastStatus(broadcast);

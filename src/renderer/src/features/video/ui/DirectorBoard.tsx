@@ -62,6 +62,7 @@ import {
 import { hasScreencastBin, v1Clips, visualTimelineFingerprint } from '../model/filmVisual';
 import type { VideoAnalysisContext } from '../model/videoAnalysis';
 import type { VoiceoverScript } from '../model/voiceoverScript';
+import { MARKETPLACE_V0_BLOCKS, MARKETPLACE_PROJECT_BRIEF } from '../model/marketplaceVoiceoverPack';
 
 const LABEL_W = 118;
 
@@ -198,8 +199,12 @@ type DirectorSnap = {
   openVoiceover: () => void;
   analyzeVoiceover: () => void;
   reanalyzeVoiceover: () => void;
+  replaceVoiceoverVideo: (specificPath?: string) => Promise<void>;
   scriptBusy: boolean;
   scriptError: string | null;
+  scriptModel: string;
+  setScriptModel: (model: string) => void;
+  loadMarketplacePack: () => void;
   setScriptPrompt: (prompt: string) => void;
   setProjectContext: (value: string) => void;
   generateScript: () => void;
@@ -416,6 +421,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const [voiceoverProgress, setVoiceoverProgress] = useState({ stage: 'idle', percent: 0, detail: '' });
   const [scriptBusy, setScriptBusy] = useState(false);
   const [scriptError, setScriptError] = useState<string | null>(null);
+  const [scriptModel, setScriptModel] = useState('qwen2.5:14b');
   const [voiceoverApplyBusy, setVoiceoverApplyBusy] = useState(false);
   const [voiceoverApplyError, setVoiceoverApplyError] = useState<string | null>(null);
   const [voiceoverApplyProgress, setVoiceoverApplyProgress] = useState({ current: 0, total: 0, detail: '' });
@@ -1217,6 +1223,48 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     addBin('video', path, dur, undefined, known);
   };
 
+  const replaceVoiceoverVideo = async (specificPath?: string) => {
+    const path = specificPath || (await window.api?.pickVideo?.());
+    if (!path) return;
+    const { dur, known } = await probeDuration(path, 'video');
+    const newBinId = newId('bin');
+    const newBin: BinItem = {
+      id: newBinId,
+      kind: 'video',
+      path,
+      name: fileName(path),
+      durationSec: dur,
+      inSec: 0,
+      outSec: dur,
+      durationKnown: known,
+    };
+    setBins((prev) => [...prev.filter((b) => b.kind !== 'video' || b.path !== path), newBin]);
+    setSelectedBin(newBinId);
+    const clip: TimelineClip = {
+      id: newId('clip'),
+      binId: newBinId,
+      track: 'v1',
+      startSec: 0,
+      durationSec: dur,
+      sourceInSec: 0,
+      label: newBin.name,
+      autoLength: true,
+    };
+    setClips((prev) => [clip, ...prev.filter((c) => c.track !== 'v1')]);
+    setSelectedClip(clip.id);
+    setVoiceover((prev) => ({
+      ...prev,
+      sourcePath: path,
+      sourceBinId: newBinId,
+      analysis: null,
+      script: null,
+      status: 'idle',
+    }));
+    setVoiceoverError(null);
+    setScriptError(null);
+    seekTo(0);
+  };
+
   const pickImage = async () => {
     const path = await window.api?.pickImage?.();
     if (path) addBin('image', path, 4);
@@ -1763,6 +1811,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         project_context: voiceover.projectContext,
         language: 'ru',
         target_wpm: 130,
+        ollama_model: scriptModel,
       });
       const script: VoiceoverScript = {
         segments: result.segments,
@@ -1782,6 +1831,35 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     } finally {
       setScriptBusy(false);
     }
+  };
+
+  const loadMarketplacePack = () => {
+    setVoiceover((prev) => ({
+      ...prev,
+      projectContext: MARKETPLACE_PROJECT_BRIEF,
+      scriptPrompt: 'Marketplace promo trailer (V0)',
+      script: {
+        segments: MARKETPLACE_V0_BLOCKS.map((b) => ({
+          start_sec: b.startSec,
+          end_sec: b.endSec,
+          text: b.voiceoverRu,
+          role: b.code === 'A' ? 'hook' : b.code === 'H' ? 'cta' : 'feature',
+          purpose: b.title,
+          speak: true,
+          window_sec: b.endSec - b.startSec,
+          target_words: Math.round(((b.endSec - b.startSec) / 60) * 130 * 0.75),
+        })),
+        meta: {
+          tone: 'commercial',
+          language: 'ru',
+          words_per_min: 130,
+          provider: 'preset',
+          model: 'preset:marketplace_v0',
+        },
+      },
+      status: 'scripted',
+    }));
+    setScriptError(null);
   };
 
   const updateScriptSegment = (
@@ -2627,8 +2705,12 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     openVoiceover,
     analyzeVoiceover: () => { void analyzeVoiceover(false); },
     reanalyzeVoiceover,
+    replaceVoiceoverVideo,
     scriptBusy,
     scriptError,
+    scriptModel,
+    setScriptModel,
+    loadMarketplacePack,
     setScriptPrompt,
     setProjectContext,
     generateScript: () => { void generateScript(); },

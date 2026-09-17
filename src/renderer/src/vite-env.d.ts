@@ -242,7 +242,9 @@ interface Window {
       cache_path: string;
     }) => void) => () => void;
     installOllamaEngine: () => Promise<{ ok: boolean }>;
-    deleteOllamaModel: () => Promise<{ deleted: boolean }>;
+    pullOllamaModel: (modelName: string) => Promise<{ ok: boolean }>;
+    setOllamaActiveModel: (modelName: string) => Promise<{ ok: boolean; model: string | null }>;
+    deleteOllamaModel: (targetModel?: string) => Promise<{ deleted: boolean }>;
     startOllamaServe: () => Promise<{ ok: boolean }>;
     getOllamaEngineStatus: () => Promise<{
       binary_found: boolean;
@@ -254,6 +256,7 @@ interface Window {
       percent: number;
       detail: string;
       model: string;
+      installed_models?: string[];
       started_by_app: boolean;
     }>;
     onOllamaEngineUpdated: (callback: (data: {
@@ -266,6 +269,7 @@ interface Window {
       percent: number;
       detail: string;
       model: string;
+      installed_models?: string[];
       started_by_app: boolean;
     }) => void) => () => void;
     startMicRecord: (format: string) => Promise<{ file_path: string }>;

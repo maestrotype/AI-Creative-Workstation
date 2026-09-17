@@ -556,14 +556,25 @@ def _resolve_ollama_model(preferred: str) -> str | None:
     names = _list_ollama_models()
     if not names:
         return None
-    if preferred in names:
+    if preferred and preferred in names:
         return preferred
-    vision = ("llava", "vision", "moondream", "vl:", "qwen2.5vl", "qwen2-vl")
+    vision = ("llava", "vision", "moondream", "vl:", "qwen2.5vl", "qwen2-vl", "qwen3-vl")
     text_models = [name for name in names if not any(token in name.lower() for token in vision)]
     pool = text_models or names
-    pref_root = preferred.split(":")[0]
+    if preferred:
+        pref_root = preferred.split(":")[0]
+        pref_tag = preferred.split(":")[1] if ":" in preferred else ""
+        for name in pool:
+            if pref_tag and pref_root in name and pref_tag in name:
+                return name
+        for name in pool:
+            if name.startswith(pref_root):
+                return name
     for name in pool:
-        if name.startswith(pref_root):
+        if "14b" in name.lower():
+            return name
+    for name in pool:
+        if "7b" in name.lower():
             return name
     return pool[0]
 

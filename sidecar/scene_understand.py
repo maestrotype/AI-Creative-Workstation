@@ -45,10 +45,15 @@ def detect_vision_model() -> Optional[str]:
             data = json.loads(resp.read().decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
         return None
-    for item in data.get("models") or []:
-        name = str(item.get("name") or "")
-        if any(hint in name.lower() for hint in VISION_MODEL_HINTS):
-            return name
+    models = [str(item.get("name") or "") for item in data.get("models") or [] if item.get("name")]
+    for m in models:
+        lower = m.lower()
+        if "14b" in lower and any(hint in lower for hint in VISION_MODEL_HINTS):
+            return m
+    for m in models:
+        lower = m.lower()
+        if any(hint in lower for hint in VISION_MODEL_HINTS):
+            return m
     return None
 
 

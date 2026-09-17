@@ -222,7 +222,13 @@ function StageMaterial(): ReactNode {
   const onDrop = (event: DragEvent<HTMLElement>) => {
     event.preventDefault();
     if (event.dataTransfer.files.length > 0) {
-      d.ingestDropped(event.dataTransfer.files);
+      const file = event.dataTransfer.files[0];
+      const p = (file as unknown as { path?: string }).path;
+      if (p) {
+        void d.replaceVoiceoverVideo(p);
+      } else {
+        d.ingestDropped(event.dataTransfer.files);
+      }
     }
   };
 
@@ -237,7 +243,7 @@ function StageMaterial(): ReactNode {
         <div className={s.dropZone}>{d.t('video.pipe_material_drop')}</div>
       )}
       <div className={vp.toolRow}>
-        <button type="button" className={source ? vp.toolBtn : vp.toolPrimary} onClick={d.pickVideo}>
+        <button type="button" className={source ? vp.toolBtn : vp.toolPrimary} onClick={() => { void d.replaceVoiceoverVideo(); }}>
           {source ? d.t('video.vo_pick_other') : d.t('video.dir_add_video')}
         </button>
       </div>
@@ -269,7 +275,7 @@ function StageAnalyze(): ReactNode {
             {busy ? d.t('video.vo_analyzing') : d.t('video.vo_reanalyze')}
           </button>
         ) : null}
-        <button type="button" className={vp.toolBtn} onClick={d.pickVideo} disabled={busy}>
+        <button type="button" className={vp.toolBtn} onClick={() => { void d.replaceVoiceoverVideo(); }} disabled={busy}>
           {d.t('video.vo_pick_other')}
         </button>
       </div>
@@ -373,6 +379,27 @@ function StageBrief(): ReactNode {
   return (
     <div className={s.stageBody}>
       <LlmEngineNotice />
+      <div className={s.modelSelectRow}>
+        <span className={s.modelSelectLabel}>{d.t('video.pipe_model_label')}:</span>
+        <select
+          className={s.modelSelect}
+          value={d.scriptModel}
+          onChange={(e) => d.setScriptModel(e.target.value)}
+          disabled={busy}
+        >
+          <option value="qwen2.5:14b">Qwen 2.5 14B (Высокое качество, точные тайминги)</option>
+          <option value="qwen2.5:7b">Qwen 2.5 7B (Быстрая)</option>
+        </select>
+        <button
+          type="button"
+          className={vp.toolBtn}
+          onClick={d.loadMarketplacePack}
+          disabled={busy}
+          title="Загрузить готовый сценарий трейлера с 8 блоками и таймкодами"
+        >
+          ⚡ {d.t('video.pipe_load_marketplace_pack')}
+        </button>
+      </div>
       <label className={vp.voPromptLabel}>
         <span>{d.t('video.vo_script_prompt')}</span>
         <textarea
