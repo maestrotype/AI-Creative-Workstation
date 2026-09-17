@@ -470,6 +470,7 @@
     "vo_source_v1_clip": "main V1 track",
     "vo_source_video_bin": "video in sources",
     "vo_source_longest_video": "longest recording (screencast)",
+    "vo_source_assembled_timeline": "assembled timeline",
     "vo_source_stale_analysis": "Analysis is shorter than this file — press Re-analyze.",
     "vo_no_video": "Add video to the timeline or sources.",
     "vo_pick_other": "Other video…",

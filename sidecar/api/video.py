@@ -197,17 +197,11 @@ def _ffprobe_bin() -> str:
 
 
 def _video_duration_sec(path: str) -> float:
-    probe = _ffprobe_bin()
-    result = subprocess.run(
-        [probe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
     try:
-        return float(result.stdout.strip())
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Could not read video duration") from exc
+        from media_probe import video_duration_sec
+        return video_duration_sec(path)
+    except Exception:
+        return 5.0
 
 
 def _has_audio(path: str) -> bool:

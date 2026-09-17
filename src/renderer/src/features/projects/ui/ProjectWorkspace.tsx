@@ -254,7 +254,6 @@ export function ProjectWorkspace(): ReactNode {
   const [assembleTarget, setAssembleTarget] = useState(15);
   const [shotLength, setShotLength] = useState(3.4);
   const [showBroll, setShowBroll] = useState(false);
-  const [previewMedia, setPreviewMedia] = useState<{ url: string; title: string; isVideo: boolean } | null>(null);
   const [dragOverSceneId, setDragOverSceneId] = useState<string | null>(null);
 
   const docRef = useRef<ProjectDoc | null>(null);
@@ -761,7 +760,6 @@ export function ProjectWorkspace(): ReactNode {
       ) : (
         <ol className={styles.sceneList}>
           {doc.scenes.map((scene, index) => {
-            const thumb = scene.stillPath || scene.clipPath;
             const isDragOver = dragOverSceneId === scene.id;
             return (
               <li
@@ -786,39 +784,21 @@ export function ProjectWorkspace(): ReactNode {
                   }
                 }}
               >
-                <div
-                  className={`${styles.thumb} ${thumb ? styles.thumbInteractive : ''}`}
-                  onClick={() => {
-                    if (scene.clipPath) {
-                      setPreviewMedia({
-                        url: toAssetUrl(scene.clipPath),
-                        title: scene.title || `Глава ${index + 1}`,
-                        isVideo: true,
-                      });
-                    } else if (scene.stillPath) {
-                      setPreviewMedia({
-                        url: toAssetUrl(scene.stillPath),
-                        title: scene.title || `Глава ${index + 1}`,
-                        isVideo: false,
-                      });
-                    }
-                  }}
-                  title={thumb ? t('projects.click_to_preview') : undefined}
-                >
-                  {thumb ? (
-                    scene.stillPath ? (
-                      <img src={toAssetUrl(scene.stillPath)} alt="" />
-                    ) : scene.clipPath ? (
-                      <video src={`${toAssetUrl(scene.clipPath)}#t=0.1`} preload="metadata" playsInline />
-                    ) : null
+                <div className={styles.thumb}>
+                  {scene.clipPath ? (
+                    <video
+                      className={styles.sceneVideo}
+                      src={toAssetUrl(scene.clipPath)}
+                      poster={scene.stillPath ? toAssetUrl(scene.stillPath) : undefined}
+                      controls
+                      preload="metadata"
+                      playsInline
+                    />
+                  ) : scene.stillPath ? (
+                    <img src={toAssetUrl(scene.stillPath)} alt="" />
                   ) : (
                     <span>{index + 1}</span>
                   )}
-                  {scene.clipPath ? (
-                    <div className={styles.thumbOverlay}>
-                      <span>▶</span>
-                    </div>
-                  ) : null}
                 </div>
                 <div className={styles.sceneBody}>
                   <div className={styles.sceneRow}>
@@ -957,47 +937,31 @@ export function ProjectWorkspace(): ReactNode {
 
       <footer className={styles.composeBar}>
         {doc.assembledPath ? (
-          <video className={styles.assembled} src={toAssetUrl(doc.assembledPath)} controls playsInline />
+          <div className={styles.assembledWrap}>
+            <video className={styles.assembled} src={toAssetUrl(doc.assembledPath)} controls playsInline />
+          </div>
         ) : null}
-        <button
-          type="button"
-          className={styles.newButton}
-          disabled={composing || busyScene !== null || !canFinish}
-          onClick={() => void finishInVideo()}
-        >
-          {composing ? t('projects.composing') : t('projects.finish_voice')}
-        </button>
-        <button
-          type="button"
-          className={styles.ghostBtn}
-          disabled={composing || busyScene !== null || !doc.scenes.some(sceneHasMedia)}
-          onClick={() => void compose()}
-        >
-          {t('projects.compose')}
-        </button>
+        <div className={styles.composeButtons}>
+          <button
+            type="button"
+            className={styles.newButton}
+            disabled={composing || busyScene !== null || !canFinish}
+            onClick={() => void finishInVideo()}
+          >
+            {composing ? t('projects.composing') : t('projects.finish_voice')}
+          </button>
+          <button
+            type="button"
+            className={styles.ghostBtn}
+            disabled={composing || busyScene !== null || !doc.scenes.some(sceneHasMedia)}
+            onClick={() => void compose()}
+          >
+            {t('projects.compose')}
+          </button>
+        </div>
       </footer>
       {status ? <p className={styles.status}>{status}</p> : null}
       {error ? <p className={styles.error}>{error}</p> : null}
-
-      {previewMedia ? (
-        <div className={styles.previewModalOverlay} onClick={() => setPreviewMedia(null)}>
-          <div className={styles.previewModalContent} onClick={(e) => e.stopPropagation()}>
-            <header className={styles.previewModalHeader}>
-              <span>{previewMedia.title}</span>
-              <button type="button" className={styles.textBtn} onClick={() => setPreviewMedia(null)}>
-                ✕
-              </button>
-            </header>
-            <div className={styles.previewModalBody}>
-              {previewMedia.isVideo ? (
-                <video src={previewMedia.url} controls autoPlay playsInline />
-              ) : (
-                <img src={previewMedia.url} alt={previewMedia.title} />
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

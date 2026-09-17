@@ -116,19 +116,32 @@ def analysis_windows(
 
 
 def _grab_frame(ffmpeg: str, video_path: str, time_sec: float, dest: str) -> bool:
-    cmd = [
-        ffmpeg, "-y",
-        "-ss", f"{max(0.0, time_sec):.3f}",
+    ext = os.path.splitext(video_path)[1].lower()
+    is_image = ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+    cmd = [ffmpeg, "-y"]
+    if not is_image and time_sec > 0:
+        cmd.extend(["-ss", f"{time_sec:.3f}"])
+    cmd.extend([
         "-i", video_path,
         "-frames:v", "1",
         "-vf", "scale='min(1024,iw)':-2",
         "-q:v", "4",
         dest,
-    ]
+    ])
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=60)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return False
+        if not is_image:
+            try:
+                cmd_fallback = [
+                    ffmpeg, "-y", "-i", video_path,
+                    "-frames:v", "1", "-vf", "scale='min(1024,iw)':-2", "-q:v", "4", dest,
+                ]
+                subprocess.run(cmd_fallback, check=True, capture_output=True, text=True, timeout=30)
+            except Exception:
+                return False
+        else:
+            return False
     return os.path.isfile(dest)
 
 

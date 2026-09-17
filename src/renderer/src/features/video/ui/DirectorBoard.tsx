@@ -1612,6 +1612,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     if (
       picture.length === 1
       && onlyBin?.path
+      && onlyBin.kind === 'video'
       && Math.abs(only.sourceInSec) < 0.05
       && Math.abs(only.durationSec - (onlyBin.durationSec || only.durationSec)) < 0.12
     ) {

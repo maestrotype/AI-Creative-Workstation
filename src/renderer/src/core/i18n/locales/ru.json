@@ -470,6 +470,7 @@
     "vo_source_v1_clip": "основная дорожка V1",
     "vo_source_video_bin": "видео в исходниках",
     "vo_source_longest_video": "самая длинная запись (скринкаст)",
+    "vo_source_assembled_timeline": "склеенный таймлайн",
     "vo_source_stale_analysis": "Анализ короче этого файла — нажмите «Переанализировать».",
     "vo_no_video": "Добавьте видео на шкалу или в исходники.",
     "vo_pick_other": "Другое видео…",
