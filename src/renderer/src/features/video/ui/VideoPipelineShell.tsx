@@ -22,8 +22,8 @@ type Director = ReturnType<typeof useDirector>;
 /** Furthest stage the user may open, based on real session progress. */
 function maxUnlockedIndex(d: Director): number {
   if (d.voiceover.status === 'voiced') return 5;
-  if (d.voiceover.script?.segments.length) return 4;
-  if (d.voiceover.analysis) return 2;
+  if (d.voiceover.script?.segments.length || d.scriptBusy) return 4;
+  if (d.voiceover.analysis || d.voiceoverBusy) return 3;
   if (d.voiceoverSource) return 1;
   return 0;
 }
@@ -42,6 +42,21 @@ export function VideoPipelineShell({ active = true }: { active?: boolean }): Rea
   const [stage, setStage] = useState<PipelineStage>(() => deriveStage(d));
   const [visited, setVisited] = useState<Set<PipelineStage>>(() => new Set([deriveStage(d)]));
   const maxIdx = maxUnlockedIndex(d);
+  const [highestUnlocked, setHighestUnlocked] = useState<number>(() => maxUnlockedIndex(d));
+
+  useEffect(() => {
+    const cur = maxUnlockedIndex(d);
+    setHighestUnlocked((prev) => Math.max(prev, cur));
+  }, [
+    d.voiceover.status,
+    d.voiceover.script?.segments.length,
+    d.scriptBusy,
+    d.voiceover.analysis,
+    d.voiceoverBusy,
+    d.voiceoverSource,
+  ]);
+
+  const effectiveMaxIdx = Math.max(maxIdx, highestUnlocked);
   const stageIdx = STAGES.indexOf(stage);
 
   useEffect(() => {
@@ -54,8 +69,16 @@ export function VideoPipelineShell({ active = true }: { active?: boolean }): Rea
   }, [stage]);
 
   useEffect(() => {
-    if (STAGES.indexOf(stage) > maxIdx) setStage(STAGES[maxIdx]);
-  }, [stage, maxIdx]);
+    if (STAGES.indexOf(stage) > effectiveMaxIdx) setStage(STAGES[effectiveMaxIdx]);
+  }, [stage, effectiveMaxIdx]);
+
+  // If user clears video source completely, reset back to material stage
+  useEffect(() => {
+    if (!d.voiceoverSource && stage !== 'material') {
+      setStage('material');
+      setHighestUnlocked(0);
+    }
+  }, [d.voiceoverSource, stage]);
 
   // Auto-advance: analyze finished → brief.
   const prevAnalyzeBusy = useRef(d.voiceoverBusy);
@@ -99,11 +122,12 @@ export function VideoPipelineShell({ active = true }: { active?: boolean }): Rea
   const analyzeStartedFor = useRef<string | null>(null);
   useEffect(() => {
     const path = d.voiceoverSource?.path;
-    if (!path || d.voiceover.analysis || d.voiceoverBusy) return;
+    // Never trigger background analysis if user is already on brief, script, voice, or export
+    if (!path || d.voiceover.analysis || d.voiceoverBusy || stageIdx > 1) return;
     if (analyzeStartedFor.current === path) return;
     analyzeStartedFor.current = path;
     d.analyzeVoiceover();
-  }, [d.voiceoverSource?.path, d.voiceover.analysis, d.voiceoverBusy, d.analyzeVoiceover]);
+  }, [d.voiceoverSource?.path, d.voiceover.analysis, d.voiceoverBusy, d.analyzeVoiceover, stageIdx]);
 
   const doneFlags: Record<PipelineStage, boolean> = {
     material: Boolean(d.voiceoverSource),
@@ -126,7 +150,7 @@ export function VideoPipelineShell({ active = true }: { active?: boolean }): Rea
                   type="button"
                   className={s.step}
                   data-state={state}
-                  disabled={index > maxIdx}
+                  disabled={index > effectiveMaxIdx}
                   onClick={() => setStage(id)}
                 >
                   <span className={s.stepNum}>{doneFlags[id] && id !== stage ? '✓' : index + 1}</span>
@@ -166,7 +190,7 @@ export function VideoPipelineShell({ active = true }: { active?: boolean }): Rea
               <button
                 type="button"
                 className={vp.toolPrimary}
-                disabled={stageIdx + 1 > maxIdx}
+                disabled={stageIdx + 1 > effectiveMaxIdx}
                 onClick={() => setStage(STAGES[stageIdx + 1])}
               >
                 {d.t('video.pipe_continue')}

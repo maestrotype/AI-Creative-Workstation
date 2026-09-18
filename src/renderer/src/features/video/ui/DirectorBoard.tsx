@@ -481,9 +481,26 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     const path = voiceoverSource?.path;
     if (!path) return;
     setVoiceover((prev) => {
+      // If path is identical, keep everything and at most sync binId
+      if (prev.sourcePath === path) {
+        if (prev.sourceBinId === voiceoverSource.binId) return prev;
+        return { ...prev, sourceBinId: voiceoverSource.binId };
+      }
+      // If initial sourcePath was not set yet, set it
+      if (!prev.sourcePath) {
+        return {
+          ...prev,
+          sourcePath: path,
+          sourceBinId: voiceoverSource.binId,
+        };
+      }
+      // If analysis was done for an existing source, keep it if paths match
       const analysisPath = prev.analysis?.source_path;
-      if (prev.sourcePath === path && (!analysisPath || analysisPath === path)) return prev;
-      const keep = analysisPath === path;
+      const keep = Boolean(analysisPath && (analysisPath === path || analysisPath === prev.sourcePath));
+      // If analysis already exists, do not discard it on passive clip/bin selection change
+      if (prev.analysis && !keep) {
+        return prev;
+      }
       return {
         ...prev,
         sourcePath: path,
@@ -493,7 +510,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         status: keep ? prev.status : 'idle',
       };
     });
-  }, [voiceoverSource?.path, voiceoverSource?.binId]);
+  }, [voiceoverSource?.path]);
 
   useEffect(() => {
     const fp = visualTimelineFingerprint(clips, bins);
