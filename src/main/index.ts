@@ -2067,6 +2067,12 @@ function setupIpc() {
     output_name?: string;
   }) => sidecarJson('/api/audio/voiceover-track', payload, 5 * 60 * 1000));
 
+  ipcMain.handle('extract-audio-from-video', async (_, payload: {
+    video_path: string;
+    mode?: string;
+    output_dir?: string;
+  }) => sidecarJson('/api/audio/extract-from-video', payload, 5 * 60 * 1000));
+
   ipcMain.handle('prepare-voice-text', async (_, payload: {
     text: string;
     language?: string;

@@ -10,6 +10,8 @@ import { LlmEngineNotice } from './LlmEngineNotice';
 import { VoiceSampleSetup } from './VoiceSampleSetup';
 import { formatTimecode, narrationHealth } from '../model/videoAnalysis';
 import { toAssetUrl } from '../model/directorMedia';
+import { TrackMixer } from './TrackMixer';
+import { CalloutEditor } from './CalloutEditor';
 import vp from './VideoPage.module.css';
 import s from './VideoPipelineShell.module.css';
 
@@ -261,6 +263,7 @@ function StageMaterial(): ReactNode {
       {source ? (
         <>
           <SourceRow />
+          <TrackMixer />
           <p className={vp.hintTight}>{d.t('video.pipe_material_ready')}</p>
         </>
       ) : (
@@ -741,24 +744,26 @@ function StageScript({ active }: { active: boolean }): ReactNode {
         </div>
       </div>
       <div className={s.splitCol}>
-        <DirectorPreview
-          playhead={d.playhead}
-          playing={d.playing}
-          seekNonce={d.seekNonce}
-          clips={d.clips}
-          bins={d.bins}
-          blobs={d.blobs}
-          trackLayout={d.visibleLayout}
-          overlayPos={d.overlayPos}
-          onOverlayMove={d.setOverlayPos}
-          active={active}
-          fallbackSource={d.voiceoverSource}
-          onDecodeFail={(binId) => {
-            const bin = d.bins.find((item) => item.id === binId);
-            if (!bin || bin.proxying) return;
-            d.applyProxy(binId, true);
-          }}
-        />
+        <CalloutEditor active={active}>
+          <DirectorPreview
+            playhead={d.playhead}
+            playing={d.playing}
+            seekNonce={d.seekNonce}
+            clips={d.clips}
+            bins={d.bins}
+            blobs={d.blobs}
+            trackLayout={d.visibleLayout}
+            overlayPos={d.overlayPos}
+            onOverlayMove={d.setOverlayPos}
+            active={active}
+            fallbackSource={d.voiceoverSource}
+            onDecodeFail={(binId) => {
+              const bin = d.bins.find((item) => item.id === binId);
+              if (!bin || bin.proxying) return;
+              d.applyProxy(binId, true);
+            }}
+          />
+        </CalloutEditor>
         <div className={vp.toolRow}>
           <button
             type="button"

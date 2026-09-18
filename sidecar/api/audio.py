@@ -1124,3 +1124,95 @@ def apply_timeline(request: TimelineRequest):
             ) from exc
 
     return {"status": "completed", "file_path": output_path, "plan": plan}
+
+
+class ExtractAudioRequest(BaseModel):
+    video_path: str
+    mode: str = "both"  # "audio_only" | "mute_video" | "both"
+    output_dir: Optional[str] = None
+
+
+@router.post("/audio/extract-from-video")
+async def extract_audio_from_video(body: ExtractAudioRequest):
+    ffmpeg = _ffmpeg_bin()
+    video_path = os.path.expanduser(body.video_path.strip())
+    if not os.path.isfile(video_path):
+        raise HTTPException(status_code=404, detail=f"Video file not found: {video_path}")
+
+    # Check if file has an audio stream
+    ffprobe = shutil.which("ffprobe") or "ffprobe"
+    probe_cmd = [
+        ffprobe, "-v", "error",
+        "-select_streams", "a",
+        "-show_entries", "stream=codec_name",
+        "-of", "csv=p=0",
+        video_path,
+    ]
+    try:
+        proc = subprocess.run(probe_cmd, capture_output=True, text=True, check=False)
+        if not proc.stdout.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="В видеофайле нет аудиодорожки (no audio stream found)",
+            )
+    except Exception as exc:
+        if isinstance(exc, HTTPException):
+            raise
+        # ffprobe might not be available, proceed to attempt ffmpeg
+
+    base_dir = body.output_dir if body.output_dir and os.path.isdir(body.output_dir) else os.path.dirname(video_path)
+    base_name = os.path.splitext(os.path.basename(video_path))[0]
+    safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", base_name).strip("_") or "video"
+
+    os.makedirs(base_dir, exist_ok=True)
+    audio_path = os.path.join(base_dir, f"{safe_name}_audio.wav")
+    muted_path = os.path.join(base_dir, f"{safe_name}_muted.mp4")
+
+    # Extract audio if requested
+    extracted_audio: Optional[str] = None
+    if body.mode in ("audio_only", "both"):
+        cmd_audio = [
+            ffmpeg, "-y",
+            "-i", video_path,
+            "-vn",
+            "-acodec", "pcm_s16le",
+            "-ar", "44100",
+            "-ac", "2",
+            audio_path,
+        ]
+        res_audio = subprocess.run(cmd_audio, capture_output=True, text=True)
+        if res_audio.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=_ffmpeg_user_error(res_audio.stderr, "Failed to extract audio track"),
+            )
+        extracted_audio = audio_path
+
+    # Extract muted video if requested
+    extracted_muted: Optional[str] = None
+    if body.mode in ("mute_video", "both"):
+        cmd_video = [
+            ffmpeg, "-y",
+            "-i", video_path,
+            "-an",
+            "-c:v", "copy",
+            "-movflags", "+faststart",
+            muted_path,
+        ]
+        res_video = subprocess.run(cmd_video, capture_output=True, text=True)
+        if res_video.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=_ffmpeg_user_error(res_video.stderr, "Failed to create muted video"),
+            )
+        extracted_muted = muted_path
+
+    duration = audio_duration_sec(extracted_audio) if extracted_audio else 0.0
+
+    return {
+        "status": "ok",
+        "audio_path": extracted_audio,
+        "muted_video_path": extracted_muted,
+        "duration_sec": duration,
+    }
+

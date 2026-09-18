@@ -604,7 +604,9 @@
     "timeline_prompt": "Промпт монтажа",
     "timeline_placeholder": "at 0:05 title: 3D Store\nat 0:20 voice: Витрина и каталог\nat 1:10 voice: Админка и платежи",
     "timeline_apply": "Наложить на видео",
-    "timeline_working": "Обработка…"
+    "timeline_working": "Обработка…",
+    "extract_audio_no_source": "Источник видео не выбран",
+    "extract_audio_failed": "Ошибка при извлечении аудиодорожки"
   },
   "projects": {
     "title": "Видеопроекты",

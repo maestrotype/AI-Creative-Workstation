@@ -62,6 +62,7 @@ import {
 import { hasScreencastBin, v1Clips, visualTimelineFingerprint } from '../model/filmVisual';
 import type { VideoAnalysisContext } from '../model/videoAnalysis';
 import type { VoiceoverScript } from '../model/voiceoverScript';
+import { newCallout, type Callout } from '../model/callout';
 import { MARKETPLACE_V0_BLOCKS, MARKETPLACE_PROJECT_BRIEF } from '../model/marketplaceVoiceoverPack';
 
 const LABEL_W = 118;
@@ -220,6 +221,13 @@ type DirectorSnap = {
   voiceoverApplyError: string | null;
   voiceoverApplyProgress: { current: number; total: number; detail: string };
   applyScriptVoiceover: () => void;
+  callouts: Callout[];
+  addCallout: (params: Partial<Callout> & { targetX: number; targetY: number }) => Callout;
+  updateCallout: (id: string, patch: Partial<Callout>) => void;
+  removeCallout: (id: string) => void;
+  extractAudioTrack: (mode: 'both' | 'audio_only' | 'mute_video') => Promise<void>;
+  extractAudioBusy: boolean;
+  extractAudioError: string | null;
   projectScope: { id: string; name: string } | null;
   shots: FilmShot[];
   assemblyRationale: string | null;
@@ -1107,6 +1115,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     setExportBusy(true);
     setExportError(null);
     try {
+      const currentCallouts = voiceover.callouts ?? [];
       const result = await window.api.renderTimeline({
         width: 1920,
         height: 1080,
@@ -1124,6 +1133,19 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
             muted: Boolean(clip.muted),
           };
         }),
+        callouts: currentCallouts.length > 0
+          ? currentCallouts.map((c) => ({
+              id: c.id,
+              start_sec: c.startSec,
+              duration_sec: c.endSec - c.startSec,
+              target_x: c.targetX,
+              target_y: c.targetY,
+              box_x: c.boxX,
+              box_y: c.boxY,
+              text: c.text,
+              theme: c.theme,
+            }))
+          : undefined,
       });
       setExportPath(result.file_path);
       setExportSavedTo(null);
@@ -2091,6 +2113,109 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     }
   };
 
+  const [extractAudioBusy, setExtractAudioBusy] = useState(false);
+  const [extractAudioError, setExtractAudioError] = useState<string | null>(null);
+
+  const callouts = voiceover.callouts ?? [];
+
+  const addCallout = (params: Partial<Callout> & { targetX: number; targetY: number }): Callout => {
+    const item = newCallout({
+      startSec: params.startSec ?? playhead,
+      ...params,
+    });
+    setVoiceover((prev) => ({
+      ...prev,
+      callouts: [...(prev.callouts ?? []), item],
+    }));
+    return item;
+  };
+
+  const updateCallout = (id: string, patch: Partial<Callout>) => {
+    setVoiceover((prev) => ({
+      ...prev,
+      callouts: (prev.callouts ?? []).map((c) => (c.id === id ? { ...c, ...patch } : c)),
+    }));
+  };
+
+  const removeCallout = (id: string) => {
+    setVoiceover((prev) => ({
+      ...prev,
+      callouts: (prev.callouts ?? []).filter((c) => c.id !== id),
+    }));
+  };
+
+  const extractAudioTrack = async (mode: 'both' | 'audio_only' | 'mute_video') => {
+    const srcPath = voiceoverSource?.path;
+    if (!srcPath || !window.api?.extractAudioFromVideo) {
+      setExtractAudioError(t('video.extract_audio_no_source'));
+      return;
+    }
+    setExtractAudioBusy(true);
+    setExtractAudioError(null);
+    try {
+      const res = await window.api.extractAudioFromVideo({
+        video_path: srcPath,
+        mode,
+      });
+      if (res.audio_path) {
+        const { dur, known } = await probeDuration(res.audio_path, 'audio');
+        const audioBinId = newId('bin');
+        const audioBin: BinItem = {
+          id: audioBinId,
+          kind: 'audio',
+          path: res.audio_path,
+          name: fileName(res.audio_path),
+          durationSec: dur || res.duration_sec || 10,
+          inSec: 0,
+          outSec: dur || res.duration_sec || 10,
+          durationKnown: known,
+        };
+        setBins((prev) => [...prev, audioBin]);
+        setTrackLayout((layout) => ensureTrackVisible(layout, 'a2'));
+        const audioClip: TimelineClip = {
+          id: newId('clip'),
+          binId: audioBinId,
+          track: 'a2',
+          startSec: 0,
+          durationSec: audioBin.durationSec,
+          sourceInSec: 0,
+          label: audioBin.name,
+          autoLength: true,
+        };
+        setClips((prev) => [...prev, audioClip]);
+      }
+      if (mode === 'both' && res.muted_video_path) {
+        const { dur, known } = await probeDuration(res.muted_video_path, 'video');
+        const mutedBinId = newId('bin');
+        const mutedBin: BinItem = {
+          id: mutedBinId,
+          kind: 'video',
+          path: res.muted_video_path,
+          name: fileName(res.muted_video_path),
+          durationSec: dur,
+          inSec: 0,
+          outSec: dur,
+          durationKnown: known,
+        };
+        setBins((prev) => [...prev, mutedBin]);
+        setClips((prev) => prev.map((c) => {
+          if (c.track === 'v1' && (!voiceoverSource.binId || c.binId === voiceoverSource.binId)) {
+            return {
+              ...c,
+              binId: mutedBinId,
+              label: mutedBin.name,
+            };
+          }
+          return c;
+        }));
+      }
+    } catch (err) {
+      setExtractAudioError(ipcMessage(err, t('video.extract_audio_failed')));
+    } finally {
+      setExtractAudioBusy(false);
+    }
+  };
+
   const placeLibraryAudio = (path: string) => {
     void ingestAudioPath(path).catch((err) => {
       setVoiceError(ipcMessage(err, t('video.dir_voice_fail')));
@@ -2737,6 +2862,13 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     voiceoverApplyError,
     voiceoverApplyProgress,
     applyScriptVoiceover: () => { void applyScriptVoiceover(); },
+    callouts,
+    addCallout,
+    updateCallout,
+    removeCallout,
+    extractAudioTrack,
+    extractAudioBusy,
+    extractAudioError,
     projectScope: scopeIdRef.current
       ? { id: scopeIdRef.current, name: scopeName }
       : null,
