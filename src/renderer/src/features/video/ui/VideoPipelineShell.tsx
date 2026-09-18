@@ -200,6 +200,20 @@ export function VideoPipelineShell({ active = true }: { active?: boolean }): Rea
             ) : null}
           </footer>
         </section>
+
+        {Boolean(d.voiceoverSource || d.clips.length > 0) ? (
+          <section className={s.timelineCard}>
+            <div className={s.timelineCardHeader}>
+              <div>
+                <h4 className={s.timelineCardTitle}>🎛 Монтажная шкала и аудио-микшер</h4>
+                <p className={s.timelineCardSub}>
+                  Многодорожечная шкала проекта: видео (V1/V2), звук (A1/A2) и подсказки (C1). Кнопка «Отделить звук» извлекает аудиодорожку.
+                </p>
+              </div>
+            </div>
+            <TrackMixer />
+          </section>
+        ) : null}
       </div>
     </div>
   );
@@ -263,7 +277,6 @@ function StageMaterial(): ReactNode {
       {source ? (
         <>
           <SourceRow />
-          <TrackMixer />
           <p className={vp.hintTight}>{d.t('video.pipe_material_ready')}</p>
         </>
       ) : (

@@ -16,6 +16,8 @@ import { toAssetUrl } from '../model/directorMedia';
 import { DirectorPreview } from './DirectorPreview';
 import { useDirector } from './DirectorBoard';
 import { VoiceoverSection } from './VoiceoverSection';
+import { TrackMixer } from './TrackMixer';
+import { CalloutEditor } from './CalloutEditor';
 import styles from './VideoPage.module.css';
 
 const LABEL_W = 118;
@@ -44,6 +46,7 @@ function dropStartSec(event: DragEvent<HTMLElement>, pxPerSec: number): number {
 
 export function DirectorTimelinePane(): ReactNode {
   const d = useDirector();
+  const [timelineView, setTimelineView] = useState<'mixer' | 'classic'>('mixer');
   const [hoverTrack, setHoverTrack] = useState<string | null>(null);
 
   useEffect(() => {
@@ -122,11 +125,48 @@ export function DirectorTimelinePane(): ReactNode {
       onDragLeave={onDragLeaveBoard}
       onDrop={onBoardDrop}
     >
-      <div className={styles.timelineBar}>
-        <span className={styles.timeReadout} ref={d.clockElRef}>
-          {formatClock(d.playhead)} / {formatClock(d.total)}
-        </span>
-        <div className={styles.toolRow}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 14px', borderBottom: '1px solid var(--color-border-subtle)', background: 'var(--color-bg-elevated)', flexWrap: 'wrap', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            style={{
+              fontWeight: timelineView === 'mixer' ? 600 : 400,
+              background: timelineView === 'mixer' ? 'var(--color-accent)' : 'transparent',
+              color: timelineView === 'mixer' ? 'var(--color-bg-base)' : 'var(--color-text-secondary)',
+              borderColor: timelineView === 'mixer' ? 'var(--color-accent)' : 'var(--color-border-default)',
+            }}
+            onClick={() => setTimelineView('mixer')}
+          >
+            🎛 Микшер дорожек (DAW)
+          </button>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            style={{
+              fontWeight: timelineView === 'classic' ? 600 : 400,
+              background: timelineView === 'classic' ? 'var(--color-accent)' : 'transparent',
+              color: timelineView === 'classic' ? 'var(--color-bg-base)' : 'var(--color-text-secondary)',
+              borderColor: timelineView === 'classic' ? 'var(--color-accent)' : 'var(--color-border-default)',
+            }}
+            onClick={() => setTimelineView('classic')}
+          >
+            📋 Классическая нарезка
+          </button>
+        </div>
+      </div>
+
+      {timelineView === 'mixer' ? (
+        <div style={{ padding: '12px', overflow: 'auto', flex: 1 }}>
+          <TrackMixer />
+        </div>
+      ) : (
+        <>
+          <div className={styles.timelineBar}>
+            <span className={styles.timeReadout} ref={d.clockElRef}>
+              {formatClock(d.playhead)} / {formatClock(d.total)}
+            </span>
+            <div className={styles.toolRow}>
           <button
             type="button"
             className={styles.toolBtn}
@@ -293,6 +333,8 @@ export function DirectorTimelinePane(): ReactNode {
           ) : null}
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }
@@ -301,23 +343,25 @@ export function DirectorResultPane({ previewActive = true }: { previewActive?: b
   const d = useDirector();
   return (
     <div className={`${styles.paneFill} ${styles.resultPane}`}>
-      <DirectorPreview
-        playhead={d.playhead}
-        playing={d.playing}
-        seekNonce={d.seekNonce}
-        clips={d.clips}
-        bins={d.bins}
-        blobs={d.blobs}
-        trackLayout={d.visibleLayout}
-        overlayPos={d.overlayPos}
-        onOverlayMove={d.setOverlayPos}
-        active={previewActive}
-        onDecodeFail={(binId) => {
-          const bin = d.bins.find((item) => item.id === binId);
-          if (!bin || bin.proxying) return;
-          d.applyProxy(binId, true);
-        }}
-      />
+      <CalloutEditor active={previewActive}>
+        <DirectorPreview
+          playhead={d.playhead}
+          playing={d.playing}
+          seekNonce={d.seekNonce}
+          clips={d.clips}
+          bins={d.bins}
+          blobs={d.blobs}
+          trackLayout={d.visibleLayout}
+          overlayPos={d.overlayPos}
+          onOverlayMove={d.setOverlayPos}
+          active={previewActive}
+          onDecodeFail={(binId) => {
+            const bin = d.bins.find((item) => item.id === binId);
+            if (!bin || bin.proxying) return;
+            d.applyProxy(binId, true);
+          }}
+        />
+      </CalloutEditor>
       <div className={styles.transport}>
         <button type="button" className={styles.toolBtn} onClick={d.togglePlay} disabled={d.clips.length === 0 || d.bins.some((b) => b.proxying)}>
           {d.playing ? d.t('video.dir_pause') : d.t('video.dir_play')}
