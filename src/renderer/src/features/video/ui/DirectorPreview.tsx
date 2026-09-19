@@ -28,6 +28,7 @@ interface DirectorPreviewProps {
   onDecodeFail: (binId: string) => void;
   /** When false the element stays mounted but does not play (hidden pipeline stages). */
   active?: boolean;
+  fallbackSource?: { path: string; name?: string; durationSec?: number } | null;
 }
 
 function binFor(clip: TimelineClip | null, bins: BinItem[]): BinItem | null {
@@ -53,6 +54,7 @@ export function DirectorPreview({
   onOverlayMove,
   onDecodeFail,
   active = true,
+  fallbackSource,
 }: DirectorPreviewProps): ReactNode {
   const { t } = useTranslation();
   const v1Ref = useRef<HTMLVideoElement>(null);
@@ -81,11 +83,42 @@ export function DirectorPreview({
   const liveOverlays = overlayClips.filter((o): o is { id: string; clip: TimelineClip } => Boolean(o.clip));
   const promoted = !v1 ? liveOverlays[0] ?? null : null;
   const mainClip = v1 ?? promoted?.clip ?? null;
-  const v1Bin = binFor(mainClip, bins);
-  const v1Url = playbackUrl(v1Bin, blobs);
-  const v1Busy = Boolean(v1Bin?.proxying);
-  const v1IsVideo = v1Bin?.kind === 'video' && Boolean(v1Url) && !v1Busy;
-  const v1IsImage = v1Bin?.kind === 'image' && Boolean(v1Url);
+
+  const fallbackClip = useMemo<TimelineClip | null>(() => {
+    if (mainClip || !fallbackSource?.path) return null;
+    return {
+      id: 'clip-fallback-source',
+      binId: 'bin-fallback-source',
+      track: 'v1',
+      startSec: 0,
+      durationSec: fallbackSource.durationSec || 120,
+      sourceInSec: 0,
+      label: fallbackSource.name || 'Video',
+      autoLength: true,
+    };
+  }, [mainClip, fallbackSource?.path, fallbackSource?.name, fallbackSource?.durationSec]);
+
+  const fallbackBin = useMemo<BinItem | null>(() => {
+    if (!fallbackClip || !fallbackSource?.path) return null;
+    return {
+      id: 'bin-fallback-source',
+      kind: 'video',
+      path: fallbackSource.path,
+      name: fallbackSource.name || 'Video',
+      durationSec: fallbackSource.durationSec || 120,
+      inSec: 0,
+      outSec: fallbackSource.durationSec || 120,
+      durationKnown: true,
+    };
+  }, [fallbackClip, fallbackSource?.path, fallbackSource?.name, fallbackSource?.durationSec]);
+
+  const effectiveMainClip = mainClip ?? fallbackClip;
+  const effectiveV1Bin = binFor(mainClip, bins) ?? fallbackBin;
+
+  const v1Url = playbackUrl(effectiveV1Bin, blobs);
+  const v1Busy = Boolean(effectiveV1Bin?.proxying);
+  const v1IsVideo = effectiveV1Bin?.kind === 'video' && Boolean(v1Url) && !v1Busy;
+  const v1IsImage = effectiveV1Bin?.kind === 'image' && Boolean(v1Url);
   const pipOverlays = liveOverlays.filter((o) => o.id !== promoted?.id);
   const audioClips = audioTrackIds.map((id) => ({ id, clip: clipAtTime(clips, id as `a${number}`, playhead) }));
   const titleClips = clips
@@ -117,7 +150,7 @@ export function DirectorPreview({
       else el.addEventListener('loadeddata', apply, { once: true });
     };
 
-    attach(v1Ref.current, v1IsVideo ? v1Url : null, v1IsVideo ? mainClip : null, playing && active, false);
+    attach(v1Ref.current, v1IsVideo ? v1Url : null, v1IsVideo ? effectiveMainClip : null, playing && active, Boolean(effectiveMainClip?.muted));
 
     for (const { id, clip } of pipOverlays) {
       const bin = binFor(clip, bins);
@@ -131,7 +164,8 @@ export function DirectorPreview({
       attach(audioRefs.current[id], playbackUrl(bin, blobs), clip, playing && active, false);
     }
   }, [
-    mainClip?.id,
+    effectiveMainClip?.id,
+    effectiveMainClip?.muted,
     v1Url,
     v1IsVideo,
     playing,
@@ -143,8 +177,8 @@ export function DirectorPreview({
     audioClips.map((a) => a.clip?.id).join('|'),
   ]);
 
-  const hasAny = Boolean(v1 || overlayClips.some((o) => o.clip) || titleClips.length || audioClips.some((a) => a.clip));
-  const waiting = Boolean(v1Bin?.proxying || (v1Bin?.kind === 'video' && !v1Url && !v1Bin.proxying));
+  const hasAny = Boolean(effectiveMainClip || overlayClips.some((o) => o.clip) || titleClips.length || audioClips.some((a) => a.clip));
+  const waiting = Boolean(effectiveV1Bin?.proxying || (effectiveV1Bin?.kind === 'video' && !v1Url && !effectiveV1Bin.proxying));
 
   return (
     <div className={styles.stage}>
@@ -155,7 +189,7 @@ export function DirectorPreview({
         playsInline
         preload="auto"
         onError={() => {
-          if (v1Bin && !v1Bin.proxying && !v1Bin.path.includes('preview-')) onDecodeFail(v1Bin.id);
+          if (effectiveV1Bin && !effectiveV1Bin.proxying && !effectiveV1Bin.path.includes('preview-')) onDecodeFail(effectiveV1Bin.id);
           else setDecodeError(t('video.dir_decode_error'));
         }}
         onLoadedData={() => setDecodeError(null)}

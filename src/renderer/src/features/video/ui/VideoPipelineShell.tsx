@@ -222,7 +222,13 @@ function StageMaterial(): ReactNode {
   const onDrop = (event: DragEvent<HTMLElement>) => {
     event.preventDefault();
     if (event.dataTransfer.files.length > 0) {
-      d.ingestDropped(event.dataTransfer.files);
+      const file = event.dataTransfer.files[0];
+      const p = (file as unknown as { path?: string }).path;
+      if (p) {
+        void d.replaceVoiceoverVideo(p);
+      } else {
+        d.ingestDropped(event.dataTransfer.files);
+      }
     }
   };
 
@@ -237,7 +243,7 @@ function StageMaterial(): ReactNode {
         <div className={s.dropZone}>{d.t('video.pipe_material_drop')}</div>
       )}
       <div className={vp.toolRow}>
-        <button type="button" className={source ? vp.toolBtn : vp.toolPrimary} onClick={d.pickVideo}>
+        <button type="button" className={source ? vp.toolBtn : vp.toolPrimary} onClick={() => { void d.replaceVoiceoverVideo(); }}>
           {source ? d.t('video.vo_pick_other') : d.t('video.dir_add_video')}
         </button>
       </div>
@@ -269,7 +275,7 @@ function StageAnalyze(): ReactNode {
             {busy ? d.t('video.vo_analyzing') : d.t('video.vo_reanalyze')}
           </button>
         ) : null}
-        <button type="button" className={vp.toolBtn} onClick={d.pickVideo} disabled={busy}>
+        <button type="button" className={vp.toolBtn} onClick={() => { void d.replaceVoiceoverVideo(); }} disabled={busy}>
           {d.t('video.vo_pick_other')}
         </button>
       </div>
@@ -373,6 +379,27 @@ function StageBrief(): ReactNode {
   return (
     <div className={s.stageBody}>
       <LlmEngineNotice />
+      <div className={s.modelSelectRow}>
+        <span className={s.modelSelectLabel}>{d.t('video.pipe_model_label')}:</span>
+        <select
+          className={s.modelSelect}
+          value={d.scriptModel}
+          onChange={(e) => d.setScriptModel(e.target.value)}
+          disabled={busy}
+        >
+          <option value="qwen2.5:14b">Qwen 2.5 14B (Высокое качество, точные тайминги)</option>
+          <option value="qwen2.5:7b">Qwen 2.5 7B (Быстрая)</option>
+        </select>
+        <button
+          type="button"
+          className={vp.toolBtn}
+          onClick={d.loadMarketplacePack}
+          disabled={busy}
+          title="Загрузить готовый сценарий трейлера с 8 блоками и таймкодами"
+        >
+          ⚡ {d.t('video.pipe_load_marketplace_pack')}
+        </button>
+      </div>
       <label className={vp.voPromptLabel}>
         <span>{d.t('video.vo_script_prompt')}</span>
         <textarea
@@ -701,6 +728,7 @@ function StageScript({ active }: { active: boolean }): ReactNode {
           overlayPos={d.overlayPos}
           onOverlayMove={d.setOverlayPos}
           active={active}
+          fallbackSource={d.voiceoverSource}
           onDecodeFail={(binId) => {
             const bin = d.bins.find((item) => item.id === binId);
             if (!bin || bin.proxying) return;
@@ -712,7 +740,7 @@ function StageScript({ active }: { active: boolean }): ReactNode {
             type="button"
             className={vp.toolBtn}
             onClick={d.togglePlay}
-            disabled={d.clips.length === 0}
+            disabled={d.clips.length === 0 && !d.voiceoverSource?.path}
           >
             {d.playing ? d.t('video.dir_pause') : d.t('video.dir_play')}
           </button>
@@ -769,32 +797,42 @@ function StageVoice(): ReactNode {
           </div>
         </details>
       ) : null}
-      <div className={vp.toolRow}>
-        <button
-          type="button"
-          className={vp.toolPrimary}
-          onClick={d.applyScriptVoiceover}
-          disabled={busy || !d.ttsReady}
-        >
-          {d.voiceoverApplyBusy
-            ? d.t('video.vo_voice_applying', {
-                current: d.voiceoverApplyProgress.current,
-                total: d.voiceoverApplyProgress.total,
-              })
-            : voiced
-              ? d.t('video.vo_voice_apply_again')
-              : d.t('video.vo_voice_apply')}
-        </button>
-      </div>
-      {d.voiceoverApplyBusy ? (
-        <p className={vp.hintTight}>{d.voiceoverApplyProgress.detail}</p>
-      ) : null}
-      {d.voiceoverApplyError ? <p className={vp.error}>{d.voiceoverApplyError}</p> : null}
-      {voiced ? (
-        <p className={vp.voScriptStatus}>{d.t('video.vo_after_voice_hint')}</p>
-      ) : (
-        <p className={vp.hintTight}>{d.t('video.vo_voice_apply_hint')}</p>
-      )}
+      {(() => {
+        const hasValidSample = Boolean(d.voiceHasSample && (d.voiceSampleSec ?? 0) >= 0.5);
+        const canApply = !busy && d.ttsReady && hasValidSample;
+        return (
+          <>
+            <div className={vp.toolRow}>
+              <button
+                type="button"
+                className={vp.toolPrimary}
+                onClick={d.applyScriptVoiceover}
+                disabled={!canApply}
+              >
+                {d.voiceoverApplyBusy
+                  ? d.t('video.vo_voice_applying', {
+                      current: d.voiceoverApplyProgress.current,
+                      total: d.voiceoverApplyProgress.total,
+                    })
+                  : voiced
+                    ? d.t('video.vo_voice_apply_again')
+                    : d.t('video.vo_voice_apply')}
+              </button>
+            </div>
+            {d.voiceoverApplyBusy ? (
+              <p className={vp.hintTight}>{d.voiceoverApplyProgress.detail}</p>
+            ) : null}
+            {d.voiceoverApplyError ? <p className={vp.error}>{d.voiceoverApplyError}</p> : null}
+            {!hasValidSample ? (
+              <p className={vp.hintTight}>{d.t('video.vo_sample_need_record')}</p>
+            ) : voiced ? (
+              <p className={vp.voScriptStatus}>{d.t('video.vo_after_voice_hint')}</p>
+            ) : (
+              <p className={vp.hintTight}>{d.t('video.vo_voice_apply_hint')}</p>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 }

@@ -31,10 +31,10 @@ export interface NavigationEntry extends NavItem {
 /** Primary navigation order — matches the product information architecture. */
 export const NAVIGATION_ITEMS: readonly NavigationEntry[] = [
   { id: 'home',     label: 'Home',     Icon: HomeIcon },
+  { id: 'projects', label: 'Projects', Icon: FolderIcon },
+  { id: 'video',    label: 'Video',    Icon: FilmIcon },
   { id: 'create',   label: 'Create',   Icon: SparklesIcon },
   { id: 'threed',   label: '3D',       Icon: CubeIcon },
-  { id: 'video',    label: 'Video',    Icon: FilmIcon },
-  { id: 'projects', label: 'Projects', Icon: FolderIcon },
   { id: 'assets',   label: 'Assets',   Icon: LayersIcon },
   { id: 'studio',   label: 'Studio',   Icon: SlidersIcon },
   { id: 'settings', label: 'Settings', Icon: SettingsIcon },

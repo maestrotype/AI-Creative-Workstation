@@ -25,6 +25,7 @@ import {
   packTrack,
   snapStart,
   splitClipAt,
+  detachAudioFromClip,
   insertClipOnTrack,
   trackHasGap,
   maxDurationBeforeNext,
@@ -41,9 +42,9 @@ import {
   type TrackLayout,
 } from '../model/directorTimeline';
 import { assembleShots, planToTimeline, promptForPurpose, type AssembleFootage } from '../model/autoAssemble';
-import { shotFromGeneration, type FilmShot, type FilmTimeline, type ProjectDoc, type ShotPurpose } from '../../projects/model/project';
+import { sceneHasMedia, shotFromGeneration, type FilmShot, type FilmTimeline, type ProjectDoc, type ShotPurpose } from '../../projects/model/project';
 import { DEFAULT_TRACK_LAYOUT } from '../model/directorTimeline';
-import { takeProjectHandoff } from '../../projects/model/handoff';
+import { sourcesFromScenes, takeProjectHandoff } from '../../projects/model/handoff';
 import { loadDirectorSession, saveDirectorSession, type DirectorSession } from '../model/directorSessionStore';
 import {
   applyStillCompose,
@@ -61,6 +62,7 @@ import {
 import { hasScreencastBin, v1Clips, visualTimelineFingerprint } from '../model/filmVisual';
 import type { VideoAnalysisContext } from '../model/videoAnalysis';
 import type { VoiceoverScript } from '../model/voiceoverScript';
+import { MARKETPLACE_V0_BLOCKS, MARKETPLACE_PROJECT_BRIEF } from '../model/marketplaceVoiceoverPack';
 
 const LABEL_W = 118;
 
@@ -140,6 +142,10 @@ type DirectorSnap = {
   addCaption: () => void;
   removeClip: (id: string) => void;
   splitAtPlayhead: () => void;
+  canDetachAudio: boolean;
+  isSelectedClipMuted: boolean;
+  detachSelectedAudio: () => void;
+  toggleSelectedMute: () => void;
   clearTrack: (track: TrackId) => void;
   onClipPointerDown: (e: PointerEvent<HTMLElement>, clip: TimelineClip, mode: DragState['mode']) => void;
   onClipPointerMove: (e: PointerEvent<HTMLElement>) => void;
@@ -163,6 +169,8 @@ type DirectorSnap = {
   voiceSampleWarning: string | null;
   voiceSamplePeakDb: number | null;
   voiceSampleName: string | null;
+  voiceSamplePath: string | null;
+  voiceSampleSourcePath: string | null;
   libraryAudio: Array<{ path: string; name: string }>;
   toggleVoiceRecord: () => void;
   voiceSampleRecording: boolean;
@@ -191,8 +199,12 @@ type DirectorSnap = {
   openVoiceover: () => void;
   analyzeVoiceover: () => void;
   reanalyzeVoiceover: () => void;
+  replaceVoiceoverVideo: (specificPath?: string) => Promise<void>;
   scriptBusy: boolean;
   scriptError: string | null;
+  scriptModel: string;
+  setScriptModel: (model: string) => void;
+  loadMarketplacePack: () => void;
   setScriptPrompt: (prompt: string) => void;
   setProjectContext: (value: string) => void;
   generateScript: () => void;
@@ -409,6 +421,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const [voiceoverProgress, setVoiceoverProgress] = useState({ stage: 'idle', percent: 0, detail: '' });
   const [scriptBusy, setScriptBusy] = useState(false);
   const [scriptError, setScriptError] = useState<string | null>(null);
+  const [scriptModel, setScriptModel] = useState('qwen2.5:14b');
   const [voiceoverApplyBusy, setVoiceoverApplyBusy] = useState(false);
   const [voiceoverApplyError, setVoiceoverApplyError] = useState<string | null>(null);
   const [voiceoverApplyProgress, setVoiceoverApplyProgress] = useState({ current: 0, total: 0, detail: '' });
@@ -421,6 +434,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const [voiceSampleWarning, setVoiceSampleWarning] = useState<string | null>(null);
   const [voiceSamplePeakDb, setVoiceSamplePeakDb] = useState<number | null>(null);
   const [voiceSampleName, setVoiceSampleName] = useState<string | null>(null);
+  const [voiceSamplePath, setVoiceSamplePath] = useState<string | null>(null);
+  const [voiceSampleSourcePath, setVoiceSampleSourcePath] = useState<string | null>(null);
   const [libraryAudio, setLibraryAudio] = useState<Array<{ path: string; name: string }>>([]);
   const blobs = useFileBlobs(bins.filter((b) => b.kind !== 'image' && !b.proxying).map((b) => b.path));
 
@@ -448,7 +463,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     const layout = effectiveTrackLayout(list, trackLayoutRef.current);
     const key = buildTrackList(layout).map(({ id }) => clipAtTime(list, id, sec)?.id).join('|');
     const now = performance.now();
-    if (!force && key === liveKeyRef.current) return;
+    if (!force && key === liveKeyRef.current && now - lastReactRef.current < 120) return;
     liveKeyRef.current = key;
     lastReactRef.current = now;
     setPlayhead(sec);
@@ -484,6 +499,47 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     const fp = visualTimelineFingerprint(clips, bins);
     setAssembledPreview((prev) => (prev && prev.fingerprint !== fp ? null : prev));
   }, [clips, bins]);
+
+  useEffect(() => {
+    if (!voiceoverSource?.path) return;
+    const path = voiceoverSource.path;
+    const dur = Math.max(0.5, voiceoverSource.durationSec || 10);
+    setClips((prev) => {
+      const hasV1Video = prev.some((c) => {
+        if (c.track !== 'v1') return false;
+        const b = binsRef.current.find((item) => item.id === c.binId);
+        return b?.kind === 'video';
+      });
+      if (hasV1Video) return prev;
+      let bin = binsRef.current.find((b) => b.path === path);
+      let binId = bin?.id;
+      if (!bin) {
+        binId = newId('bin');
+        const newBin: BinItem = {
+          id: binId,
+          kind: 'video',
+          path,
+          name: voiceoverSource.name || fileName(path),
+          durationSec: dur,
+          inSec: 0,
+          outSec: dur,
+          durationKnown: true,
+        };
+        setBins((bPrev) => (bPrev.some((x) => x.id === binId) ? bPrev : [...bPrev, newBin]));
+      }
+      const clip: TimelineClip = {
+        id: newId('clip'),
+        binId: binId!,
+        track: 'v1',
+        startSec: 0,
+        durationSec: dur,
+        sourceInSec: 0,
+        label: voiceoverSource.name || fileName(path),
+        autoLength: true,
+      };
+      return [clip, ...prev.filter((c) => c.track !== 'v1')];
+    });
+  }, [voiceoverSource?.path, voiceoverSource?.durationSec]);
 
   useEffect(() => {
     const longest = pickLongestVideoBin(bins);
@@ -533,7 +589,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     [clips, trackLayout],
   );
   const tracks = useMemo(() => buildTrackList(effectiveLayout), [effectiveLayout]);
-  const total = timelineLength(clips, 8);
+  const total = Math.max(timelineLength(clips, 8), voiceoverSource?.durationSec ?? 0);
   totalRef.current = total;
   const fitPxPerSec = Math.max(1.2, (Math.max(viewW, 240) - LABEL_W - 20) / Math.max(total, 1));
   const minPxPerSec = fitPxPerSec;
@@ -652,6 +708,38 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         }
         if (typeof tl.pxPerSec === 'number') setPxPerSec(tl.pxPerSec);
         if (tl.assembly?.rationale) setAssemblyRationale(tl.assembly.rationale);
+      } else if (film.scenes && Array.isArray(film.scenes) && film.scenes.some(sceneHasMedia)) {
+        const sceneSources = sourcesFromScenes(film);
+        let vCursor = 0;
+        const newBins: BinItem[] = [];
+        const newClips: TimelineClip[] = [];
+        for (const s of sceneSources) {
+          const binId = newId('bin');
+          const dur = Math.max(0.5, s.durationSec || 8);
+          newBins.push({
+            id: binId,
+            kind: s.kind,
+            path: s.path,
+            name: s.name || fileName(s.path),
+            durationSec: dur,
+            inSec: 0,
+            outSec: dur,
+            durationKnown: true,
+          });
+          newClips.push({
+            id: newId('clip'),
+            binId,
+            track: 'v1',
+            startSec: vCursor,
+            durationSec: dur,
+            sourceInSec: 0,
+            label: s.name || fileName(s.path),
+            autoLength: true,
+          });
+          vCursor += dur;
+        }
+        setBins(newBins);
+        setClips(newClips);
       } else if (film.shots?.length) {
         setBins((prev) => mergeShotBins(prev, film.shots));
       } else if (film.assembledPath) {
@@ -814,7 +902,9 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   };
 
   const togglePlay = () => {
-    if (clipsRef.current.length === 0) return;
+    const hasClips = clipsRef.current.length > 0;
+    const hasVoiceSource = Boolean(voiceoverSource?.path);
+    if (!hasClips && !hasVoiceSource) return;
     if (playheadRef.current >= totalRef.current - 0.05) {
       paintPlayhead(0);
       pushPlayheadReact(0, true);
@@ -1014,6 +1104,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
             start_sec: clip.startSec,
             duration_sec: clip.durationSec,
             source_in_sec: clip.sourceInSec,
+            muted: Boolean(clip.muted),
           };
         }),
       });
@@ -1132,6 +1223,48 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     addBin('video', path, dur, undefined, known);
   };
 
+  const replaceVoiceoverVideo = async (specificPath?: string) => {
+    const path = specificPath || (await window.api?.pickVideo?.());
+    if (!path) return;
+    const { dur, known } = await probeDuration(path, 'video');
+    const newBinId = newId('bin');
+    const newBin: BinItem = {
+      id: newBinId,
+      kind: 'video',
+      path,
+      name: fileName(path),
+      durationSec: dur,
+      inSec: 0,
+      outSec: dur,
+      durationKnown: known,
+    };
+    setBins((prev) => [...prev.filter((b) => b.kind !== 'video' || b.path !== path), newBin]);
+    setSelectedBin(newBinId);
+    const clip: TimelineClip = {
+      id: newId('clip'),
+      binId: newBinId,
+      track: 'v1',
+      startSec: 0,
+      durationSec: dur,
+      sourceInSec: 0,
+      label: newBin.name,
+      autoLength: true,
+    };
+    setClips((prev) => [clip, ...prev.filter((c) => c.track !== 'v1')]);
+    setSelectedClip(clip.id);
+    setVoiceover((prev) => ({
+      ...prev,
+      sourcePath: path,
+      sourceBinId: newBinId,
+      analysis: null,
+      script: null,
+      status: 'idle',
+    }));
+    setVoiceoverError(null);
+    setScriptError(null);
+    seekTo(0);
+  };
+
   const pickImage = async () => {
     const path = await window.api?.pickImage?.();
     if (path) addBin('image', path, 4);
@@ -1245,15 +1378,26 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     try {
       const profile = await window.api?.getVoiceProfile?.();
       if (profile) {
-        hasSample = Boolean(profile.has_sample);
+        hasSample = Boolean(
+          profile.has_sample &&
+          profile.sample_sec != null &&
+          profile.sample_sec >= 0.5 &&
+          profile.sample_warning !== 'SAMPLE_EMPTY',
+        );
         engineReady = Boolean(profile.tts_ready);
         setVoiceSampleSec(profile.sample_sec ?? null);
         setVoiceSampleWarning(profile.sample_warning ?? null);
         setVoiceSamplePeakDb(profile.sample_peak_db ?? null);
         setVoiceSampleName(profile.source_name ?? profile.source_path ?? null);
+        setVoiceSamplePath(hasSample ? (profile.file_path ?? null) : null);
+        setVoiceSampleSourcePath(profile.source_path ?? null);
+      } else {
+        setVoiceSamplePath(null);
+        setVoiceSampleSourcePath(null);
       }
     } catch {
-      /* optional */
+      setVoiceSamplePath(null);
+      setVoiceSampleSourcePath(null);
     }
     try {
       const engine = await window.api?.getVoiceEngineStatus?.();
@@ -1468,6 +1612,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     if (
       picture.length === 1
       && onlyBin?.path
+      && onlyBin.kind === 'video'
       && Math.abs(only.sourceInSec) < 0.05
       && Math.abs(only.durationSec - (onlyBin.durationSec || only.durationSec)) < 0.12
     ) {
@@ -1490,6 +1635,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           start_sec: clip.startSec,
           duration_sec: clip.durationSec,
           source_in_sec: clip.sourceInSec,
+          muted: Boolean(clip.muted),
         };
       }),
     });
@@ -1666,6 +1812,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         project_context: voiceover.projectContext,
         language: 'ru',
         target_wpm: 130,
+        ollama_model: scriptModel,
       });
       const script: VoiceoverScript = {
         segments: result.segments,
@@ -1685,6 +1832,35 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     } finally {
       setScriptBusy(false);
     }
+  };
+
+  const loadMarketplacePack = () => {
+    setVoiceover((prev) => ({
+      ...prev,
+      projectContext: MARKETPLACE_PROJECT_BRIEF,
+      scriptPrompt: 'Marketplace promo trailer (V0)',
+      script: {
+        segments: MARKETPLACE_V0_BLOCKS.map((b) => ({
+          start_sec: b.startSec,
+          end_sec: b.endSec,
+          text: b.voiceoverRu,
+          role: b.code === 'A' ? 'hook' : b.code === 'H' ? 'cta' : 'feature',
+          purpose: b.title,
+          speak: true,
+          window_sec: b.endSec - b.startSec,
+          target_words: Math.round(((b.endSec - b.startSec) / 60) * 130 * 0.75),
+        })),
+        meta: {
+          tone: 'commercial',
+          language: 'ru',
+          words_per_min: 130,
+          provider: 'preset',
+          model: 'preset:marketplace_v0',
+        },
+      },
+      status: 'scripted',
+    }));
+    setScriptError(null);
   };
 
   const updateScriptSegment = (
@@ -1962,6 +2138,33 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     const next = splitClipAt(clipsRef.current, target.id, at);
     if (next === clipsRef.current) return;
     setClips(next);
+  };
+
+  const currentSelectedClipObj = selectedClip ? clips.find((c) => c.id === selectedClip) : null;
+  const isSelectedClipMuted = Boolean(currentSelectedClipObj?.muted);
+
+  const canDetachAudio = Boolean(
+    currentSelectedClipObj &&
+    currentSelectedClipObj.track.startsWith('v') &&
+    currentSelectedClipObj.binId &&
+    bins.some((b) => b.id === currentSelectedClipObj.binId && b.kind === 'video'),
+  );
+
+  const toggleSelectedMute = () => {
+    if (!selectedClip) return;
+    setClips((prev) =>
+      prev.map((c) => (c.id === selectedClip ? { ...c, muted: !c.muted } : c)),
+    );
+  };
+
+  const detachSelectedAudio = () => {
+    if (!selectedClip) return;
+    const { nextClips, nextBins, newClipId } = detachAudioFromClip(clipsRef.current, binsRef.current, selectedClip);
+    if (newClipId) {
+      setBins(nextBins);
+      setClips(nextClips);
+      setSelectedClip(newClipId);
+    }
   };
 
   const addShotToTimeline = (shotId: string) => {
@@ -2444,6 +2647,10 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     addCaption,
     removeClip,
     splitAtPlayhead,
+    canDetachAudio,
+    isSelectedClipMuted,
+    detachSelectedAudio,
+    toggleSelectedMute,
     clearTrack,
     onClipPointerDown,
     onClipPointerMove,
@@ -2468,6 +2675,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     voiceSampleWarning,
     voiceSamplePeakDb,
     voiceSampleName,
+    voiceSamplePath,
+    voiceSampleSourcePath,
     libraryAudio,
     toggleVoiceRecord: () => { void toggleVoiceRecord(); },
     toggleVoiceSampleRecord: () => { void toggleVoiceSampleRecord(); },
@@ -2497,8 +2706,12 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     openVoiceover,
     analyzeVoiceover: () => { void analyzeVoiceover(false); },
     reanalyzeVoiceover,
+    replaceVoiceoverVideo,
     scriptBusy,
     scriptError,
+    scriptModel,
+    setScriptModel,
+    loadMarketplacePack,
     setScriptPrompt,
     setProjectContext,
     generateScript: () => { void generateScript(); },

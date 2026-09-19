@@ -19,14 +19,26 @@ def ffprobe_bin() -> str:
 
 
 def video_duration_sec(path: str) -> float:
+    if not os.path.exists(path):
+        return 5.0
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"):
+        return 5.0
+
     probe = ffprobe_bin()
-    result = subprocess.run(
-        [probe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return float(result.stdout.strip())
+    for entry in ("format=duration", "stream=duration"):
+        cmd = [probe, "-v", "error", "-show_entries", entry, "-of", "csv=p=0", path]
+        try:
+            result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+            for line in (result.stdout or "").splitlines():
+                line = line.strip()
+                if line and line != "N/A":
+                    val = float(line)
+                    if val > 0:
+                        return val
+        except (ValueError, TypeError, OSError):
+            continue
+    return 5.0
 
 
 def audio_duration_sec(path: str) -> float:

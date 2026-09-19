@@ -130,9 +130,18 @@ def analyze_video(
     try:
         if duration_sec is None:
             _progress_cb("probe", 8, "Reading duration")
-            duration_sec = video_duration_sec(resolved)
+            try:
+                duration_sec = video_duration_sec(resolved)
+            except Exception:
+                duration_sec = 5.0
         else:
-            duration_sec = float(duration_sec)
+            try:
+                duration_sec = float(duration_sec)
+            except (ValueError, TypeError):
+                duration_sec = 5.0
+
+        if not duration_sec or duration_sec <= 0:
+            duration_sec = 5.0
 
         scenes: List[Dict[str, Any]] = []
         if scene_detect:

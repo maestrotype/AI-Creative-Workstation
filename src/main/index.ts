@@ -5,7 +5,8 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 // import icon from '../../resources/icon.png?asset'
 
 import { spawn, spawnSync, ChildProcess, execFileSync } from 'child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, statfsSync, unlinkSync, writeFileSync } from 'fs';
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, statfsSync, unlinkSync, writeFileSync } from 'fs';
+import { Readable } from 'stream';
 import { homedir, freemem, totalmem } from 'os';
 import { initDb, getDb } from './db';
 import { models, settings } from './db/schema';
@@ -1432,7 +1433,25 @@ function setupIpc() {
   ipcMain.handle('delete-project', async (_, id: string) => ({ deleted: deleteProject(id) }));
 
   ipcMain.handle('import-into-project', async (_, payload: { projectId: string; path: string }) => {
-    return { file_path: importIntoProject(payload.projectId, payload.path) };
+    const filePath = importIntoProject(payload.projectId, payload.path);
+    let posterPath: string | null = null;
+    const isVideo = /\.(mp4|mov|m4v|webm|mkv)$/i.test(filePath);
+    if (isVideo) {
+      try {
+        const outPoster = `${filePath}.poster.jpg`;
+        await runFfmpeg(['-y', '-ss', '0.5', '-i', filePath, '-vframes', '1', '-q:v', '2', outPoster]);
+        if (existsSync(outPoster)) posterPath = outPoster;
+      } catch {
+        try {
+          const outPoster = `${filePath}.poster.jpg`;
+          await runFfmpeg(['-y', '-ss', '0.0', '-i', filePath, '-vframes', '1', '-q:v', '2', outPoster]);
+          if (existsSync(outPoster)) posterPath = outPoster;
+        } catch {
+          // ignore poster error
+        }
+      }
+    }
+    return { file_path: filePath, poster_path: posterPath };
   });
 
   ipcMain.handle('render-timeline', async (_, payload: {
@@ -2468,13 +2487,81 @@ function assetPathFromUrl(url: string): string {
   return decoded.startsWith('/') ? decoded : `/${decoded}`;
 }
 
+function getMimeType(filePath: string): string {
+  const ext = extname(filePath).toLowerCase();
+  const mimes: Record<string, string> = {
+    '.mp4': 'video/mp4',
+    '.webm': 'video/webm',
+    '.mov': 'video/quicktime',
+    '.mkv': 'video/x-matroska',
+    '.mp3': 'audio/mpeg',
+    '.wav': 'audio/wav',
+    '.m4a': 'audio/mp4',
+    '.aac': 'audio/aac',
+    '.ogg': 'audio/ogg',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.svg': 'image/svg+xml',
+  };
+  return mimes[ext] || 'application/octet-stream';
+}
+
 function serveAssetFile(request: Request): Response | Promise<Response> {
   const filePath = assetPathFromUrl(request.url);
   if (!existsSync(filePath)) {
     return new Response('Not found', { status: 404 });
   }
-  // file:// lets Chromium range-request MP4s (needed when moov is at the end).
-  return net.fetch(pathToFileURL(filePath).href);
+
+  try {
+    const stat = statSync(filePath);
+    if (!stat.isFile()) {
+      return new Response('Not a file', { status: 400 });
+    }
+
+    const mimeType = getMimeType(filePath);
+    const rangeHeader = request.headers.get('range');
+
+    if (rangeHeader && stat.size > 0) {
+      const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
+      if (match) {
+        const start = match[1] ? parseInt(match[1], 10) : 0;
+        const end = match[2] ? parseInt(match[2], 10) : stat.size - 1;
+        const boundedStart = Math.max(0, Math.min(start, stat.size - 1));
+        const boundedEnd = Math.max(boundedStart, Math.min(end, stat.size - 1));
+        const chunkSize = boundedEnd - boundedStart + 1;
+
+        const nodeStream = createReadStream(filePath, { start: boundedStart, end: boundedEnd });
+        const webStream = Readable.toWeb(nodeStream);
+
+        return new Response(webStream as BodyInit, {
+          status: 206,
+          statusText: 'Partial Content',
+          headers: {
+            'Content-Range': `bytes ${boundedStart}-${boundedEnd}/${stat.size}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': String(chunkSize),
+            'Content-Type': mimeType,
+          },
+        });
+      }
+    }
+
+    const nodeStream = createReadStream(filePath);
+    const webStream = Readable.toWeb(nodeStream);
+    return new Response(webStream as BodyInit, {
+      status: 200,
+      headers: {
+        'Accept-Ranges': 'bytes',
+        'Content-Length': String(stat.size),
+        'Content-Type': mimeType,
+      },
+    });
+  } catch {
+    return net.fetch(pathToFileURL(filePath).href);
+  }
 }
 
 function createWindow(): void {

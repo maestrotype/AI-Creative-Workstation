@@ -59,6 +59,187 @@ function formatClock(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+function ProductBrollPanel({
+  doc,
+  shotBusy,
+  busyScene,
+  shotLength,
+  setShotLength,
+  assembleTarget,
+  setAssembleTarget,
+  pickProductStill,
+  generateProductShots,
+  openEditorFromShots,
+  openDirector,
+  showBroll,
+  setShowBroll,
+}: {
+  doc: ProjectDoc;
+  shotBusy: boolean;
+  busyScene: string | null;
+  shotLength: number;
+  setShotLength: (v: number) => void;
+  assembleTarget: number;
+  setAssembleTarget: (v: number) => void;
+  pickProductStill: () => Promise<void>;
+  generateProductShots: () => Promise<void>;
+  openEditorFromShots: (assemble: boolean) => Promise<void>;
+  openDirector: (voice?: boolean) => void;
+  showBroll: boolean;
+  setShowBroll: (v: boolean | ((prev: boolean) => boolean)) => void;
+}): ReactNode {
+  const { t } = useTranslation();
+  return (
+    <section className={styles.productPanel}>
+      <div
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+        onClick={() => setShowBroll((v) => !v)}
+      >
+        <div>
+          <h2 className={styles.h2} style={{ marginBottom: 4 }}>
+            {showBroll ? '▾ ' : '▸ '} {t('projects.product_shots')}
+          </h2>
+          <p className={styles.muted}>{t('projects.product_shots_lead')}</p>
+        </div>
+        <button
+          type="button"
+          className={styles.ghostBtn}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowBroll((v) => !v);
+          }}
+        >
+          {showBroll ? t('projects.collapse_broll', 'Свернуть') : t('projects.expand_broll', 'Настроить B-roll')}
+        </button>
+      </div>
+
+      {showBroll ? (
+        <>
+          <div className={styles.productRow}>
+            <div className={styles.thumb}>
+              {doc.productStillPath ? (
+                <img src={toAssetUrl(doc.productStillPath)} alt="" />
+              ) : (
+                <span>📷</span>
+              )}
+            </div>
+            <div className={styles.productActions}>
+              <button type="button" className={styles.ghostBtn} onClick={() => void pickProductStill()} disabled={shotBusy}>
+                {t('projects.pick_product_still')}
+              </button>
+              <button
+                type="button"
+                className={styles.newButton}
+                disabled={shotBusy || busyScene !== null || !doc.productStillPath}
+                onClick={() => void generateProductShots()}
+              >
+                {shotBusy ? t('projects.generating') : t('projects.generate_shots')}
+              </button>
+              <label className={styles.dur}>
+                {t('projects.shot_length')}
+                <select
+                  value={shotLength}
+                  onChange={(e) => setShotLength(Number(e.target.value) || 1.7)}
+                >
+                  <option value={1.7}>1.7s</option>
+                  <option value={3.4}>3.4s</option>
+                  <option value={5}>5.0s</option>
+                </select>
+              </label>
+              <label className={styles.dur}>
+                {t('projects.assemble_target')}
+                <input
+                  type="number"
+                  min={4}
+                  max={30}
+                  step={1}
+                  value={assembleTarget}
+                  onChange={(e) => setAssembleTarget(Number(e.target.value) || 10)}
+                />
+              </label>
+              <button
+                type="button"
+                className={styles.ghostBtn}
+                disabled={shotBusy || (doc.shots ?? []).length === 0}
+                onClick={() => void openEditorFromShots(true)}
+              >
+                {t('projects.assemble_and_edit')}
+              </button>
+              <button
+                type="button"
+                className={styles.textBtn}
+                onClick={() => openDirector(false)}
+              >
+                {t('projects.open_editor')}
+              </button>
+            </div>
+          </div>
+          {(doc.shots ?? []).length > 0 ? (
+            <div className={styles.shotsGallery}>
+              {(doc.shots ?? []).map((shot, index) => (
+                <div key={shot.id} className={styles.shotGalleryCard}>
+                  <div className={styles.shotGalleryVideoWrap}>
+                    {shot.artifactPath ? (
+                      <video
+                        className={styles.shotGalleryVideo}
+                        src={toAssetUrl(shot.artifactPath)}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        onLoadedMetadata={(e) => {
+                          const vid = e.currentTarget;
+                          if (vid.duration > 0) {
+                            vid.currentTime = Math.min(1.5, vid.duration / 2);
+                          }
+                        }}
+                        onMouseEnter={(e) => {
+                          const vid = e.currentTarget;
+                          vid.loop = true;
+                          void vid.play().catch(() => {});
+                        }}
+                        onMouseLeave={(e) => {
+                          const vid = e.currentTarget;
+                          vid.pause();
+                          if (vid.duration > 0) {
+                            vid.currentTime = Math.min(1.5, vid.duration / 2);
+                          }
+                        }}
+                        onClick={() => openDirector(false)}
+                        title="Наведите для воспроизведения или нажмите для перехода в монтаж"
+                      />
+                    ) : (
+                      <div className={styles.shotPlaceholder}>🎬</div>
+                    )}
+                    <span className={styles.shotBadge}>
+                      {index + 1}. {shot.shotPurpose.replaceAll('_', ' ')}
+                    </span>
+                    <span className={styles.shotDur}>
+                      {shot.duration ? `${shot.duration.toFixed(1)}s` : '3.4s'}
+                    </span>
+                  </div>
+                  <div className={styles.shotCardFooter}>
+                    <span className={styles.shotMetaText}>
+                      {shot.modelId.split('/').pop() || shot.provider}
+                    </span>
+                    <button
+                      type="button"
+                      className={styles.ghostBtn}
+                      onClick={() => openDirector(false)}
+                      title={t('projects.open_editor')}
+                    >
+                      ▶ В монтаж
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 export function ProjectWorkspace(): ReactNode {
   const { t } = useTranslation();
   const { projectId } = useParams<{ projectId: string }>();
@@ -72,6 +253,8 @@ export function ProjectWorkspace(): ReactNode {
   const [shotBusy, setShotBusy] = useState(false);
   const [assembleTarget, setAssembleTarget] = useState(15);
   const [shotLength, setShotLength] = useState(3.4);
+  const [showBroll, setShowBroll] = useState(false);
+  const [dragOverSceneId, setDragOverSceneId] = useState<string | null>(null);
 
   const docRef = useRef<ProjectDoc | null>(null);
   docRef.current = doc;
@@ -112,6 +295,9 @@ export function ProjectWorkspace(): ReactNode {
         assembledFingerprint: loaded.assembledFingerprint ?? null,
       } as ProjectDoc;
       writeLastProjectId(loaded.id);
+      if (next.productStillPath || (next.shots && next.shots.length > 0)) {
+        setShowBroll(true);
+      }
       if (!loaded.brief.trim()) {
         void persist(next);
       } else {
@@ -399,10 +585,11 @@ export function ProjectWorkspace(): ReactNode {
     }
   };
 
-  const importClip = async (scene: ProjectScene) => {
-    const picked = await window.api.pickVideo?.();
+  const importClip = async (scene: ProjectScene, specificPath?: string) => {
+    const picked = specificPath ?? (await window.api.pickVideo?.());
     if (!picked || !window.api.importIntoProject) return;
     setBusyScene(scene.id);
+    setBusyKind('import');
     try {
       const latest = docRef.current ?? doc;
       const copied = await window.api.importIntoProject({ projectId: latest.id, path: picked });
@@ -411,14 +598,22 @@ export function ProjectWorkspace(): ReactNode {
         ...latest,
         scenes: latest.scenes.map((row) => (
           row.id === scene.id
-            ? { ...row, clipPath: copied.file_path, durationSec: duration > 0 ? Math.round(duration * 10) / 10 : row.durationSec, motion: 'import' }
+            ? {
+                ...row,
+                clipPath: copied.file_path,
+                stillPath: copied.poster_path || row.stillPath,
+                durationSec: duration > 0 ? Math.round(duration * 10) / 10 : row.durationSec,
+                motion: 'import',
+              }
             : row
         )),
       });
+      setStatus(t('projects.clip_attached'));
     } catch (err) {
       setError(ipcMessage(err));
     } finally {
       setBusyScene(null);
+      setBusyKind(null);
     }
   };
 
@@ -482,7 +677,6 @@ export function ProjectWorkspace(): ReactNode {
   const hasShots = (doc.shots ?? []).some((shot) => shot.artifactPath);
   const hasSceneMedia = doc.scenes.some(sceneHasMedia);
   const canFinish = hasShots || hasSceneMedia;
-  const filmStep = !doc.scenes.some(sceneHasMedia) ? 'shots' : doc.assembledPath ? 'voice' : 'picture';
 
   return (
     <div className={styles.container}>
@@ -536,130 +730,6 @@ export function ProjectWorkspace(): ReactNode {
       </nav>
       <p className={styles.lead}>{t(`projects.preset_lead_${preset}`)}</p>
 
-      <section className={styles.productPanel}>
-        <h2 className={styles.h2}>{t('projects.product_shots')}</h2>
-        <p className={styles.muted}>{t('projects.product_shots_lead')}</p>
-        <div className={styles.productRow}>
-          <div className={styles.thumb}>
-            {doc.productStillPath ? (
-              <img src={toAssetUrl(doc.productStillPath)} alt="" />
-            ) : (
-              <span>📷</span>
-            )}
-          </div>
-          <div className={styles.productActions}>
-            <button type="button" className={styles.ghostBtn} onClick={() => void pickProductStill()} disabled={shotBusy}>
-              {t('projects.pick_product_still')}
-            </button>
-            <button
-              type="button"
-              className={styles.newButton}
-              disabled={shotBusy || busyScene !== null || !doc.productStillPath}
-              onClick={() => void generateProductShots()}
-            >
-              {shotBusy ? t('projects.generating') : t('projects.generate_shots')}
-            </button>
-            <label className={styles.dur}>
-              {t('projects.shot_length')}
-              <select
-                value={shotLength}
-                onChange={(e) => setShotLength(Number(e.target.value) || 1.7)}
-              >
-                <option value={1.7}>1.7s</option>
-                <option value={3.4}>3.4s</option>
-                <option value={5}>5.0s</option>
-              </select>
-            </label>
-            <label className={styles.dur}>
-              {t('projects.assemble_target')}
-              <input
-                type="number"
-                min={4}
-                max={30}
-                step={1}
-                value={assembleTarget}
-                onChange={(e) => setAssembleTarget(Number(e.target.value) || 10)}
-              />
-            </label>
-            <button
-              type="button"
-              className={styles.ghostBtn}
-              disabled={shotBusy || (doc.shots ?? []).length === 0}
-              onClick={() => void openEditorFromShots(true)}
-            >
-              {t('projects.assemble_and_edit')}
-            </button>
-            <button
-              type="button"
-              className={styles.textBtn}
-              onClick={() => openDirector(false)}
-            >
-              {t('projects.open_editor')}
-            </button>
-          </div>
-        </div>
-        {(doc.shots ?? []).length > 0 ? (
-          <div className={styles.shotsGallery}>
-            {(doc.shots ?? []).map((shot, index) => (
-              <div key={shot.id} className={styles.shotGalleryCard}>
-                <div className={styles.shotGalleryVideoWrap}>
-                  {shot.artifactPath ? (
-                    <video
-                      className={styles.shotGalleryVideo}
-                      src={toAssetUrl(shot.artifactPath)}
-                      muted
-                      playsInline
-                      preload="metadata"
-                      onLoadedMetadata={(e) => {
-                        const vid = e.currentTarget;
-                        if (vid.duration > 0) {
-                          vid.currentTime = Math.min(1.5, vid.duration / 2);
-                        }
-                      }}
-                      onMouseEnter={(e) => {
-                        const vid = e.currentTarget;
-                        vid.loop = true;
-                        void vid.play().catch(() => {});
-                      }}
-                      onMouseLeave={(e) => {
-                        const vid = e.currentTarget;
-                        vid.pause();
-                        if (vid.duration > 0) {
-                          vid.currentTime = Math.min(1.5, vid.duration / 2);
-                        }
-                      }}
-                      onClick={() => openDirector(false)}
-                      title="Наведите для воспроизведения или нажмите для перехода в монтаж"
-                    />
-                  ) : (
-                    <div className={styles.shotPlaceholder}>🎬</div>
-                  )}
-                  <span className={styles.shotBadge}>
-                    {index + 1}. {shot.shotPurpose.replaceAll('_', ' ')}
-                  </span>
-                  <span className={styles.shotDur}>
-                    {shot.duration ? `${shot.duration.toFixed(1)}s` : '3.4s'}
-                  </span>
-                </div>
-                <div className={styles.shotCardFooter}>
-                  <span className={styles.shotMetaText}>
-                    {shot.modelId.split('/').pop() || shot.provider}
-                  </span>
-                  <button
-                    type="button"
-                    className={styles.ghostBtn}
-                    onClick={() => openDirector(false)}
-                    title={t('projects.open_editor')}
-                  >
-                    ▶ В монтаж
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </section>
-
       <label className={styles.field}>
         <span>{t('projects.brief')}</span>
         <textarea
@@ -690,16 +760,42 @@ export function ProjectWorkspace(): ReactNode {
       ) : (
         <ol className={styles.sceneList}>
           {doc.scenes.map((scene, index) => {
-            const thumb = scene.stillPath || scene.clipPath;
+            const isDragOver = dragOverSceneId === scene.id;
             return (
-              <li key={scene.id} className={styles.sceneCard}>
+              <li
+                key={scene.id}
+                className={`${styles.sceneCard} ${isDragOver ? styles.dragOver : ''}`}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDragOverSceneId(scene.id);
+                }}
+                onDragLeave={() => {
+                  setDragOverSceneId((prev) => (prev === scene.id ? null : prev));
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDragOverSceneId(null);
+                  const file = e.dataTransfer.files?.[0];
+                  const p = (file as unknown as { path?: string })?.path;
+                  if (p) {
+                    void importClip(scene, p);
+                  }
+                }}
+              >
                 <div className={styles.thumb}>
-                  {thumb ? (
-                    scene.clipPath && !scene.stillPath ? (
-                      <video src={toAssetUrl(scene.clipPath)} muted playsInline />
-                    ) : (
-                      <img src={toAssetUrl(scene.stillPath ?? thumb)} alt="" />
-                    )
+                  {scene.clipPath ? (
+                    <video
+                      className={styles.sceneVideo}
+                      src={toAssetUrl(scene.clipPath)}
+                      poster={scene.stillPath ? toAssetUrl(scene.stillPath) : undefined}
+                      controls
+                      preload="metadata"
+                      playsInline
+                    />
+                  ) : scene.stillPath ? (
+                    <img src={toAssetUrl(scene.stillPath)} alt="" />
                   ) : (
                     <span>{index + 1}</span>
                   )}
@@ -762,7 +858,7 @@ export function ProjectWorkspace(): ReactNode {
                       disabled={busyScene === scene.id}
                       onClick={() => void importClip(scene)}
                     >
-                      {t('projects.import_clip')}
+                      {scene.clipPath ? t('projects.replace_clip') : t('projects.import_clip')}
                     </button>
                     <button
                       type="button"
@@ -797,7 +893,9 @@ export function ProjectWorkspace(): ReactNode {
                       {busyScene === scene.id && busyKind === 'video' ? t('projects.generating') : t('projects.animate_optional')}
                     </button>
                     {scene.clipPath ? (
-                      <span className={styles.ok}>{t(`projects.motion_${scene.motion ?? 'import'}`)}</span>
+                      <span className={styles.clipAttachedBadge} title={scene.clipPath}>
+                        ✓ {t('projects.clip_attached')} ({scene.durationSec}s)
+                      </span>
                     ) : scene.stillPath ? (
                       <span className={styles.ok}>{t('projects.motion_still_motion')}</span>
                     ) : null}
@@ -808,6 +906,22 @@ export function ProjectWorkspace(): ReactNode {
           })}
         </ol>
       )}
+
+      <ProductBrollPanel
+        doc={doc}
+        shotBusy={shotBusy}
+        busyScene={busyScene}
+        shotLength={shotLength}
+        setShotLength={setShotLength}
+        assembleTarget={assembleTarget}
+        setAssembleTarget={setAssembleTarget}
+        pickProductStill={pickProductStill}
+        generateProductShots={generateProductShots}
+        openEditorFromShots={openEditorFromShots}
+        openDirector={openDirector}
+        showBroll={showBroll}
+        setShowBroll={setShowBroll}
+      />
 
       {(() => {
         const hasMedia = hasSceneMedia || hasShots;
@@ -823,24 +937,28 @@ export function ProjectWorkspace(): ReactNode {
 
       <footer className={styles.composeBar}>
         {doc.assembledPath ? (
-          <video className={styles.assembled} src={toAssetUrl(doc.assembledPath)} controls playsInline />
+          <div className={styles.assembledWrap}>
+            <video className={styles.assembled} src={toAssetUrl(doc.assembledPath)} controls playsInline />
+          </div>
         ) : null}
-        <button
-          type="button"
-          className={styles.newButton}
-          disabled={composing || busyScene !== null || !canFinish}
-          onClick={() => void finishInVideo()}
-        >
-          {composing ? t('projects.composing') : t('projects.finish_voice')}
-        </button>
-        <button
-          type="button"
-          className={styles.ghostBtn}
-          disabled={composing || busyScene !== null || !doc.scenes.some(sceneHasMedia)}
-          onClick={() => void compose()}
-        >
-          {t('projects.compose')}
-        </button>
+        <div className={styles.composeButtons}>
+          <button
+            type="button"
+            className={styles.newButton}
+            disabled={composing || busyScene !== null || !canFinish}
+            onClick={() => void finishInVideo()}
+          >
+            {composing ? t('projects.composing') : t('projects.finish_voice')}
+          </button>
+          <button
+            type="button"
+            className={styles.ghostBtn}
+            disabled={composing || busyScene !== null || !doc.scenes.some(sceneHasMedia)}
+            onClick={() => void compose()}
+          >
+            {t('projects.compose')}
+          </button>
+        </div>
       </footer>
       {status ? <p className={styles.status}>{status}</p> : null}
       {error ? <p className={styles.error}>{error}</p> : null}

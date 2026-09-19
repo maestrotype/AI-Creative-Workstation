@@ -116,30 +116,40 @@ export function VoiceoverScriptEditor(): ReactNode {
           </div>
           <div className={styles.voNextStep}>
             <VoiceSampleSetup />
-            <button
-              type="button"
-              className={styles.toolPrimary}
-              onClick={d.applyScriptVoiceover}
-              disabled={busy || !d.ttsReady}
-            >
-              {d.voiceoverApplyBusy
-                ? d.t('video.vo_voice_applying', {
-                    current: d.voiceoverApplyProgress.current,
-                    total: d.voiceoverApplyProgress.total,
-                  })
-                : voiced
-                  ? d.t('video.vo_voice_apply_again')
-                  : d.t('video.vo_voice_apply')}
-            </button>
-            {d.voiceoverApplyBusy ? (
-              <p className={styles.hintTight}>{d.voiceoverApplyProgress.detail}</p>
-            ) : null}
-            {d.voiceoverApplyError ? <p className={styles.error}>{d.voiceoverApplyError}</p> : null}
-            {voiced ? (
-              <p className={styles.voScriptStatus}>{d.t('video.vo_after_voice_hint')}</p>
-            ) : (
-              <p className={styles.hintTight}>{d.t('video.vo_voice_apply_hint')}</p>
-            )}
+            {(() => {
+              const hasValidSample = Boolean(d.voiceHasSample && (d.voiceSampleSec ?? 0) >= 0.5);
+              const canApply = !busy && d.ttsReady && hasValidSample;
+              return (
+                <>
+                  <button
+                    type="button"
+                    className={styles.toolPrimary}
+                    onClick={d.applyScriptVoiceover}
+                    disabled={!canApply}
+                  >
+                    {d.voiceoverApplyBusy
+                      ? d.t('video.vo_voice_applying', {
+                          current: d.voiceoverApplyProgress.current,
+                          total: d.voiceoverApplyProgress.total,
+                        })
+                      : voiced
+                        ? d.t('video.vo_voice_apply_again')
+                        : d.t('video.vo_voice_apply')}
+                  </button>
+                  {d.voiceoverApplyBusy ? (
+                    <p className={styles.hintTight}>{d.voiceoverApplyProgress.detail}</p>
+                  ) : null}
+                  {d.voiceoverApplyError ? <p className={styles.error}>{d.voiceoverApplyError}</p> : null}
+                  {!hasValidSample ? (
+                    <p className={styles.hintTight}>{d.t('video.vo_sample_need_record')}</p>
+                  ) : voiced ? (
+                    <p className={styles.voScriptStatus}>{d.t('video.vo_after_voice_hint')}</p>
+                  ) : (
+                    <p className={styles.hintTight}>{d.t('video.vo_voice_apply_hint')}</p>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </>
       ) : (

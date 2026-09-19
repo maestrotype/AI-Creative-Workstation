@@ -76,6 +76,29 @@ def main() -> int:
         print(json.dumps({"ok": False, "error": "no items"}))
         return 2
 
+    if not speaker or not os.path.isfile(speaker) or os.path.getsize(speaker) <= 44:
+        print(json.dumps({
+            "ok": False,
+            "error": "Файл образца голоса пуст или отсутствует. Запишите голос заново (рекомендуется от 5-10 сек)."
+        }))
+        return 2
+
+    try:
+        import soundfile as sf
+        info = sf.info(speaker)
+        if info.frames == 0 or info.duration < 0.5:
+            print(json.dumps({
+                "ok": False,
+                "error": f"Образец голоса слишком короткий ({info.duration:.1f} сек) или пустой. Пожалуйста, запишите образец голоса от 5-10 секунд."
+            }))
+            return 2
+    except Exception as exc:
+        print(json.dumps({
+            "ok": False,
+            "error": f"Не удалось прочитать образец голоса: {exc}"
+        }))
+        return 2
+
     try:
         emit("import", 4, "Loading Coqui TTS")
         import torch
@@ -88,9 +111,8 @@ def main() -> int:
 
     try:
         import numpy as np
-        import soundfile as sf
     except ImportError:
-        print(json.dumps({"ok": False, "error": "missing-soundfile"}))
+        print(json.dumps({"ok": False, "error": "missing-numpy"}))
         return 3
 
     emit("loading_model", 12, "Loading XTTS model — first run downloads ~2 GB")
@@ -105,13 +127,20 @@ def main() -> int:
     model.eval()
 
     emit("conditioning", 22, "Analyzing your voice sample")
-    gpt_cond_latent, speaker_embedding = model.get_conditioning_latents(
-        audio_path=[speaker],
-        gpt_cond_len=GPT_COND_LEN,
-        max_ref_length=MAX_REF_LEN,
-        sound_norm_refs=True,
-        load_sr=REF_LOAD_SR,
-    )
+    try:
+        gpt_cond_latent, speaker_embedding = model.get_conditioning_latents(
+            audio_path=[speaker],
+            gpt_cond_len=GPT_COND_LEN,
+            max_ref_length=MAX_REF_LEN,
+            sound_norm_refs=True,
+            load_sr=REF_LOAD_SR,
+        )
+    except Exception as exc:
+        print(json.dumps({
+            "ok": False,
+            "error": f"Ошибка анализа образца голоса: {exc}. Пожалуйста, запишите образец голоса заново."
+        }))
+        return 2
 
     results = []
     total = len(items)

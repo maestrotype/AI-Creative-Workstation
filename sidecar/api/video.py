@@ -197,17 +197,11 @@ def _ffprobe_bin() -> str:
 
 
 def _video_duration_sec(path: str) -> float:
-    probe = _ffprobe_bin()
-    result = subprocess.run(
-        [probe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
     try:
-        return float(result.stdout.strip())
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Could not read video duration") from exc
+        from media_probe import video_duration_sec
+        return video_duration_sec(path)
+    except Exception:
+        return 5.0
 
 
 def _has_audio(path: str) -> bool:
@@ -354,6 +348,7 @@ class TimelineClipModel(BaseModel):
     duration_sec: float
     source_in_sec: float = 0.0
     effect: Optional[str] = None
+    muted: Optional[bool] = False
 
 
 class RenderTimelineRequest(BaseModel):
@@ -455,7 +450,10 @@ def _encode_segment(ffmpeg: str, clip: TimelineClipModel, dur: float, index: int
             out,
         ]
     else:
-        audio_map = ["-map", "0:a"] if _has_audio(src) else ["-map", "1:a"]
+        if clip.muted:
+            audio_map = ["-map", "1:a"]
+        else:
+            audio_map = ["-map", "0:a"] if _has_audio(src) else ["-map", "1:a"]
         cmd = [
             ffmpeg, "-y",
             "-ss", f"{max(0.0, clip.source_in_sec):.3f}", "-t", f"{dur:.3f}", "-i", src,

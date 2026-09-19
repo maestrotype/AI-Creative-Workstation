@@ -14,11 +14,20 @@ OLLAMA_URL = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
 
 
+def _safe_float(val: Any, default: float = 0.0) -> float:
+    if val is None or val == "" or val == "N/A":
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
 def _transcript_for_scene(segments: list[dict[str, Any]], start: float, end: float) -> str:
     parts: list[str] = []
     for seg in segments:
-        s = float(seg.get("start", 0))
-        e = float(seg.get("end", 0))
+        s = _safe_float(seg.get("start", 0))
+        e = _safe_float(seg.get("end", 0))
         if e <= start or s >= end:
             continue
         text = str(seg.get("text", "")).strip()
@@ -300,7 +309,7 @@ def _normalize_segments(raw: list[Any], duration_sec: float) -> list[dict[str, A
 
 
 def _scene_list(video_context: dict[str, Any]) -> list[dict[str, Any]]:
-    duration = float(video_context.get("duration_sec") or 60)
+    duration = _safe_float(video_context.get("duration_sec"), 60.0)
     scenes = list(video_context.get("scenes") or [])
     if not scenes:
         scenes = [{"index": 0, "start": 0.0, "end": duration}]
@@ -314,19 +323,13 @@ def _caption_for_window(video_context: dict[str, Any], start: float, end: float)
     for note in video_context.get("visual_notes") or []:
         if not isinstance(note, dict):
             continue
-        caption = str(note.get("caption") or "").strip()
-        if not caption:
-            continue
-        try:
-            t = float(note.get("time", -1))
-        except (TypeError, ValueError):
-            continue
-        if t < start - 0.4 or t > end + 0.4:
+        t = _safe_float(note.get("time"), -1.0)
+        if t < 0:
             continue
         dist = abs(t - mid)
-        if dist < best_dist:
+        if dist < best_dist and note.get("caption"):
             best_dist = dist
-            best = caption
+            best = str(note["caption"]).strip()
     return best
 
 
@@ -339,13 +342,13 @@ def _align_segments_to_scenes(
 ) -> list[dict[str, Any]]:
     """Force one script segment per detected scene, reusing LLM text where it overlaps."""
     scenes = _scene_list(video_context)
-    duration = float(video_context.get("duration_sec") or 60)
+    duration = _safe_float(video_context.get("duration_sec"), 60.0)
     topic = _brief_as_topic(prompt, language)
     aligned: list[dict[str, Any]] = []
 
     for i, scene in enumerate(scenes):
-        start = float(scene.get("start", 0))
-        end = float(scene.get("end", duration))
+        start = _safe_float(scene.get("start"), 0.0)
+        end = _safe_float(scene.get("end"), duration)
         window = max(0.4, end - start)
         text = ""
         role = "hook" if i == 0 else ("outro" if i == len(scenes) - 1 else "body")
@@ -556,14 +559,25 @@ def _resolve_ollama_model(preferred: str) -> str | None:
     names = _list_ollama_models()
     if not names:
         return None
-    if preferred in names:
+    if preferred and preferred in names:
         return preferred
-    vision = ("llava", "vision", "moondream", "vl:", "qwen2.5vl", "qwen2-vl")
+    vision = ("llava", "vision", "moondream", "vl:", "qwen2.5vl", "qwen2-vl", "qwen3-vl")
     text_models = [name for name in names if not any(token in name.lower() for token in vision)]
     pool = text_models or names
-    pref_root = preferred.split(":")[0]
+    if preferred:
+        pref_root = preferred.split(":")[0]
+        pref_tag = preferred.split(":")[1] if ":" in preferred else ""
+        for name in pool:
+            if pref_tag and pref_root in name and pref_tag in name:
+                return name
+        for name in pool:
+            if name.startswith(pref_root):
+                return name
     for name in pool:
-        if name.startswith(pref_root):
+        if "14b" in name.lower():
+            return name
+    for name in pool:
+        if "7b" in name.lower():
             return name
     return pool[0]
 
