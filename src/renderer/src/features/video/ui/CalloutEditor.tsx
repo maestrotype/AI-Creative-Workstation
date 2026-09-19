@@ -12,17 +12,18 @@ interface CalloutEditorProps {
 }
 
 const QUICK_PRESETS = [
-  'Нажмите сюда для перехода в админку',
-  'Кликните для смены темы',
-  'Главное меню навигации',
-  'Управление настройками',
-  'Оказавшись на этой странице вы можете...',
+  'Нажмите сюда',
+  'Кликните здесь',
+  'Click here',
+  'Tap to continue',
+  'See details below',
+  'Главное меню',
 ];
 
 export function CalloutEditor({ children, active = true }: CalloutEditorProps): ReactNode {
   const d = useDirector();
   const [mode, setMode] = useState<'view' | 'add'>('view');
-  const [selectedPreset, setSelectedPreset] = useState<string>(QUICK_PRESETS[0]);
+  const [calloutText, setCalloutText] = useState<string>(QUICK_PRESETS[0]);
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -43,12 +44,14 @@ export function CalloutEditor({ children, active = true }: CalloutEditorProps): 
     const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
     const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
 
+    const text = calloutText.trim() || QUICK_PRESETS[0];
+
     d.addCallout({
       startSec: d.playhead,
       endSec: d.playhead + 4.0,
       targetX: Math.round(x * 10) / 10,
       targetY: Math.round(y * 10) / 10,
-      text: selectedPreset,
+      text,
       theme: 'accent',
       pulse: true,
     });
@@ -107,21 +110,27 @@ export function CalloutEditor({ children, active = true }: CalloutEditorProps): 
 
         {mode === 'add' ? (
           <div className={s.presetsRow}>
-            <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>Шаблон:</span>
-            {QUICK_PRESETS.map((preset) => (
-              <button
-                key={preset}
-                type="button"
-                className={s.presetBtn}
-                style={{
-                  borderColor: selectedPreset === preset ? 'var(--color-accent)' : undefined,
-                  color: selectedPreset === preset ? 'var(--color-accent)' : undefined,
-                }}
-                onClick={() => setSelectedPreset(preset)}
-              >
-                {preset.length > 25 ? `${preset.slice(0, 25)}...` : preset}
-              </button>
-            ))}
+            <input
+              type="text"
+              className={s.calloutInput}
+              value={calloutText}
+              onChange={(e) => setCalloutText(e.target.value)}
+              placeholder="Текст подсказки..."
+              maxLength={120}
+            />
+            <div className={s.presetChips}>
+              {QUICK_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  className={s.presetBtn}
+                  data-active={calloutText === preset}
+                  onClick={() => setCalloutText(preset)}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
           </div>
         ) : (
           <span style={{ fontSize: 'var(--text-micro)', color: 'var(--color-text-tertiary)' }}>
