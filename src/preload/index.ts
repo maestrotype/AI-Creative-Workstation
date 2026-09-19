@@ -72,11 +72,23 @@ const api = {
       start_sec: number;
       duration_sec: number;
       source_in_sec: number;
+      muted?: boolean;
       effect?: string | null;
     }>;
     width: number;
     height: number;
     fps: number;
+    callouts?: Array<{
+      id: string;
+      start_sec: number;
+      duration_sec: number;
+      target_x: number;
+      target_y: number;
+      box_x: number;
+      box_y: number;
+      text: string;
+      theme?: string;
+    }>;
   }) => ipcRenderer.invoke('render-timeline', payload),
   loadVideoHistory: () => ipcRenderer.invoke('load-video-history'),
   saveVideoHistory: (payload: unknown) => ipcRenderer.invoke('save-video-history', payload),
@@ -143,6 +155,16 @@ const api = {
     total_sec?: number;
     output_name?: string;
   }) => ipcRenderer.invoke('mix-voiceover-track', payload),
+  extractAudioFromVideo: (payload: {
+    video_path: string;
+    mode?: 'audio_only' | 'mute_video' | 'both';
+    output_dir?: string;
+  }) => ipcRenderer.invoke('extract-audio-from-video', payload) as Promise<{
+    status: string;
+    audio_path: string | null;
+    muted_video_path: string | null;
+    duration_sec: number;
+  }>,
   prepareVoiceText: (payload: { text: string; language?: string; apply_stress?: boolean }) =>
     ipcRenderer.invoke('prepare-voice-text', payload),
   getVoiceLexicon: () => ipcRenderer.invoke('get-voice-lexicon'),

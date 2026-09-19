@@ -605,7 +605,9 @@
     "timeline_prompt": "Edit prompt",
     "timeline_placeholder": "at 0:05 title: 3D Store\nat 0:20 voice: Витрина и каталог\nat 1:10 voice: Админка и платежи",
     "timeline_apply": "Apply to video",
-    "timeline_working": "Working…"
+    "timeline_working": "Working…",
+    "extract_audio_no_source": "No video source selected",
+    "extract_audio_failed": "Failed to extract audio track"
   },
   "projects": {
     "title": "Video Projects",

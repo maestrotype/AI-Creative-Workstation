@@ -351,11 +351,24 @@ class TimelineClipModel(BaseModel):
     muted: Optional[bool] = False
 
 
+class CalloutModel(BaseModel):
+    id: str
+    start_sec: float
+    duration_sec: float
+    target_x: float
+    target_y: float
+    box_x: float
+    box_y: float
+    text: str
+    theme: Optional[str] = "accent"
+
+
 class RenderTimelineRequest(BaseModel):
     clips: List[TimelineClipModel]
     width: int = 1920
     height: int = 1080
     fps: int = 30
+    callouts: Optional[List[CalloutModel]] = None
 
 
 _SEG_AUDIO = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"]
@@ -394,6 +407,67 @@ def _render_caption_png(text: str, video_w: int, video_h: int, out: str) -> None
     draw = ImageDraw.Draw(img)
     draw.text((pad - box[0], pad - box[1]), text, font=font, fill=(255, 255, 255, 255))
     img.save(out)
+
+
+def _render_callout_overlay_png(callout: CalloutModel, video_w: int, video_h: int, out_path: str) -> None:
+    """Renders full-frame transparent PNG with the callout box, arrow, and target pin."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Pillow is required for callouts (pip install pillow).",
+        ) from exc
+
+    img = Image.new("RGBA", (video_w, video_h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    tx = int(video_w * (callout.target_x / 100.0))
+    ty = int(video_h * (callout.target_y / 100.0))
+
+    bx = int(video_w * (callout.box_x / 100.0))
+    by = int(video_h * (callout.box_y / 100.0))
+
+    font_path = _caption_font()
+    size = max(18, video_h // 38)
+    font = ImageFont.truetype(font_path, size) if font_path else ImageFont.load_default()
+
+    probe = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
+    box = probe.textbbox((0, 0), callout.text, font=font)
+    tw = box[2] - box[0]
+    th = box[3] - box[1]
+
+    card_pad_x = 18
+    card_pad_y = 12
+    card_w = max(180, min(video_w - bx - 20, tw + card_pad_x * 2))
+    card_h = th + card_pad_y * 2
+
+    start_cx = bx + (card_w if bx < tx else 0)
+    start_cy = by + card_h // 2
+    accent_color = (59, 130, 246, 255)
+    if callout.theme == "success":
+        accent_color = (16, 185, 129, 255)
+    elif callout.theme == "warning":
+        accent_color = (245, 158, 11, 255)
+
+    # Shadow and connector line
+    draw.line([(start_cx, start_cy), (tx, ty)], fill=(0, 0, 0, 180), width=5)
+    draw.line([(start_cx, start_cy), (tx, ty)], fill=accent_color, width=3)
+
+    # Target pin dot with outer ring
+    draw.ellipse([(tx - 9, ty - 9), (tx + 9, ty + 9)], fill=(255, 71, 87, 80), outline=(255, 71, 87, 200), width=2)
+    draw.ellipse([(tx - 5, ty - 5), (tx + 5, ty + 5)], fill=(255, 71, 87, 255), outline=(255, 255, 255, 255), width=2)
+
+    # Card background (rounded rectangle)
+    r = 10
+    draw.rounded_rectangle([(bx - 2, by - 2), (bx + card_w + 2, by + card_h + 2)], radius=r, fill=(0, 0, 0, 80))
+    draw.rounded_rectangle([(bx, by), (bx + card_w, by + card_h)], radius=r, fill=(24, 24, 27, 235), outline=accent_color, width=2)
+    draw.rounded_rectangle([(bx, by), (bx + 6, by + card_h)], radius=r, fill=accent_color)
+
+    draw.text((bx + card_pad_x, by + card_pad_y - box[1]), callout.text, font=font, fill=(255, 255, 255, 255))
+
+    img.save(out_path)
+
 
 
 def _effect_filters(prompt: Optional[str]) -> str:
@@ -612,6 +686,22 @@ def render_timeline(request: RenderTimelineRequest):
             )
             vcur = f"[tx{k}]"
             input_idx += 1
+
+        if request.callouts:
+            for idx, callout in enumerate(request.callouts):
+                end = callout.start_sec + callout.duration_sec
+                callout_png = os.path.join(tmp, f"callout_{idx:02d}.png")
+                _render_callout_overlay_png(callout, w, h, callout_png)
+                inputs += ["-loop", "1", "-t", f"{callout.duration_sec:.3f}", "-i", callout_png]
+                parts.append(
+                    f"[{input_idx}:v]setpts=PTS-STARTPTS+{callout.start_sec:.3f}/TB[cal{idx}]"
+                )
+                parts.append(
+                    f"{vcur}[cal{idx}]overlay=x=0:y=0:eof_action=pass:"
+                    f"enable='between(t,{callout.start_sec:.3f},{end:.3f})'[vo_cal{idx}]"
+                )
+                vcur = f"[vo_cal{idx}]"
+                input_idx += 1
 
         audio_labels = ["[0:a]"]
         for k, clip in enumerate(audio_clips):

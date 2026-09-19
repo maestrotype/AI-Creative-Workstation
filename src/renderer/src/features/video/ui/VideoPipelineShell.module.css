@@ -95,6 +95,37 @@
   background: var(--color-bg-card);
 }
 
+.timelineCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-card);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.timelineCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.timelineCardTitle {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: var(--text-heading-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
+
+.timelineCardSub {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-body-xs);
+  color: var(--color-text-tertiary);
+}
+
 .stageMount[hidden] {
   display: none !important;
 }

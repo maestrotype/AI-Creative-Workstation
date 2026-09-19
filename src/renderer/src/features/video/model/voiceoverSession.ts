@@ -3,6 +3,7 @@ import { clipSpan, fileName, packTrack } from './directorTimeline';
 import { hasScreencastBin } from './filmVisual';
 import type { VideoAnalysisContext } from './videoAnalysis';
 import type { VoiceoverScript } from './voiceoverScript';
+import type { Callout } from './callout';
 
 export type VoiceoverStatus = 'idle' | 'analyzed' | 'scripted' | 'voiced';
 
@@ -11,6 +12,7 @@ export interface VoiceoverSession {
   sourceBinId: string | null;
   analysis: VideoAnalysisContext | null;
   script: VoiceoverScript | null;
+  callouts: Callout[];
   scriptPrompt: string;
   /** Reusable product/project facts fed into every script generation. */
   projectContext: string;
@@ -32,6 +34,7 @@ export function emptyVoiceoverSession(): VoiceoverSession {
     sourceBinId: null,
     analysis: null,
     script: null,
+    callouts: [],
     scriptPrompt: '',
     projectContext: '',
     status: 'idle',

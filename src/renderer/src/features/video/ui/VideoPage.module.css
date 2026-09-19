@@ -587,6 +587,22 @@
   aspect-ratio: auto;
 }
 
+/* CalloutEditor wrapper/container inside result pane should fill all space */
+.resultPane > [class*='wrapper'] {
+  flex: 1;
+  min-height: 0;
+}
+
+.resultPane > [class*='wrapper'] > [class*='previewContainer'] {
+  flex: 1;
+  min-height: 0;
+}
+
+.resultPane > [class*='wrapper'] > [class*='previewContainer'] > * {
+  flex: 1;
+  min-height: 0;
+}
+
 .densePane .card {
   gap: var(--space-3);
   padding: var(--space-3);

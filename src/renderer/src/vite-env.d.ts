@@ -173,12 +173,24 @@ interface Window {
         text: string | null;
         start_sec: number;
         duration_sec: number;
-      source_in_sec: number;
-      effect?: string | null;
-    }>;
+        source_in_sec: number;
+        muted?: boolean;
+        effect?: string | null;
+      }>;
       width: number;
       height: number;
       fps: number;
+      callouts?: Array<{
+        id: string;
+        start_sec: number;
+        duration_sec: number;
+        target_x: number;
+        target_y: number;
+        box_x: number;
+        box_y: number;
+        text: string;
+        theme?: string;
+      }>;
     }) => Promise<{ file_path: string }>;
     loadVideoHistory: () => Promise<{
       savedAt: number;
@@ -332,6 +344,16 @@ interface Window {
         tempo: number;
         fitted: boolean;
       }>;
+    }>;
+    extractAudioFromVideo?: (payload: {
+      video_path: string;
+      mode?: 'audio_only' | 'mute_video' | 'both';
+      output_dir?: string;
+    }) => Promise<{
+      status: string;
+      audio_path: string | null;
+      muted_video_path: string | null;
+      duration_sec: number;
     }>;
     prepareVoiceText: (payload: { text: string; language?: string; apply_stress?: boolean }) => Promise<{
       status: string;
