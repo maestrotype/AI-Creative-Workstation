@@ -481,3 +481,41 @@
   padding-top: var(--space-3);
   border-top: 1px solid var(--color-border-subtle);
 }
+
+/* ── Interactive Clip Dragging and Deletion ──────────────── */
+
+.clipDeleteBtn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  border: none;
+  font-size: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, transform 0.15s ease;
+  z-index: 10;
+  margin-left: auto;
+}
+
+.clipBlock:hover .clipDeleteBtn {
+  display: inline-flex;
+}
+
+.clipDeleteBtn:hover {
+  background: #ff4757;
+  transform: scale(1.1);
+}
+
+.clipDragging {
+  opacity: 0.9;
+  cursor: grabbing !important;
+  z-index: 40 !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6) !important;
+  outline: 2px solid #fff !important;
+  filter: brightness(1.25) !important;
+}

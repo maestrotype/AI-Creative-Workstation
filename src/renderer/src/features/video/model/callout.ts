@@ -6,9 +6,13 @@ export interface Callout {
   targetY: number; // 0..100 (percentage of video height)
   boxX: number;    // 0..100 (percentage of video width for the text card)
   boxY: number;    // 0..100 (percentage of video height for the text card)
+  boxW?: number;   // custom card width in px
+  boxH?: number;   // custom card height in px
   text: string;
   title?: string;
   theme: 'accent' | 'dark' | 'success' | 'warning' | 'info';
+  shape?: 'rounded' | 'square' | 'pill' | 'circle';
+  fontStyle?: 'system' | 'sans' | 'mono' | 'serif';
   arrowStyle: 'curved' | 'straight' | 'none';
   pulse: boolean;
 }
@@ -39,9 +43,13 @@ export function newCallout(params: Partial<Callout> & { startSec: number; target
     targetY: Math.max(0, Math.min(100, params.targetY)),
     boxX: params.boxX ?? defaultBoxX,
     boxY: params.boxY ?? defaultBoxY,
+    boxW: params.boxW ?? 240,
+    boxH: params.boxH,
     text: params.text || 'Кликните здесь для перехода',
     title: params.title,
     theme: params.theme ?? 'accent',
+    shape: params.shape ?? 'rounded',
+    fontStyle: params.fontStyle ?? 'sans',
     arrowStyle: params.arrowStyle ?? 'curved',
     pulse: params.pulse ?? true,
   };

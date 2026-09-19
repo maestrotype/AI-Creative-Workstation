@@ -142,6 +142,7 @@ type DirectorSnap = {
   setDropActive: (on: boolean) => void;
   addCaption: () => void;
   removeClip: (id: string) => void;
+  patchClip: (id: string, patch: Partial<TimelineClip>) => void;
   splitAtPlayhead: () => void;
   canDetachAudio: boolean;
   isSelectedClipMuted: boolean;
@@ -2886,6 +2887,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     aiStatus,
     generateAiClip: (args) => { void generateAiClip(args); },
     restoreClip,
+    patchClip,
   };
 
   return <DirectorContext.Provider value={snap}>{children}</DirectorContext.Provider>;
