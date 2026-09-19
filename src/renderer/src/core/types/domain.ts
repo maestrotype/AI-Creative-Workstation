@@ -76,4 +76,6 @@ export type NavId = 'home' | 'create' | 'threed' | 'video' | 'projects' | 'asset
 export interface NavItem {
   readonly id: NavId;
   readonly label: string;
+  /** Visual group for sidebar section dividers ('projects' | 'studio' | 'lab' | 'system'). */
+  readonly group?: 'projects' | 'studio' | 'lab' | 'system';
 }

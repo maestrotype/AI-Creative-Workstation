@@ -56,6 +56,57 @@
   flex: 1;
 }
 
+/* ─── Group divider & section labels ────────────────────────────────── */
+
+.groupDivider {
+  border: none;
+  border-top: 1px solid var(--color-border-subtle);
+  margin: var(--space-3) var(--space-2) var(--space-1);
+}
+
+.groupLabel {
+  padding: 0 var(--space-3);
+  margin-top: var(--space-1);
+  font-size: 9px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ─── Active project badge ──────────────────────────────────────────── */
+
+.projectBadge {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 25%, transparent);
+  border-radius: var(--radius-md);
+}
+
+.projectBadgeLabel {
+  font-size: 9px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.projectBadgeName {
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
 .item {
   display: flex;
   align-items: center;
