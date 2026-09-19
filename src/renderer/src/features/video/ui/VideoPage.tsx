@@ -20,12 +20,13 @@ function maxZ(state: DockState): number {
   return Math.max(...Object.values(state.panels).map((p) => p.z), 1);
 }
 
-function StoryboardPane(): ReactNode {
+function StoryboardPane({ projectId }: { projectId: string | null }): ReactNode {
   const d = useDirector();
   return (
     <div className={styles.densePane}>
       <FromIdeaPanel
         embedded
+        projectId={projectId}
         onSendToTimeline={(items) => {
           d.addSources(
             items.map((it) => ({ kind: 'image' as const, path: it.path, name: it.name, durationSec: it.durationSec })),
@@ -49,7 +50,7 @@ function RecordingPane(): ReactNode {
   );
 }
 
-function VideoStudioShell(): ReactNode {
+function VideoStudioShell({ projectId }: { projectId: string | null }): ReactNode {
   const { t } = useTranslation();
   const [params] = useSearchParams();
   const openVoice = params.get('voice') === '1';
@@ -166,7 +167,7 @@ function VideoStudioShell(): ReactNode {
               timeline: <DirectorTimelinePane />,
               preview: <DirectorResultPane previewActive={dock.mode !== 'pipeline'} />,
               sources: <DirectorSourcesPane onOpenVoiceover={openVoiceover} />,
-              storyboard: <StoryboardPane />,
+              storyboard: <StoryboardPane projectId={projectId} />,
               recording: <RecordingPane />,
             }}
           />
@@ -183,8 +184,9 @@ export function VideoPage(): ReactNode {
   return (
     <div className={styles.container} data-mode="studio">
       <DirectorProvider key={scopeKey} projectId={projectId}>
-        <VideoStudioShell />
+        <VideoStudioShell projectId={projectId} />
       </DirectorProvider>
     </div>
   );
 }
+

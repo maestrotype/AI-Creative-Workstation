@@ -192,7 +192,7 @@ interface Window {
         theme?: string;
       }>;
     }) => Promise<{ file_path: string }>;
-    loadVideoHistory: () => Promise<{
+    loadVideoHistory: (projectId?: string) => Promise<{
       savedAt: number;
       currentId: string;
       drafts: Array<{
@@ -205,7 +205,7 @@ interface Window {
         outputPath: string | null;
       }>;
     } | null>;
-    saveVideoHistory: (payload: unknown) => Promise<boolean>;
+    saveVideoHistory: (payload: unknown, projectId?: string) => Promise<boolean>;
     listGeneratedStills: () => Promise<Array<{
       path: string;
       mtime: number;

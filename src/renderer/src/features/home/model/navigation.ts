@@ -30,14 +30,14 @@ export interface NavigationEntry extends NavItem {
 
 /** Primary navigation order — matches the product information architecture. */
 export const NAVIGATION_ITEMS: readonly NavigationEntry[] = [
-  { id: 'home',     label: 'Home',     Icon: HomeIcon },
-  { id: 'projects', label: 'Projects', Icon: FolderIcon },
-  { id: 'video',    label: 'Video',    Icon: FilmIcon },
-  { id: 'create',   label: 'Create',   Icon: SparklesIcon },
-  { id: 'threed',   label: '3D',       Icon: CubeIcon },
-  { id: 'assets',   label: 'Assets',   Icon: LayersIcon },
-  { id: 'studio',   label: 'Studio',   Icon: SlidersIcon },
-  { id: 'settings', label: 'Settings', Icon: SettingsIcon },
+  { id: 'home',     label: 'Home',      group: 'projects', Icon: HomeIcon },
+  { id: 'projects', label: 'Проекты',   group: 'projects', Icon: FolderIcon },
+  { id: 'video',    label: 'Студия',    group: 'studio',   Icon: FilmIcon },
+  { id: 'create',   label: 'Создать',   group: 'lab',      Icon: SparklesIcon },
+  { id: 'threed',   label: '3D',        group: 'lab',      Icon: CubeIcon },
+  { id: 'assets',   label: 'Ассеты',   group: 'lab',      Icon: LayersIcon },
+  { id: 'studio',   label: 'Модели',   group: 'system',   Icon: SlidersIcon },
+  { id: 'settings', label: 'Настройки', group: 'system',   Icon: SettingsIcon },
 ] satisfies NavigationEntry[];
 
 /** Type guard to validate a NavId at runtime. */

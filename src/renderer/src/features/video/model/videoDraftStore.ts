@@ -16,8 +16,13 @@ export interface VideoHistoryFile {
   readonly drafts: VideoDraftRecord[];
 }
 
-const LS_KEY = 'acw-video-idea-history-v1';
+const LS_KEY_PREFIX = 'acw-video-idea-history-v1';
 const MAX_DRAFTS = 16;
+
+/** Returns the localStorage key scoped to the given project (or global). */
+function lsKey(projectId?: string | null): string {
+  return projectId ? `${LS_KEY_PREFIX}-${projectId}` : LS_KEY_PREFIX;
+}
 
 export function newDraftId(): string {
   return `draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -27,9 +32,9 @@ export function drawnCount(plan: YoutubePlan | null): number {
   return plan?.scenes.filter((s) => Boolean(s.imagePath)).length ?? 0;
 }
 
-function readLocal(): VideoHistoryFile | null {
+function readLocal(projectId?: string | null): VideoHistoryFile | null {
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    const raw = localStorage.getItem(lsKey(projectId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as VideoHistoryFile;
     if (!parsed || !Array.isArray(parsed.drafts)) return null;
@@ -39,9 +44,9 @@ function readLocal(): VideoHistoryFile | null {
   }
 }
 
-export function writeLocal(file: VideoHistoryFile): void {
+export function writeLocal(file: VideoHistoryFile, projectId?: string | null): void {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(file));
+    localStorage.setItem(lsKey(projectId), JSON.stringify(file));
   } catch {
     /* quota */
   }
@@ -59,11 +64,11 @@ export function removeDraft(file: VideoHistoryFile, id: string): VideoHistoryFil
   return { ...file, savedAt: Date.now(), currentId, drafts };
 }
 
-export async function loadHistory(): Promise<VideoHistoryFile> {
-  const local = readLocal();
+export async function loadHistory(projectId?: string | null): Promise<VideoHistoryFile> {
+  const local = readLocal(projectId);
   let disk: VideoHistoryFile | null = null;
   try {
-    disk = ((await window.api?.loadVideoHistory?.()) ?? null) as VideoHistoryFile | null;
+    disk = ((await window.api?.loadVideoHistory?.(projectId ?? undefined)) ?? null) as VideoHistoryFile | null;
   } catch {
     disk = null;
   }
@@ -73,10 +78,10 @@ export async function loadHistory(): Promise<VideoHistoryFile> {
   return disk ?? local ?? { savedAt: 0, currentId: '', drafts: [] };
 }
 
-export async function persistHistory(file: VideoHistoryFile): Promise<void> {
-  writeLocal(file);
+export async function persistHistory(file: VideoHistoryFile, projectId?: string | null): Promise<void> {
+  writeLocal(file, projectId);
   try {
-    await window.api?.saveVideoHistory?.(file);
+    await window.api?.saveVideoHistory?.(file, projectId ?? undefined);
   } catch {
     /* sidecar/main may be restarting */
   }

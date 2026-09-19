@@ -907,22 +907,6 @@ export function ProjectWorkspace(): ReactNode {
         </ol>
       )}
 
-      <ProductBrollPanel
-        doc={doc}
-        shotBusy={shotBusy}
-        busyScene={busyScene}
-        shotLength={shotLength}
-        setShotLength={setShotLength}
-        assembleTarget={assembleTarget}
-        setAssembleTarget={setAssembleTarget}
-        pickProductStill={pickProductStill}
-        generateProductShots={generateProductShots}
-        openEditorFromShots={openEditorFromShots}
-        openDirector={openDirector}
-        showBroll={showBroll}
-        setShowBroll={setShowBroll}
-      />
-
       {(() => {
         const hasMedia = hasSceneMedia || hasShots;
         const step = !hasMedia ? 'scene' : 'voice';
@@ -962,6 +946,23 @@ export function ProjectWorkspace(): ReactNode {
       </footer>
       {status ? <p className={styles.status}>{status}</p> : null}
       {error ? <p className={styles.error}>{error}</p> : null}
+
+      {/* ── Дополнительно: Генерация B-roll из фото товара ─── */}
+      <ProductBrollPanel
+        doc={doc}
+        shotBusy={shotBusy}
+        busyScene={busyScene}
+        shotLength={shotLength}
+        setShotLength={setShotLength}
+        assembleTarget={assembleTarget}
+        setAssembleTarget={setAssembleTarget}
+        pickProductStill={pickProductStill}
+        generateProductShots={generateProductShots}
+        openEditorFromShots={openEditorFromShots}
+        openDirector={openDirector}
+        showBroll={showBroll}
+        setShowBroll={setShowBroll}
+      />
     </div>
   );
 }

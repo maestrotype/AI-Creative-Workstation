@@ -90,8 +90,8 @@ const api = {
       theme?: string;
     }>;
   }) => ipcRenderer.invoke('render-timeline', payload),
-  loadVideoHistory: () => ipcRenderer.invoke('load-video-history'),
-  saveVideoHistory: (payload: unknown) => ipcRenderer.invoke('save-video-history', payload),
+  loadVideoHistory: (projectId?: string) => ipcRenderer.invoke('load-video-history', projectId),
+  saveVideoHistory: (payload: unknown, projectId?: string) => ipcRenderer.invoke('save-video-history', payload, projectId),
   listGeneratedStills: () => ipcRenderer.invoke('list-generated-stills') as Promise<{
     path: string;
     mtime: number;

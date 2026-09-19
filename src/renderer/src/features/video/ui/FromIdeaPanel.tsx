@@ -40,9 +40,12 @@ function formatClock(sec: number): string {
 export function FromIdeaPanel({
   onSendToTimeline,
   embedded,
+  projectId,
 }: {
   onSendToTimeline?: (items: StoryboardStill[]) => void;
   embedded?: boolean;
+  /** When provided, idea history is scoped to this project (prevents cross-project bleed). */
+  projectId?: string | null;
 }): ReactNode {
   const { t } = useTranslation();
   const [topic, setTopic] = useState(() => t('video.topic_placeholder'));
@@ -80,12 +83,12 @@ export function FromIdeaPanel({
     };
     historyRef.current = upsertDraft(historyRef.current, rec);
     setDrafts(historyRef.current.drafts);
-    void persistHistory(historyRef.current);
+    void persistHistory(historyRef.current, projectId);
   };
 
   useEffect(() => {
     const boot = async () => {
-      const hist = await loadHistory();
+      const hist = await loadHistory(projectId);
       historyRef.current = hist;
       setDrafts(hist.drafts);
       const current = hist.drafts.find((d) => d.id === hist.currentId) ?? hist.drafts[0];
@@ -95,6 +98,13 @@ export function FromIdeaPanel({
         setFormat(current.format);
         setDurationSec(current.durationSec);
         setPlan(current.plan);
+      } else {
+        // Reset to defaults when switching to a fresh project
+        draftIdRef.current = newDraftId();
+        setTopic(t('video.topic_placeholder'));
+        setFormat('landscape');
+        setDurationSec(60);
+        setPlan(null);
       }
       try {
         const stills = await window.api.listGeneratedStills();
@@ -104,7 +114,9 @@ export function FromIdeaPanel({
       }
     };
     void boot();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
 
   useEffect(() => {
     const load = async () => {
@@ -190,7 +202,7 @@ export function FromIdeaPanel({
     setPlan(rec.plan);
     setSentNote(false);
     setError(null);
-    void persistHistory(historyRef.current);
+    void persistHistory(historyRef.current, projectId);
     setDrafts(historyRef.current.drafts);
   };
 
@@ -205,7 +217,7 @@ export function FromIdeaPanel({
         setPlan(null);
       }
     }
-    void persistHistory(historyRef.current);
+    void persistHistory(historyRef.current, projectId);
   };
 
   const handleFillFromDisk = () => {

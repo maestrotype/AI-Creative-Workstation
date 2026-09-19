@@ -16,10 +16,31 @@ export function Shell(): ReactNode {
   const location = useLocation();
   const navigate = useNavigate();
   const [engineStatus, setEngineStatus] = useState<EngineStatus>('stopped');
+  const [activeProjectName, setActiveProjectName] = useState<string | null>(null);
 
   const pathNavId = location.pathname.split('/')[1] || 'home';
   const activeId: NavId = isValidNavId(pathNavId) ? pathNavId : 'home';
   const workspaceLayout = activeId === 'video';
+
+  // Resolve active project ID from current URL context
+  const activeProjectId =
+    new URLSearchParams(location.search).get('project') ||
+    (location.pathname.startsWith('/projects/') ? location.pathname.split('/')[2] : null) ||
+    null;
+
+  // Load active project name when project context changes
+  useEffect(() => {
+    if (!activeProjectId) {
+      setActiveProjectName(null);
+      return;
+    }
+    // Try to load project name from IPC
+    window.api?.loadProject?.(activeProjectId)
+      .then((doc) => {
+        if (doc?.name) setActiveProjectName(doc.name);
+      })
+      .catch(() => setActiveProjectName(null));
+  }, [activeProjectId]);
 
   const handleSelect = (id: NavId) => {
     if (id === 'home') {
@@ -74,6 +95,7 @@ export function Shell(): ReactNode {
         activeId={activeId}
         onSelect={handleSelect}
         engineStatus={engineStatus}
+        activeProjectName={activeProjectName}
       />
       <main className={cx(styles.main, workspaceLayout && styles.mainWorkspace)}>
         <EngineMonitor />
