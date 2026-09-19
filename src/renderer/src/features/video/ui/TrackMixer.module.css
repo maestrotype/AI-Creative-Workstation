@@ -141,7 +141,8 @@
   flex: 1;
   position: relative;
   height: 100%;
-  cursor: pointer;
+  cursor: ew-resize;
+  user-select: none;
 }
 
 .rulerTick {
@@ -164,20 +165,34 @@
   bottom: 0;
   width: 2px;
   background: #ff4757;
-  z-index: 20;
+  z-index: 35;
   pointer-events: none;
 }
 
 .playheadThumb {
   position: absolute;
   top: 0;
-  left: -6px;
-  width: 14px;
-  height: 14px;
+  left: -9px;
+  width: 20px;
+  height: 22px;
   background: #ff4757;
   clip-path: polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%);
   pointer-events: auto;
-  cursor: ew-resize;
+  cursor: grab;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  transition: transform 0.1s ease, background 0.15s ease;
+}
+
+.playheadThumb:hover {
+  cursor: grab;
+  transform: scale(1.15);
+  background: #ff6b81;
+}
+
+.playheadThumb:active {
+  cursor: grabbing;
+  transform: scale(1.2);
+  background: #ff4757;
 }
 
 /* Track Lane */
@@ -259,7 +274,7 @@
   flex: 1;
   position: relative;
   height: 100%;
-  cursor: pointer;
+  cursor: default;
 }
 
 /* Clip Blocks */
@@ -269,6 +284,7 @@
   bottom: 4px;
   border-radius: var(--radius-sm);
   padding: 0 var(--space-2);
+  padding-right: 22px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -276,11 +292,19 @@
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   cursor: grab;
-  transition: filter 0.15s ease;
+  user-select: none;
+  transition: filter 0.15s ease, box-shadow 0.15s ease, outline 0.15s ease;
 }
 
 .clipBlock:hover {
-  filter: brightness(1.1);
+  filter: brightness(1.12);
+}
+
+.clipBlock[data-selected='true'] {
+  outline: 2px solid var(--color-accent) !important;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.6) !important;
+  filter: brightness(1.2);
+  z-index: 15;
 }
 
 .clipVideo {
@@ -485,30 +509,36 @@
 /* ── Interactive Clip Dragging and Deletion ──────────────── */
 
 .clipDeleteBtn {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
   display: none;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: var(--radius-sm);
-  background: rgba(0, 0, 0, 0.65);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.75);
   color: #fff;
-  border: none;
-  font-size: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  font-size: 11px;
+  font-weight: bold;
   cursor: pointer;
   flex-shrink: 0;
   transition: background 0.15s ease, transform 0.15s ease;
   z-index: 10;
-  margin-left: auto;
 }
 
-.clipBlock:hover .clipDeleteBtn {
+.clipBlock:hover .clipDeleteBtn,
+.clipBlock[data-selected='true'] .clipDeleteBtn {
   display: inline-flex;
 }
 
 .clipDeleteBtn:hover {
   background: #ff4757;
-  transform: scale(1.1);
+  border-color: #ff4757;
+  transform: translateY(-50%) scale(1.2);
 }
 
 .clipDragging {

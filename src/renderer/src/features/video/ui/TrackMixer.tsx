@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
-import type { ReactNode, MouseEvent, PointerEvent } from 'react';
+import type { ReactNode, PointerEvent } from 'react';
 import { useDirector } from './DirectorBoard';
 import { formatTimecode } from '../model/videoAnalysis';
 import s from './TrackMixer.module.css';
@@ -21,8 +21,14 @@ export function TrackMixer(): ReactNode {
   const [extractMode, setExtractMode] = useState<ExtractMode>('both');
   const [extractSuccess, setExtractSuccess] = useState<string | null>(null);
 
+  // Selected item on the timeline (can be deleted via Backspace/Delete key or button)
+  const [selectedItem, setSelectedItem] = useState<{ type: 'clip' | 'callout'; id: string } | null>(null);
+
   // Dragging state for moving clips & callouts along timeline
   const [draggingItem, setDraggingItem] = useState<DraggingState | null>(null);
+
+  // Dragging state for the playhead scrubber needle
+  const [draggingPlayhead, setDraggingPlayhead] = useState(false);
 
   const rulerRef = useRef<HTMLDivElement | null>(null);
 
@@ -40,6 +46,47 @@ export function TrackMixer(): ReactNode {
   const a1Clips = useMemo(() => d.clips.filter((c) => c.track === 'a1'), [d.clips]);
   const a2Clips = useMemo(() => d.clips.filter((c) => c.track === 'a2'), [d.clips]);
 
+  // Helper to seek precisely from clientX coordinate relative to ruler
+  const seekFromClientX = useCallback(
+    (clientX: number) => {
+      const rulerEl = rulerRef.current;
+      if (!rulerEl) return;
+      const rect = rulerEl.getBoundingClientRect();
+      const clickX = Math.max(0, Math.min(rect.width, clientX - rect.left));
+      const ratio = rect.width > 0 ? clickX / rect.width : 0;
+      d.seekTo(ratio * totalSec);
+    },
+    [d, totalSec],
+  );
+
+  // Pointer down on playhead thumb or ruler starts playhead dragging
+  const handlePlayheadPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setDraggingPlayhead(true);
+    seekFromClientX(e.clientX);
+  };
+
+  // Window listeners for playhead scrubbing
+  useEffect(() => {
+    if (!draggingPlayhead) return;
+
+    const handlePointerMove = (e: globalThis.PointerEvent) => {
+      seekFromClientX(e.clientX);
+    };
+
+    const handlePointerUp = () => {
+      setDraggingPlayhead(false);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [draggingPlayhead, seekFromClientX]);
+
   // Handle pointer down to start dragging a clip or callout
   const handleItemPointerDown = (
     e: PointerEvent<HTMLDivElement>,
@@ -48,13 +95,14 @@ export function TrackMixer(): ReactNode {
     origStartSec: number,
     durationSec: number,
   ) => {
-    // Ignore click if user clicked delete button
+    // If clicked on delete button, do nothing (delete button handles its own click)
     if ((e.target as HTMLElement).closest('button')) {
       return;
     }
     e.stopPropagation();
     e.preventDefault();
 
+    setSelectedItem({ type, id });
     setDraggingItem({
       type,
       id,
@@ -65,7 +113,7 @@ export function TrackMixer(): ReactNode {
     });
   };
 
-  // Window listeners for smooth timeline dragging
+  // Window listeners for smooth timeline clip dragging
   useEffect(() => {
     if (!draggingItem) return;
 
@@ -107,18 +155,28 @@ export function TrackMixer(): ReactNode {
     };
   }, [draggingItem, totalSec, d]);
 
-  // Handle seeking via clicking or dragging on ruler / track body
-  const handleSeek = useCallback(
-    (e: MouseEvent<HTMLDivElement>) => {
-      if (draggingItem) return;
-      const rect = e.currentTarget.getBoundingClientRect();
-      const clickX = Math.max(0, e.clientX - rect.left);
-      const ratio = Math.min(1, Math.max(0, clickX / rect.width));
-      const targetSec = ratio * totalSec;
-      d.seekTo(targetSec);
-    },
-    [d, totalSec, draggingItem],
-  );
+  // Keyboard shortcut to delete selected clip or callout via Delete / Backspace
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const tagName = (e.target as HTMLElement)?.tagName;
+        if (tagName === 'INPUT' || tagName === 'TEXTAREA') return;
+
+        if (selectedItem) {
+          e.preventDefault();
+          if (selectedItem.type === 'clip') {
+            d.removeClip(selectedItem.id);
+          } else {
+            d.removeCallout(selectedItem.id);
+          }
+          setSelectedItem(null);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedItem, d]);
 
   const onConfirmExtract = async () => {
     try {
@@ -156,9 +214,9 @@ export function TrackMixer(): ReactNode {
   const hasVideoSource = Boolean(d.voiceoverSource?.path);
 
   return (
-    <div className={s.container}>
+    <div className={s.container} onClick={() => setSelectedItem(null)}>
       {/* Top Bar with Transport Controls & Actions */}
-      <div className={s.topBar}>
+      <div className={s.topBar} onClick={(e) => e.stopPropagation()}>
         <div className={s.transport}>
           <button
             type="button"
@@ -218,16 +276,28 @@ export function TrackMixer(): ReactNode {
       ) : null}
 
       {/* Multi-Track Timeline Diagram */}
-      <div className={s.timelineArea}>
-        {/* Playhead vertical needle */}
-        <div className={s.playheadLine} style={{ left: `calc(140px + (100% - 140px) * ${playheadPct / 100})` }}>
-          <div className={s.playheadThumb} />
+      <div className={s.timelineArea} onClick={(e) => e.stopPropagation()}>
+        {/* Playhead vertical needle with draggable thumb */}
+        <div
+          className={s.playheadLine}
+          style={{ left: `calc(140px + (100% - 140px) * ${playheadPct / 100})` }}
+        >
+          <div
+            className={s.playheadThumb}
+            onPointerDown={handlePlayheadPointerDown}
+            title="Зажмите и тяните для перемотки времени"
+          />
         </div>
 
-        {/* Ruler Row */}
+        {/* Ruler Row: clicking/dragging here navigates time */}
         <div className={s.rulerRow}>
           <div className={s.headerCol}>Таймлайн</div>
-          <div ref={rulerRef} className={s.rulerCanvas} onClick={handleSeek}>
+          <div
+            ref={rulerRef}
+            className={s.rulerCanvas}
+            onPointerDown={handlePlayheadPointerDown}
+            title="Кликните или тяните по шкале времени для перемотки"
+          >
             {ticks.map((t) => (
               <div key={t.sec} className={s.rulerTick} style={{ left: `${t.leftPct}%` }}>
                 {formatTimecode(t.sec)}
@@ -244,23 +314,29 @@ export function TrackMixer(): ReactNode {
               <span className={s.trackLabel}>V1 Видео</span>
             </div>
           </div>
-          <div className={s.trackBody} onClick={handleSeek}>
+          <div className={s.trackBody}>
             {v1Clips.length > 0 ? (
               v1Clips.map((clip) => {
                 const isDragging = draggingItem?.type === 'clip' && draggingItem.id === clip.id;
+                const isSelected = selectedItem?.id === clip.id;
                 const startSec = isDragging ? draggingItem.currentStartSec : clip.startSec;
                 const left = (startSec / totalSec) * 100;
-                const width = Math.max(2, (clip.durationSec / totalSec) * 100);
+                const width = Math.max(3, (clip.durationSec / totalSec) * 100);
 
                 return (
                   <div
                     key={clip.id}
                     className={`${s.clipBlock} ${s.clipVideo} ${isDragging ? s.clipDragging : ''}`}
+                    data-selected={isSelected}
                     style={{ left: `${left}%`, width: `${width}%` }}
                     onPointerDown={(e) =>
                       handleItemPointerDown(e, 'clip', clip.id, clip.startSec, clip.durationSec)
                     }
-                    title={`${clip.label} (${formatTimecode(clip.durationSec)}) — перетащите для перемещения`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedItem({ type: 'clip', id: clip.id });
+                    }}
+                    title={`${clip.label} (${formatTimecode(clip.durationSec)}) — перетащите для перемещения, ✕ или Del для удаления`}
                   >
                     <span className={s.clipTitle}>{clip.label}</span>
                     <span className={s.clipDuration}>
@@ -269,11 +345,14 @@ export function TrackMixer(): ReactNode {
                     <button
                       type="button"
                       className={s.clipDeleteBtn}
+                      onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => {
                         e.stopPropagation();
+                        e.preventDefault();
                         d.removeClip(clip.id);
+                        if (selectedItem?.id === clip.id) setSelectedItem(null);
                       }}
-                      title="Удалить клип"
+                      title="Удалить клип (Delete)"
                     >
                       ✕
                     </button>
@@ -301,22 +380,28 @@ export function TrackMixer(): ReactNode {
               <span className={s.trackLabel}>V2 Графика</span>
             </div>
           </div>
-          <div className={s.trackBody} onClick={handleSeek}>
+          <div className={s.trackBody}>
             {v2Clips.map((clip) => {
               const isDragging = draggingItem?.type === 'clip' && draggingItem.id === clip.id;
+              const isSelected = selectedItem?.id === clip.id;
               const startSec = isDragging ? draggingItem.currentStartSec : clip.startSec;
               const left = (startSec / totalSec) * 100;
-              const width = Math.max(2, (clip.durationSec / totalSec) * 100);
+              const width = Math.max(3, (clip.durationSec / totalSec) * 100);
 
               return (
                 <div
                   key={clip.id}
                   className={`${s.clipBlock} ${s.clipStill} ${isDragging ? s.clipDragging : ''}`}
+                  data-selected={isSelected}
                   style={{ left: `${left}%`, width: `${width}%` }}
                   onPointerDown={(e) =>
                     handleItemPointerDown(e, 'clip', clip.id, clip.startSec, clip.durationSec)
                   }
-                  title={`${clip.label} (${formatTimecode(clip.durationSec)}) — перетащите для перемещения`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedItem({ type: 'clip', id: clip.id });
+                  }}
+                  title={`${clip.label} (${formatTimecode(clip.durationSec)}) — перетащите для перемещения, ✕ или Del для удаления`}
                 >
                   <span className={s.clipTitle}>{clip.label}</span>
                   <span className={s.clipDuration}>
@@ -325,11 +410,14 @@ export function TrackMixer(): ReactNode {
                   <button
                     type="button"
                     className={s.clipDeleteBtn}
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
+                      e.preventDefault();
                       d.removeClip(clip.id);
+                      if (selectedItem?.id === clip.id) setSelectedItem(null);
                     }}
-                    title="Удалить графику"
+                    title="Удалить графику (Delete)"
                   >
                     ✕
                   </button>
@@ -347,23 +435,29 @@ export function TrackMixer(): ReactNode {
               <span className={s.trackLabel}>A1 Звук/Голос</span>
             </div>
           </div>
-          <div className={s.trackBody} onClick={handleSeek}>
+          <div className={s.trackBody}>
             {a1Clips.length > 0 ? (
               a1Clips.map((clip) => {
                 const isDragging = draggingItem?.type === 'clip' && draggingItem.id === clip.id;
+                const isSelected = selectedItem?.id === clip.id;
                 const startSec = isDragging ? draggingItem.currentStartSec : clip.startSec;
                 const left = (startSec / totalSec) * 100;
-                const width = Math.max(2, (clip.durationSec / totalSec) * 100);
+                const width = Math.max(3, (clip.durationSec / totalSec) * 100);
 
                 return (
                   <div
                     key={clip.id}
                     className={`${s.clipBlock} ${s.clipAudioOriginal} ${isDragging ? s.clipDragging : ''}`}
+                    data-selected={isSelected}
                     style={{ left: `${left}%`, width: `${width}%` }}
                     onPointerDown={(e) =>
                       handleItemPointerDown(e, 'clip', clip.id, clip.startSec, clip.durationSec)
                     }
-                    title={`${clip.label} (${formatTimecode(clip.durationSec)}) — перетащите для перемещения`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedItem({ type: 'clip', id: clip.id });
+                    }}
+                    title={`${clip.label} (${formatTimecode(clip.durationSec)}) — перетащите для перемещения, ✕ или Del для удаления`}
                   >
                     <span className={s.clipTitle}>{clip.label}</span>
                     <span className={s.clipDuration}>
@@ -372,11 +466,14 @@ export function TrackMixer(): ReactNode {
                     <button
                       type="button"
                       className={s.clipDeleteBtn}
+                      onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => {
                         e.stopPropagation();
+                        e.preventDefault();
                         d.removeClip(clip.id);
+                        if (selectedItem?.id === clip.id) setSelectedItem(null);
                       }}
-                      title="Удалить аудиоклип"
+                      title="Удалить аудиоклип (Delete)"
                     >
                       ✕
                     </button>
@@ -404,22 +501,28 @@ export function TrackMixer(): ReactNode {
               <span className={s.trackLabel}>A2 Экстракт</span>
             </div>
           </div>
-          <div className={s.trackBody} onClick={handleSeek}>
+          <div className={s.trackBody}>
             {a2Clips.map((clip) => {
               const isDragging = draggingItem?.type === 'clip' && draggingItem.id === clip.id;
+              const isSelected = selectedItem?.id === clip.id;
               const startSec = isDragging ? draggingItem.currentStartSec : clip.startSec;
               const left = (startSec / totalSec) * 100;
-              const width = Math.max(2, (clip.durationSec / totalSec) * 100);
+              const width = Math.max(3, (clip.durationSec / totalSec) * 100);
 
               return (
                 <div
                   key={clip.id}
                   className={`${s.clipBlock} ${s.clipAudioExtracted} ${isDragging ? s.clipDragging : ''}`}
+                  data-selected={isSelected}
                   style={{ left: `${left}%`, width: `${width}%` }}
                   onPointerDown={(e) =>
                     handleItemPointerDown(e, 'clip', clip.id, clip.startSec, clip.durationSec)
                   }
-                  title={`${clip.label} (${formatTimecode(clip.durationSec)}) — перетащите для перемещения`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedItem({ type: 'clip', id: clip.id });
+                  }}
+                  title={`${clip.label} (${formatTimecode(clip.durationSec)}) — перетащите для перемещения, ✕ или Del для удаления`}
                 >
                   <span className={s.clipTitle}>{clip.label}</span>
                   <span className={s.clipDuration}>
@@ -428,11 +531,14 @@ export function TrackMixer(): ReactNode {
                   <button
                     type="button"
                     className={s.clipDeleteBtn}
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
+                      e.preventDefault();
                       d.removeClip(clip.id);
+                      if (selectedItem?.id === clip.id) setSelectedItem(null);
                     }}
-                    title="Удалить извлечённый трек"
+                    title="Удалить извлечённый трек (Delete)"
                   >
                     ✕
                   </button>
@@ -450,9 +556,10 @@ export function TrackMixer(): ReactNode {
               <span className={s.trackLabel}>C1 Подсказки</span>
             </div>
           </div>
-          <div className={s.trackBody} onClick={handleSeek}>
+          <div className={s.trackBody}>
             {(d.callouts ?? []).map((callout) => {
               const isDragging = draggingItem?.type === 'callout' && draggingItem.id === callout.id;
+              const isSelected = selectedItem?.id === callout.id;
               const duration = Math.max(0.5, callout.endSec - callout.startSec);
               const startSec = isDragging ? draggingItem.currentStartSec : callout.startSec;
               const left = (startSec / totalSec) * 100;
@@ -463,19 +570,25 @@ export function TrackMixer(): ReactNode {
                 <div
                   key={callout.id}
                   className={`${s.clipBlock} ${s.clipCallout} ${isDragging ? s.clipDragging : ''}`}
+                  data-selected={isSelected}
                   style={{
                     left: `${left}%`,
                     width: `${width}%`,
-                    outline: isActive ? '2px solid #fff' : undefined,
+                    outline: isSelected
+                      ? '2px solid var(--color-accent)'
+                      : isActive
+                        ? '2px solid #fff'
+                        : undefined,
                   }}
                   onPointerDown={(e) =>
                     handleItemPointerDown(e, 'callout', callout.id, callout.startSec, duration)
                   }
                   onClick={(e) => {
                     e.stopPropagation();
+                    setSelectedItem({ type: 'callout', id: callout.id });
                     d.seekTo(callout.startSec);
                   }}
-                  title={`[${formatTimecode(startSec)} - ${formatTimecode(startSec + duration)}] ${callout.text} — перетащите по шкале`}
+                  title={`[${formatTimecode(startSec)} - ${formatTimecode(startSec + duration)}] ${callout.text} — перетащите для перемещения, ✕ или Del для удаления`}
                 >
                   <span className={s.clipTitle}>💬 {callout.text}</span>
                   <span className={s.clipDuration}>
@@ -484,11 +597,14 @@ export function TrackMixer(): ReactNode {
                   <button
                     type="button"
                     className={s.clipDeleteBtn}
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
+                      e.preventDefault();
                       d.removeCallout(callout.id);
+                      if (selectedItem?.id === callout.id) setSelectedItem(null);
                     }}
-                    title="Удалить подсказку"
+                    title="Удалить подсказку (Delete)"
                   >
                     ✕
                   </button>
