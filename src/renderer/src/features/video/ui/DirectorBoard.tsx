@@ -20,19 +20,18 @@ import {
   kindFromFileName,
   newId,
   placementStart,
-  avoidOverlap,
   packAllGaps,
   packTrack,
-  snapStart,
   splitClipAt,
   detachAudioFromClip,
   insertClipOnTrack,
   trackHasGap,
-  maxDurationBeforeNext,
   syncClipDuration,
   timelineLength,
   trackIndex,
   unstackAllTracks,
+  sanitizeClips,
+  moveClipWithRipple,
   type BinItem,
   type BinKind,
   type OverlayPos,
@@ -75,6 +74,8 @@ interface DragState {
   origDur: number;
   origSourceIn: number;
   moved: boolean;
+  /** Clip layout at pointer-down — keeps live ripple stable while dragging. */
+  baselineClips: TimelineClip[];
 }
 
 interface DirectorProviderProps {
@@ -143,6 +144,8 @@ type DirectorSnap = {
   addCaption: () => void;
   removeClip: (id: string) => void;
   patchClip: (id: string, patch: Partial<TimelineClip>) => void;
+  moveClipWithRipple: (id: string, targetStartSec: number) => void;
+  replaceClips: (next: TimelineClip[]) => void;
   splitAtPlayhead: () => void;
   canDetachAudio: boolean;
   isSelectedClipMuted: boolean;
@@ -315,7 +318,16 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     fingerprint: string;
   } | null>(null);
   const [bins, setBins] = useState<BinItem[]>(() => boot?.bins ?? []);
-  const [clips, setClips] = useState<TimelineClip[]>(() => unstackAllTracks(boot?.clips ?? []));
+  const [clips, setClipsState] = useState<TimelineClip[]>(() => sanitizeClips(boot?.clips ?? []));
+  /** Every write goes through sanitize so lanes never keep stacked clips. */
+  const setClips = (
+    update: TimelineClip[] | ((prev: TimelineClip[]) => TimelineClip[]),
+  ) => {
+    setClipsState((prev) => {
+      const next = typeof update === 'function' ? update(prev) : update;
+      return sanitizeClips(next);
+    });
+  };
   const [selectedBin, setSelectedBin] = useState<string | null>(() => boot?.selectedBin ?? null);
   const [selectedClip, setSelectedClip] = useState<string | null>(() => boot?.selectedClip ?? null);
   const [playhead, setPlayhead] = useState(() => boot?.playhead ?? 0);
@@ -1065,38 +1077,31 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         setTrackLayout((layout) => ensureTrackVisible(layout, 'v2'));
       }
       setClips((prev) => {
-        let vCursor = endOfTrack(prev, 'v1');
-        let aCursor = endOfTrack(prev, 'a1');
+        const cursors = new Map<string, number>();
+        const trackEnd = (track: string) => {
+          if (cursors.has(track)) return cursors.get(track)!;
+          const end = endOfTrack(prev, track as TrackId);
+          cursors.set(track, end);
+          return end;
+        };
         const added: TimelineClip[] = [];
         for (let i = 0; i < newBins.length; i += 1) {
           const bin = newBins[i];
-          const wantTrack = items[i]?.track ?? (bin.kind === 'audio' ? 'a1' : 'v1');
-          if (bin.kind === 'audio' || wantTrack.startsWith('a')) {
-            added.push({
-              id: newId('clip'),
-              binId: bin.id,
-              track: 'a1',
-              startSec: aCursor,
-              durationSec: clipSpan(bin),
-              sourceInSec: 0,
-              label: bin.name,
-              autoLength: true,
-            });
-            aCursor += clipSpan(bin);
-            continue;
-          }
-          const start = wantTrack === 'v1' ? vCursor : 0;
+          const wantTrack = (items[i]?.track ?? (bin.kind === 'audio' ? 'a1' : 'v1')) as TrackId;
+          const span = clipSpan(bin);
+          const start = trackEnd(wantTrack);
           added.push({
             id: newId('clip'),
             binId: bin.id,
-            track: wantTrack,
+            track: wantTrack.startsWith('a') ? 'a1' : wantTrack,
             startSec: start,
-            durationSec: clipSpan(bin),
+            durationSec: span,
             sourceInSec: 0,
             label: bin.name,
             autoLength: true,
           });
-          if (wantTrack === 'v1') vCursor += clipSpan(bin);
+          const placedTrack = wantTrack.startsWith('a') ? 'a1' : wantTrack;
+          cursors.set(placedTrack, start + span);
         }
         const next = [...prev, ...added];
         if (newBins.some((bin) => bin.kind === 'image')) {
@@ -1347,20 +1352,28 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     let queuedStart: number | null = null;
     let queuedId: string | null = null;
     setClips((prev) => {
-      const start = placementStart(prev, track, playheadRef.current, duration, startSec);
       const clip: TimelineClip = {
         id: newId('clip'),
         binId: bin.id,
         track,
-        startSec: start,
+        startSec: 0,
         durationSec: duration,
         sourceInSec: bin.inSec,
         label: bin.name,
         autoLength: true,
       };
+      // Explicit drop time: insert and push later clips apart instead of stacking.
+      if (startSec != null && startSec >= 0) {
+        const next = insertClipOnTrack(prev, track, startSec, clip);
+        const placed = next.find((c) => c.id === clip.id);
+        queuedStart = placed?.startSec ?? startSec;
+        queuedId = clip.id;
+        return next;
+      }
+      const start = placementStart(prev, track, playheadRef.current, duration);
       queuedStart = start;
       queuedId = clip.id;
-      return [...prev, clip];
+      return [...prev, { ...clip, startSec: start }];
     });
     if (queuedId) setSelectedClip(queuedId);
     setSelectedBin(bin.id);
@@ -2540,6 +2553,15 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     setClips((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   };
 
+  const moveClipWithRippleFn = (id: string, targetStartSec: number) => {
+    setClips((prev) => moveClipWithRipple(prev, id, targetStartSec));
+  };
+
+  /** Replace the full clip list in one commit (used after multi-clip shove preview). */
+  const replaceClipsFn = (next: TimelineClip[]) => {
+    setClips(next);
+  };
+
   const seekFromEvent = (e: MouseEvent<HTMLElement>) => {
     if (dragRef.current?.moved || scrubbingRef.current) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -2598,14 +2620,15 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     if (!drag) return;
     const dt = (clientX - drag.startX) / pxRef.current;
     if (Math.abs(clientX - drag.startX) > 3) drag.moved = true;
-    const clip = clipsRef.current.find((c) => c.id === drag.id);
+    const clip = clipsRef.current.find((c) => c.id === drag.id)
+      ?? drag.baselineClips.find((c) => c.id === drag.id);
     if (!clip) return;
 
     if (drag.mode === 'move') {
       drag.moved = drag.moved || Math.abs(clientX - drag.startX) > 3;
       let track = clip.track;
       const nextTrack = laneAtPoint(clientX, clientY);
-      const layout = effectiveTrackLayout(clipsRef.current, trackLayoutRef.current);
+      const layout = effectiveTrackLayout(drag.baselineClips, trackLayoutRef.current);
       const allowed = allowedTracksForClip(clip, binsRef.current, layout);
       if (nextTrack && allowed.includes(nextTrack)) {
         track = nextTrack;
@@ -2619,14 +2642,11 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           track = extra;
         }
       }
-      const startSec = avoidOverlap(
-        clipsRef.current,
-        clip.id,
-        track,
-        Math.max(0, drag.origStart + dt),
-        clip.durationSec,
-      );
-      patchClip(drag.id, { startSec, track });
+      const desired = Math.max(0, drag.origStart + dt);
+      const baseline = drag.baselineClips.map((item) => (
+        item.id === drag.id ? { ...item, track } : item
+      ));
+      setClips(moveClipWithRipple(baseline, drag.id, desired));
       const scroller = boardScrollRef.current;
       if (scroller) {
         const box = scroller.getBoundingClientRect();
@@ -2644,10 +2664,13 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     if (drag.mode === 'out') {
       drag.moved = true;
       const wanted = Math.min(maxOut, Math.max(0.4, drag.origDur + dt));
-      patchClip(drag.id, {
-        durationSec: maxDurationBeforeNext(clipsRef.current, clip.id, clip.track, drag.origStart, wanted),
-        autoLength: false,
-      });
+      // Extending out pushes later neighbors so trim never stacks.
+      const nextDur = Math.max(0.4, wanted);
+      const baseline = drag.baselineClips.map((item) => (
+        item.id === drag.id ? { ...item, durationSec: nextDur, autoLength: false } : item
+      ));
+      const trimmed = moveClipWithRipple(baseline, drag.id, drag.origStart);
+      setClips(trimmed);
       return;
     }
 
@@ -2655,12 +2678,20 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     const maxShift = drag.origDur - 0.4;
     const minShift = bin ? Math.max(-drag.origSourceIn, -(bin.inSec + drag.origSourceIn)) : -drag.origSourceIn;
     const shift = Math.min(maxShift, Math.max(minShift, dt));
-    patchClip(drag.id, {
-      startSec: Math.max(0, drag.origStart + shift),
-      durationSec: drag.origDur - shift,
-      sourceInSec: drag.origSourceIn + shift,
-      autoLength: false,
-    });
+    const nextStart = Math.max(0, drag.origStart + shift);
+    const nextDur = drag.origDur - shift;
+    const baseline = drag.baselineClips.map((item) => (
+      item.id === drag.id
+        ? {
+            ...item,
+            startSec: nextStart,
+            durationSec: nextDur,
+            sourceInSec: drag.origSourceIn + shift,
+            autoLength: false,
+          }
+        : item
+    ));
+    setClips(moveClipWithRipple(baseline, drag.id, nextStart));
   };
 
   const onClipPointerDown = (e: PointerEvent<HTMLElement>, clip: TimelineClip, mode: DragState['mode']) => {
@@ -2675,6 +2706,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       origDur: clip.durationSec,
       origSourceIn: clip.sourceInSec,
       moved: false,
+      baselineClips: clipsRef.current.map((item) => ({ ...item })),
     };
     const host = (e.currentTarget as HTMLElement).closest('[data-clip]') as HTMLElement | null;
     (host ?? e.currentTarget).setPointerCapture(e.pointerId);
@@ -2689,8 +2721,10 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     if (!drag || drag.mode !== 'move' || !drag.moved) return;
     const clip = clipsRef.current.find((c) => c.id === drag.id);
     if (!clip) return;
-    const startSec = snapStart(clipsRef.current, clip.id, clip.track, clip.startSec, clip.durationSec);
-    if (Math.abs(startSec - clip.startSec) > 0.01) patchClip(clip.id, { startSec });
+    const baseline = drag.baselineClips.map((item) => (
+      item.id === drag.id ? { ...item, track: clip.track } : item
+    ));
+    setClips(moveClipWithRipple(baseline, drag.id, clip.startSec));
   };
 
   const onClipPointerUp = (e: PointerEvent<HTMLElement>, clip: TimelineClip) => {
@@ -2888,6 +2922,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     generateAiClip: (args) => { void generateAiClip(args); },
     restoreClip,
     patchClip,
+    moveClipWithRipple: moveClipWithRippleFn,
+    replaceClips: replaceClipsFn,
   };
 
   return <DirectorContext.Provider value={snap}>{children}</DirectorContext.Provider>;
