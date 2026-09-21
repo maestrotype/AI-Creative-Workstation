@@ -148,12 +148,20 @@ export function assembleShots(input: AssembleInput): AssemblePlan {
   const style: AssemblyStyle = input.style ?? 'premium_ecommerce';
   const target = Math.max(2, Number(input.targetSec) || 10);
   const skipped: AssemblePlan['skipped'] = [];
+  const product = input.productStillPath || null;
   const usable: FilmShot[] = [];
   for (const shot of input.shots) {
     const check = shotIsUsable(shot);
     if (!check.ok) {
       skipped.push({ shotId: shot.id, reason: check.reason || 'skipped' });
       continue;
+    }
+    // Prefer shots tied to the current Film product still.
+    if (product) {
+      if (shot.sourceAsset && !sameProductAsset(shot.sourceAsset, product)) {
+        skipped.push({ shotId: shot.id, reason: 'other_product' });
+        continue;
+      }
     }
     usable.push(shot);
   }
@@ -286,6 +294,16 @@ export function planToTimeline(plan: AssemblePlan): { bins: BinItem[]; clips: Ti
 
 function roundTenths(n: number): number {
   return Math.round(n * 10) / 10;
+}
+
+function sameProductAsset(sourceAsset: string, productStillPath: string): boolean {
+  const norm = (p: string) => p.replace(/^file:\/\//, '').replace(/\\/g, '/').toLowerCase();
+  const a = norm(sourceAsset);
+  const b = norm(productStillPath);
+  if (a === b) return true;
+  const ta = a.split('/').pop() || a;
+  const tb = b.split('/').pop() || b;
+  return Boolean(ta && tb && ta === tb);
 }
 
 function shotLabel(shot: FilmShot): string {

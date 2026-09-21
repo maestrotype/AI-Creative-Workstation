@@ -11,6 +11,7 @@ import {
   type TrackId,
 } from '../model/directorTimeline';
 import { promptForPurpose, SHOT_DURATION_PROFILES } from '../model/autoAssemble';
+import { shotCardTitle, shotProviderShort, humanizeFileStem, isTechnicalMediaName } from '../model/clipDisplayName';
 import type { ShotPurpose } from '../../projects/model/project';
 import { toAssetUrl } from '../model/directorMedia';
 import { DirectorPreview } from './DirectorPreview';
@@ -125,39 +126,8 @@ export function DirectorTimelinePane(): ReactNode {
       onDragLeave={onDragLeaveBoard}
       onDrop={onBoardDrop}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 14px', borderBottom: '1px solid var(--color-border-subtle)', background: 'var(--color-bg-elevated)', flexWrap: 'wrap', gap: '8px' }}>
-        <div style={{ display: 'flex', gap: '6px' }}>
-          <button
-            type="button"
-            className={styles.toolBtn}
-            style={{
-              fontWeight: timelineView === 'mixer' ? 600 : 400,
-              background: timelineView === 'mixer' ? 'var(--color-accent)' : 'transparent',
-              color: timelineView === 'mixer' ? 'var(--color-bg-base)' : 'var(--color-text-secondary)',
-              borderColor: timelineView === 'mixer' ? 'var(--color-accent)' : 'var(--color-border-default)',
-            }}
-            onClick={() => setTimelineView('mixer')}
-          >
-            🎛 Микшер дорожек (DAW)
-          </button>
-          <button
-            type="button"
-            className={styles.toolBtn}
-            style={{
-              fontWeight: timelineView === 'classic' ? 600 : 400,
-              background: timelineView === 'classic' ? 'var(--color-accent)' : 'transparent',
-              color: timelineView === 'classic' ? 'var(--color-bg-base)' : 'var(--color-text-secondary)',
-              borderColor: timelineView === 'classic' ? 'var(--color-accent)' : 'var(--color-border-default)',
-            }}
-            onClick={() => setTimelineView('classic')}
-          >
-            📋 Классическая нарезка
-          </button>
-        </div>
-      </div>
-
       {timelineView === 'mixer' ? (
-        <div style={{ padding: '12px', overflow: 'auto', flex: 1 }}>
+        <div className={styles.mixerHost}>
           <TrackMixer />
         </div>
       ) : (
@@ -167,6 +137,14 @@ export function DirectorTimelinePane(): ReactNode {
               {formatClock(d.playhead)} / {formatClock(d.total)}
             </span>
             <div className={styles.toolRow}>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            onClick={() => setTimelineView('mixer')}
+            title="Back to mixer"
+          >
+            Mixer
+          </button>
           <button
             type="button"
             className={styles.toolBtn}
@@ -285,7 +263,7 @@ export function DirectorTimelinePane(): ReactNode {
                       data-track={clip.track}
                       style={{
                         left: clip.startSec * d.pxPerSec,
-                        width: Math.max(36, clip.durationSec * d.pxPerSec),
+                        width: Math.max(2, clip.durationSec * d.pxPerSec),
                         zIndex: clip.id === d.selectedClip ? 2 : 1,
                       }}
                       onPointerDown={(e) => d.onClipPointerDown(e, clip, 'move')}
@@ -339,10 +317,16 @@ export function DirectorTimelinePane(): ReactNode {
   );
 }
 
-export function DirectorResultPane({ previewActive = true }: { previewActive?: boolean } = {}): ReactNode {
+export function DirectorResultPane({
+  previewActive = true,
+  compact = false,
+}: {
+  previewActive?: boolean;
+  compact?: boolean;
+} = {}): ReactNode {
   const d = useDirector();
   return (
-    <div className={`${styles.paneFill} ${styles.resultPane}`}>
+    <div className={`${styles.paneFill} ${styles.resultPane}`} data-compact={compact || undefined}>
       <CalloutEditor active={previewActive}>
         <DirectorPreview
           playhead={d.playhead}
@@ -362,22 +346,24 @@ export function DirectorResultPane({ previewActive = true }: { previewActive?: b
           }}
         />
       </CalloutEditor>
-      <div className={styles.transport}>
-        <button type="button" className={styles.toolBtn} onClick={d.togglePlay} disabled={d.clips.length === 0 || d.bins.some((b) => b.proxying)}>
-          {d.playing ? d.t('video.dir_pause') : d.t('video.dir_play')}
-        </button>
-        <button type="button" className={styles.toolBtn} onClick={() => { d.seekTo(0); }}>
-          {d.t('video.dir_stop')}
-        </button>
-        <button
-          type="button"
-          className={styles.toolPrimary}
-          onClick={d.exportVideo}
-          disabled={d.clips.length === 0 || d.exportBusy || d.bins.some((b) => b.proxying)}
-        >
-          {d.exportBusy ? d.t('video.dir_exporting') : d.t('video.dir_export')}
-        </button>
-      </div>
+      {compact ? null : (
+        <div className={styles.transport}>
+          <button type="button" className={styles.toolBtn} onClick={d.togglePlay} disabled={d.clips.length === 0 || d.bins.some((b) => b.proxying)}>
+            {d.playing ? d.t('video.dir_pause') : d.t('video.dir_play')}
+          </button>
+          <button type="button" className={styles.toolBtn} onClick={() => { d.seekTo(0); }}>
+            {d.t('video.dir_stop')}
+          </button>
+          <button
+            type="button"
+            className={styles.toolPrimary}
+            onClick={d.exportVideo}
+            disabled={d.clips.length === 0 || d.exportBusy || d.bins.some((b) => b.proxying)}
+          >
+            {d.exportBusy ? d.t('video.dir_exporting') : d.t('video.dir_export')}
+          </button>
+        </div>
+      )}
       {d.bins.some((b) => b.proxying) ? <p className={styles.hintTight}>{d.t('video.dir_proxying')}</p> : null}
       {d.proxyError ? <p className={styles.error}>{d.proxyError}</p> : null}
       {d.exportError ? <p className={styles.error}>{d.exportError}</p> : null}
@@ -404,8 +390,10 @@ export function DirectorResultPane({ previewActive = true }: { previewActive?: b
 
 export function DirectorSourcesPane({
   onOpenVoiceover,
+  compact = false,
 }: {
   onOpenVoiceover?: () => void;
+  compact?: boolean;
 } = {}): ReactNode {
   const d = useDirector();
   const [assembleTarget, setAssembleTarget] = useState(15);
@@ -459,6 +447,7 @@ export function DirectorSourcesPane({
   return (
     <div
       className={`${styles.paneFill} ${styles.sourcesPane} ${d.dropActive ? styles.dropHost : ''}`}
+      data-compact={compact || undefined}
       onDragOver={onSourcesDragOver}
       onDragLeave={(event) => {
         if (event.currentTarget.contains(event.relatedTarget as Node)) return;
@@ -472,6 +461,7 @@ export function DirectorSourcesPane({
         <button type="button" className={styles.toolBtn} onClick={d.pickAudio}>{d.t('video.dir_add_audio')}</button>
       </div>
 
+      {compact ? null : (
       <div className={styles.shotBin}>
         <div className={styles.toolRow}>
           <button
@@ -563,6 +553,10 @@ export function DirectorSourcesPane({
         {d.aiBusy ? <p className={styles.hintTight}>{d.aiStatus || d.t('video.ai_generating')}</p> : null}
         {d.aiError ? <p className={styles.voiceError}>{d.aiError}</p> : null}
       </div>
+      )}
+
+      {d.aiBusy && compact ? <p className={styles.hintTight}>{d.aiStatus || d.t('video.ai_generating')}</p> : null}
+      {d.aiError && compact ? <p className={styles.voiceError}>{d.aiError}</p> : null}
 
       {d.shots.length > 0 ? (
         <div className={styles.shotBin}>
@@ -605,18 +599,12 @@ export function DirectorSourcesPane({
                   <span className={styles.shotThumb} />
                 )}
                 <div className={styles.shotMeta}>
-                  <strong>{shot.shotPurpose.replaceAll('_', ' ')}</strong>
+                  <strong>{shotCardTitle(shot)}</strong>
                   <span>
-                    {shot.duration ? `${shot.duration.toFixed(1)}s` : '—'}
-                    {` · ${
-                      shot.provider && shot.provider !== 'unknown'
-                        ? (shot.modelId.split('/').pop() || shot.provider.split('/').pop() || shot.provider)
-                        : d.t('video.meta_unavailable')
-                    }`}
-                    {` · ${shot.validationStatus}`}
+                    {`AI · ${shotProviderShort(shot)}`}
+                    {shot.duration ? ` · ${shot.duration.toFixed(1)}s` : ''}
+                    {shot.validationStatus === 'ok' ? ' · Good' : shot.validationStatus ? ` · ${shot.validationStatus}` : ''}
                     {shot.productIdentityWarning ? ' · identity' : ''}
-                    {shot.replacesShotId ? ` · ${d.t('video.ai_retake')}` : ''}
-                    {shot.createdAt ? ` · ${new Date(shot.createdAt).toLocaleDateString()}` : ''}
                   </span>
                 </div>
                 <div className={styles.shotActions}>
@@ -630,7 +618,7 @@ export function DirectorSourcesPane({
               </li>
             ))}
           </ul>
-          <div className={styles.assembleRow}>
+          <div className={styles.assembleRow} hidden={compact}>
             <label>
               {d.t('video.assemble_target')}
               <input
@@ -654,7 +642,7 @@ export function DirectorSourcesPane({
         </div>
       ) : null}
 
-      {d.voiceoverSource ? (
+      {d.voiceoverSource && !compact ? (
         <div className={styles.voEntryRow}>
           {!d.voiceover.expanded ? (
             <button
@@ -669,7 +657,7 @@ export function DirectorSourcesPane({
         </div>
       ) : null}
 
-      {!d.voiceover.expanded ? (
+      {!d.voiceover.expanded && !compact ? (
       <div className={styles.voiceStrip}>
         <span className={styles.voiceLabel}>{d.t('video.dir_voice')}</span>
         <button
@@ -760,9 +748,13 @@ export function DirectorSourcesPane({
                     d.placeOnTrack(track, item.id);
                   }}
                 >
-                  <strong>{item.name}</strong>
+                  <strong>
+                    {isTechnicalMediaName(item.name)
+                      ? (item.kind === 'image' ? 'Product Image' : item.kind === 'audio' ? 'Audio' : 'Uploaded Video')
+                      : (humanizeFileStem(item.name) || item.name)}
+                  </strong>
                   <span>
-                    {d.t(`video.dir_kind_${item.kind}`)}
+                    {item.shotId ? 'AI' : 'Original'}
                     {item.proxying ? ` · ${d.t('video.dir_proxy_short')}` : ` · ${item.durationKnown || item.kind === 'image' ? `${item.durationSec.toFixed(1)}s` : '…'}`}
                     {onTimeline ? ` · ${d.t('video.dir_on_timeline')}` : ''}
                   </span>
@@ -773,7 +765,7 @@ export function DirectorSourcesPane({
           })}
         </ul>
       )}
-      <div className={styles.inspector}>
+      <div className={styles.inspector} hidden={compact}>
         {d.activeBin ? (
           <>
             <div className={styles.cutRow}>

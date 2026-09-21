@@ -75,13 +75,49 @@ export function CalloutEditor({ children, active = true }: CalloutEditorProps): 
     }
   };
 
-  if (!active) {
-    return <>{children}</>;
-  }
+  const handleMouseMove = useCallback(
+    (e: MouseEvent<HTMLDivElement>) => {
+      if (!active || !containerRef.current) return;
+
+      // Handle card resizing
+      if (resizingCard) {
+        const deltaX = e.clientX - resizingCard.startX;
+        const deltaY = e.clientY - resizingCard.startY;
+        const newW = Math.max(140, Math.min(650, resizingCard.startW + deltaX));
+        const newH = Math.max(50, Math.min(450, resizingCard.startH + deltaY));
+        d.updateCallout(resizingCard.id, {
+          boxW: Math.round(newW),
+          boxH: Math.round(newH),
+        });
+        return;
+      }
+
+      // Handle card dragging
+      if (draggingCard) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const deltaXPct = ((e.clientX - draggingCard.startX) / rect.width) * 100;
+        const deltaYPct = ((e.clientY - draggingCard.startY) / rect.height) * 100;
+
+        const newX = Math.max(1, Math.min(85, draggingCard.startBoxX + deltaXPct));
+        const newY = Math.max(1, Math.min(85, draggingCard.startBoxY + deltaYPct));
+
+        d.updateCallout(draggingCard.id, {
+          boxX: Math.round(newX * 10) / 10,
+          boxY: Math.round(newY * 10) / 10,
+        });
+      }
+    },
+    [active, draggingCard, resizingCard, d],
+  );
+
+  const handleMouseUp = useCallback(() => {
+    setDraggingCard(null);
+    setResizingCard(null);
+  }, []);
 
   // Handle clicking on video frame in 'add' mode to drop a pin
   const handleCanvasClick = (e: MouseEvent<HTMLDivElement>) => {
-    if (mode !== 'add' || !containerRef.current) return;
+    if (!active || mode !== 'add' || !containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
     const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
@@ -131,45 +167,9 @@ export function CalloutEditor({ children, active = true }: CalloutEditorProps): 
     });
   };
 
-  const handleMouseMove = useCallback(
-    (e: MouseEvent<HTMLDivElement>) => {
-      if (!containerRef.current) return;
-
-      // Handle card resizing
-      if (resizingCard) {
-        const deltaX = e.clientX - resizingCard.startX;
-        const deltaY = e.clientY - resizingCard.startY;
-        const newW = Math.max(140, Math.min(650, resizingCard.startW + deltaX));
-        const newH = Math.max(50, Math.min(450, resizingCard.startH + deltaY));
-        d.updateCallout(resizingCard.id, {
-          boxW: Math.round(newW),
-          boxH: Math.round(newH),
-        });
-        return;
-      }
-
-      // Handle card dragging
-      if (draggingCard) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const deltaXPct = ((e.clientX - draggingCard.startX) / rect.width) * 100;
-        const deltaYPct = ((e.clientY - draggingCard.startY) / rect.height) * 100;
-
-        const newX = Math.max(1, Math.min(85, draggingCard.startBoxX + deltaXPct));
-        const newY = Math.max(1, Math.min(85, draggingCard.startBoxY + deltaYPct));
-
-        d.updateCallout(draggingCard.id, {
-          boxX: Math.round(newX * 10) / 10,
-          boxY: Math.round(newY * 10) / 10,
-        });
-      }
-    },
-    [draggingCard, resizingCard, d],
-  );
-
-  const handleMouseUp = useCallback(() => {
-    setDraggingCard(null);
-    setResizingCard(null);
-  }, []);
+  if (!active) {
+    return <>{children}</>;
+  }
 
   return (
     <div className={s.wrapper} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}>

@@ -10,6 +10,8 @@ import {
   type TimelineClip,
 } from '../model/directorTimeline';
 import type { Callout } from '../model/callout';
+import { clipDisplayName } from '../model/clipDisplayName';
+import { ClipMediaFace } from './ClipMediaFace';
 import s from './TrackMixer.module.css';
 
 type ExtractMode = 'both' | 'audio_only' | 'mute_video';
@@ -46,14 +48,16 @@ function pickRulerStep(pxPerSec: number): number {
   return steps.find((step) => step >= raw) ?? Math.max(raw, 1);
 }
 
-export function TrackMixer(): ReactNode {
+export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): ReactNode {
   const d = useDirector();
   const [extractModalOpen, setExtractModalOpen] = useState(false);
   const [extractMode, setExtractMode] = useState<ExtractMode>('both');
   const [extractSuccess, setExtractSuccess] = useState<string | null>(null);
 
   // Selected item on the timeline (can be deleted via Backspace/Delete key or button)
-  const [selectedItem, setSelectedItem] = useState<{ type: 'clip' | 'callout'; id: string } | null>(null);
+  const [selectedItem, setSelectedItem] = useState<{ type: 'clip' | 'callout'; id: string } | null>(
+    () => (d.selectedClip ? { type: 'clip', id: d.selectedClip } : null),
+  );
 
   // Dragging state for moving clips & callouts along timeline
   const [draggingItem, setDraggingItem] = useState<DraggingState | null>(null);
@@ -73,6 +77,8 @@ export function TrackMixer(): ReactNode {
   const [viewportW, setViewportW] = useState(480);
   /** Mixer owns its zoom so Director "fit" effect cannot crush short clips again. */
   const [mixerPx, setMixerPx] = useState<number | null>(null);
+  /** Once the user zooms manually, stop auto-fitting on resize. */
+  const [userZoomed, setUserZoomed] = useState(false);
 
   const displayClips = useMemo(
     () => unstackAllTracks(previewClips ?? d.clips),
@@ -101,7 +107,8 @@ export function TrackMixer(): ReactNode {
     return Math.min(maxMixerPx, Math.max(fitPx, READABLE_CLIP_PX / minDur));
   }, [displayClips, fitPx, maxMixerPx]);
 
-  const pxPerSec = mixerPx ?? readablePx;
+  // Embedded editor defaults to Fit so the full film is visible (3+ min).
+  const pxPerSec = mixerPx ?? (embedded ? fitPx : readablePx);
   const bodyPx = Math.max(viewportW - LABEL_W, Math.ceil(totalSec * pxPerSec) + 48);
 
   const v1Clips = useMemo(
@@ -156,53 +163,81 @@ export function TrackMixer(): ReactNode {
     [d, totalSec, bodyPx, pxPerSec],
   );
 
-  const commitZoom = (next: number) => {
+  const commitZoom = (next: number, fromUser = true) => {
     const clamped = Math.min(maxMixerPx, Math.max(minMixerPx, next));
+    if (fromUser) setUserZoomed(true);
     setMixerPx(clamped);
     d.setPxPerSec(clamped);
   };
 
   const zoomBy = (factor: number) => {
-    commitZoom(pxPerSec * factor);
+    commitZoom(pxPerSec * factor, true);
   };
 
   const zoomFit = () => {
-    commitZoom(fitPx);
+    setUserZoomed(false);
+    commitZoom(fitPx, false);
+    requestAnimationFrame(() => {
+      if (scrollRef.current) scrollRef.current.scrollLeft = 0;
+    });
   };
 
   const zoomReadable = () => {
-    commitZoom(readablePx);
+    commitZoom(readablePx, true);
   };
 
+  // Keep Fit in sync with viewport / duration until the user zooms manually.
+  useEffect(() => {
+    if (!embedded || userZoomed) return;
+    setMixerPx(fitPx);
+    d.setPxPerSec(fitPx);
+  }, [embedded, userZoomed, fitPx, d]);
+
+  // Keep playhead visible in the horizontal scroll viewport.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller || draggingItem || draggingPlayhead) return;
+    const x = d.playhead * pxPerSec;
+    const left = scroller.scrollLeft;
+    const right = left + scroller.clientWidth;
+    const margin = 48;
+    if (x < left + margin) scroller.scrollLeft = Math.max(0, x - margin);
+    else if (x > right - margin) scroller.scrollLeft = x - scroller.clientWidth + margin;
+  }, [d.playhead, pxPerSec, draggingItem, draggingPlayhead]);
+
   const onTimelineWheel = (e: WheelEvent<HTMLDivElement>) => {
+    const scroller = scrollRef.current;
+    if (e.shiftKey && scroller) {
+      e.preventDefault();
+      scroller.scrollLeft += e.deltaY || e.deltaX;
+      return;
+    }
     if (!(e.ctrlKey || e.metaKey)) return;
     e.preventDefault();
-    const scroller = scrollRef.current;
     const prevPx = pxPerSec;
     const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
     const next = Math.min(maxMixerPx, Math.max(minMixerPx, prevPx * factor));
     if (!scroller) {
-      commitZoom(next);
+      commitZoom(next, true);
       return;
     }
     const rect = scroller.getBoundingClientRect();
     const xInView = e.clientX - rect.left;
     const timeUnderCursor = (scroller.scrollLeft + xInView) / prevPx;
-    commitZoom(next);
+    commitZoom(next, true);
     requestAnimationFrame(() => {
       scroller.scrollLeft = Math.max(0, timeUnderCursor * next - xInView);
     });
   };
 
-  const setSelectedClipDuration = (seconds: number) => {
-    if (!selectedItem || selectedItem.type !== 'clip') return;
-    const dur = Math.max(0.4, Math.round(seconds * 10) / 10);
-    const baseline = d.clips.map((clip) => (
-      clip.id === selectedItem.id
-        ? { ...clip, durationSec: dur, autoLength: false }
-        : { ...clip }
-    ));
-    d.replaceClips(unstackAllTracks(baseline));
+  const selectClip = (id: string | null) => {
+    if (!id) {
+      setSelectedItem(null);
+      d.setSelectedClip(null);
+      return;
+    }
+    setSelectedItem({ type: 'clip', id });
+    d.setSelectedClip(id);
   };
 
   // Pointer down on playhead thumb or ruler starts playhead dragging
@@ -249,6 +284,7 @@ export function TrackMixer(): ReactNode {
     e.preventDefault();
 
     setSelectedItem({ type, id });
+    if (type === 'clip') d.setSelectedClip(id);
     let startSec = origStartSec;
     let sourceIn = 0;
     previewClipsRef.current = null;
@@ -296,7 +332,11 @@ export function TrackMixer(): ReactNode {
         if (!target) return;
 
         if (draggingItem.mode === 'trim-out') {
-          const nextDur = Math.max(0.4, Math.round((draggingItem.durationSec + deltaSec) * 10) / 10);
+          const bin = d.bins.find((b) => b.id === target.binId);
+          const maxDur = bin?.kind === 'video'
+            ? Math.max(0.4, (bin.durationSec || draggingItem.durationSec) - target.sourceInSec)
+            : 3600;
+          const nextDur = Math.max(0.4, Math.min(maxDur, Math.round((draggingItem.durationSec + deltaSec) * 10) / 10));
           const withDur = base.map((clip) => (
             clip.id === draggingItem.id
               ? { ...clip, durationSec: nextDur, autoLength: false }
@@ -455,13 +495,13 @@ export function TrackMixer(): ReactNode {
 
   const playheadLeft = d.playhead * pxPerSec;
   const hasVideoSource = Boolean(d.voiceoverSource?.path);
-  const selectedClip = selectedItem?.type === 'clip'
-    ? displayClips.find((c) => c.id === selectedItem.id) ?? null
-    : null;
-  const selectedBin = selectedClip?.binId
-    ? d.bins.find((b) => b.id === selectedClip.binId) ?? null
-    : null;
-  const canEditDuration = Boolean(selectedClip);
+  // Keep mixer selection aligned with Director inspector / AI actions.
+  useEffect(() => {
+    if (!d.selectedClip) return;
+    setSelectedItem((prev) => (prev?.type === 'clip' && prev.id === d.selectedClip
+      ? prev
+      : { type: 'clip', id: d.selectedClip! }));
+  }, [d.selectedClip]);
 
   const renderMixerClip = (
     clip: TimelineClip,
@@ -469,7 +509,7 @@ export function TrackMixer(): ReactNode {
     tone: 'video' | 'still' | 'audioOriginal' | 'audioExtracted',
   ) => {
     const isDragging = draggingItem?.type === 'clip' && draggingItem.id === clip.id;
-    const isSelected = selectedItem?.id === clip.id;
+    const isSelected = selectedItem?.id === clip.id || d.selectedClip === clip.id;
     const toneClass = {
       video: s.clipVideo,
       still: s.clipStill,
@@ -477,20 +517,25 @@ export function TrackMixer(): ReactNode {
       audioExtracted: s.clipAudioExtracted,
     }[tone];
     const showDur = clip.durationSec;
+    const widthPx = Math.max(1, showDur * pxPerSec);
     const bin = clip.binId ? d.bins.find((b) => b.id === clip.binId) ?? null : null;
-    const isImage = bin?.kind === 'image';
-    // For images: use file:// protocol so Electron can load local images in <img> tags
-    const thumbSrc = isImage && bin?.path
-      ? bin.path.startsWith('file://') ? bin.path : `file://${bin.path}`
-      : null;
+    const shot = bin?.shotId ? d.shots.find((item) => item.id === bin.shotId) ?? null : null;
+    const faceTone = bin?.kind === 'image'
+      ? 'still'
+      : (bin?.kind === 'audio' || tone.startsWith('audio'))
+        ? 'audio'
+        : 'video';
+    const mediaUrl = bin?.kind === 'video' && bin.path ? (d.blobs[bin.path] ?? null) : null;
+    const origin = bin?.shotId ? 'ai' as const : bin ? 'original' as const : null;
+    const displayName = clipDisplayName(clip, bin, shot, index);
 
     return (
       <div
         key={clip.id}
-        className={`${s.clipBlock} ${toneClass} ${isDragging ? s.clipDragging : ''} ${isImage ? s.clipIsImage : ''}`}
+        className={`${s.clipBlock} ${toneClass} ${isDragging ? s.clipDragging : ''} ${faceTone === 'still' ? s.clipIsImage : ''} ${faceTone === 'video' ? s.clipIsVideo : ''} ${faceTone === 'audio' ? s.clipIsAudio : ''}`}
         data-selected={isSelected}
         data-alt={index % 2 === 1}
-        data-narrow={(showDur * pxPerSec) < 56}
+        data-narrow={widthPx < 72}
         data-shoving={Boolean(previewClips) && !isDragging}
         style={laneStyle(clip.startSec, showDur, pxPerSec)}
         onPointerDown={(e) =>
@@ -498,11 +543,10 @@ export function TrackMixer(): ReactNode {
         }
         onClick={(e) => {
           e.stopPropagation();
-          setSelectedItem({ type: 'clip', id: clip.id });
+          selectClip(clip.id);
         }}
-        title={`${clip.label} · ${formatTimecode(clip.startSec)}–${formatTimecode(clip.startSec + showDur)} (${formatTimecode(showDur)}) — тяните край для длительности`}
+        title={`${displayName} · ${formatTimecode(clip.startSec)}–${formatTimecode(clip.startSec + showDur)} (${formatTimecode(showDur)})`}
       >
-        {/* Trim handle: in */}
         <span
           className={s.clipTrim}
           data-edge="in"
@@ -510,44 +554,26 @@ export function TrackMixer(): ReactNode {
             e.stopPropagation();
             handleItemPointerDown(e, 'clip', clip.id, clip.startSec, clip.durationSec, 'trim-in');
           }}
-          title="Изменить начало / длительность"
+          title="Trim in"
         />
 
-        {/* Image thumbnail background */}
-        {thumbSrc ? (
-          <img
-            className={s.clipThumb}
-            src={thumbSrc}
-            alt=""
-            draggable={false}
-          />
-        ) : null}
+        <ClipMediaFace
+          clip={clip}
+          bin={bin}
+          shot={shot}
+          mediaUrl={mediaUrl}
+          widthPx={widthPx}
+          tone={faceTone}
+          origin={origin}
+          sequenceIndex={index}
+        />
 
-        {/* Clip content overlay */}
-        <span className={s.clipContent}>
-          {isImage ? (
-            <>
-              <span className={s.clipIcon}>🖼</span>
-              <span className={s.clipTitle}>{clip.label}</span>
-              <span className={s.clipDurBadge}>
-                {isDragging && draggingItem?.mode === 'move'
-                  ? formatTimecode(clip.startSec)
-                  : `${Math.round(showDur * 10) / 10}s`}
-              </span>
-            </>
-          ) : (
-            <>
-              <span className={s.clipTitle}>{clip.label}</span>
-              <span className={s.clipDuration}>
-                {isDragging && draggingItem?.mode === 'move'
-                  ? formatTimecode(clip.startSec)
-                  : formatTimecode(showDur)}
-              </span>
-            </>
-          )}
+        <span className={s.clipDurFloat}>
+          {isDragging && draggingItem?.mode === 'move'
+            ? formatTimecode(clip.startSec)
+            : `${Math.round(showDur * 10) / 10}s`}
         </span>
 
-        {/* Delete button */}
         <button
           type="button"
           className={s.clipDeleteBtn}
@@ -556,14 +582,13 @@ export function TrackMixer(): ReactNode {
             e.stopPropagation();
             e.preventDefault();
             d.removeClip(clip.id);
-            if (selectedItem?.id === clip.id) setSelectedItem(null);
+            if (selectedItem?.id === clip.id) selectClip(null);
           }}
           title="Удалить клип (Delete)"
         >
           ✕
         </button>
 
-        {/* Trim handle: out */}
         <span
           className={s.clipTrim}
           data-edge="out"
@@ -579,72 +604,36 @@ export function TrackMixer(): ReactNode {
 
 
   return (
-    <div className={s.container} onClick={() => setSelectedItem(null)}>
-      {/* Top Bar with Transport Controls & Actions */}
+    <div
+      className={`${s.container} ${embedded ? s.embedded : ''}`}
+      onClick={() => selectClip(null)}
+    >
       <div className={s.topBar} onClick={(e) => e.stopPropagation()}>
         <div className={s.transport}>
-          <button
-            type="button"
-            className={s.playBtn}
-            onClick={d.togglePlay}
-            disabled={!hasVideoSource && d.clips.length === 0}
-            title={d.playing ? 'Пауза (Пробел)' : 'Воспроизведение (Пробел)'}
-          >
-            {d.playing ? '❚❚ Пауза' : '▶ Воспроизвести'}
-          </button>
+          {embedded ? null : (
+            <button
+              type="button"
+              className={s.playBtn}
+              onClick={d.togglePlay}
+              disabled={!hasVideoSource && d.clips.length === 0}
+              title={d.playing ? 'Пауза (Пробел)' : 'Воспроизведение (Пробел)'}
+            >
+              {d.playing ? '❚❚ Пауза' : '▶ Воспроизвести'}
+            </button>
+          )}
           <div className={s.timecodeBadge}>
             {formatTimecode(d.playhead)} / {formatTimecode(totalSec)}
           </div>
-          <div className={s.zoomGroup} title="Масштаб: клипы никогда не раздуваются сверх своего времени — приближайте шкалу">
+          <div className={s.zoomGroup} title="Масштаб шкалы">
             <button type="button" className={s.zoomBtn} onClick={() => zoomBy(1 / 1.25)} title="Отдалить">−</button>
-            <button type="button" className={s.zoomBtn} onClick={zoomFit} title="Вписать всю шкалу (клипы могут стать узкими)">fit</button>
-            <button type="button" className={s.zoomBtn} onClick={zoomReadable} title="Читаемый масштаб коротких клипов">1:1</button>
-            <button type="button" className={s.zoomBtn} onClick={() => zoomBy(1.25)} title="Приблизить">+</button>
-            <span className={s.zoomHint}>⌘/Ctrl + колёсико</span>
+            <button type="button" className={s.zoomBtn} onClick={zoomFit} title="Show the full film">fit</button>
+            <button type="button" className={s.zoomBtn} onClick={zoomReadable} title="Zoom for short clips">100%</button>
+            <button type="button" className={s.zoomBtn} onClick={() => zoomBy(1.25)} title="Zoom in">+</button>
+            <span className={s.zoomHint}>{formatTimecode(totalSec)} total · scroll →</span>
           </div>
         </div>
 
         <div className={s.actions}>
-          {canEditDuration && selectedClip ? (
-            <div className={s.durationGroup} title="Длительность выбранного клипа на шкале">
-              <span className={s.durationLabel}>Длит.</span>
-              <button
-                type="button"
-                className={s.zoomBtn}
-                onClick={() => setSelectedClipDuration(selectedClip.durationSec - 0.5)}
-                title="Короче на 0.5 с"
-              >
-                −
-              </button>
-              <input
-                className={s.durationInput}
-                type="number"
-                min={0.4}
-                step={0.1}
-                value={Math.round(selectedClip.durationSec * 10) / 10}
-                onChange={(e) => setSelectedClipDuration(Number(e.target.value) || 0.4)}
-                onClick={(e) => e.stopPropagation()}
-                title={selectedBin?.kind === 'image' ? 'Сколько секунд показывать изображение' : 'Длительность клипа'}
-              />
-              <span className={s.durationUnit}>с</span>
-              <button
-                type="button"
-                className={s.zoomBtn}
-                onClick={() => setSelectedClipDuration(selectedClip.durationSec + 0.5)}
-                title="Длиннее на 0.5 с"
-              >
-                +
-              </button>
-              {selectedBin?.kind === 'image' ? (
-                <>
-                  <button type="button" className={s.zoomBtn} onClick={() => setSelectedClipDuration(2)} title="2 с">2</button>
-                  <button type="button" className={s.zoomBtn} onClick={() => setSelectedClipDuration(4)} title="4 с">4</button>
-                  <button type="button" className={s.zoomBtn} onClick={() => setSelectedClipDuration(8)} title="8 с">8</button>
-                </>
-              ) : null}
-            </div>
-          ) : null}
-
           {hasVideoSource ? (
             <button
               type="button"
@@ -695,34 +684,34 @@ export function TrackMixer(): ReactNode {
       >
         <div className={s.labelRail} aria-hidden={false}>
           <div className={s.headerCol}>Таймлайн</div>
-          <div className={s.trackHeader}>
-            <div className={s.trackTitleWrap}>
-              <span className={s.trackIcon}>🎬</span>
-              <span className={s.trackLabel}>V1 Видео</span>
-            </div>
-          </div>
-          <div className={s.trackHeader}>
+          <div className={s.trackHeader} data-lane="overlay">
             <div className={s.trackTitleWrap}>
               <span className={s.trackIcon}>🖼</span>
-              <span className={s.trackLabel}>V2 Графика</span>
+              <span className={s.trackLabel}>V2 Overlays</span>
+            </div>
+          </div>
+          <div className={s.trackHeader} data-lane="video">
+            <div className={s.trackTitleWrap}>
+              <span className={s.trackIcon}>🎬</span>
+              <span className={s.trackLabel}>V1 Video</span>
             </div>
           </div>
           <div className={s.trackHeader}>
             <div className={s.trackTitleWrap}>
               <span className={s.trackIcon}>🔊</span>
-              <span className={s.trackLabel}>A1 Звук/Голос</span>
+              <span className={s.trackLabel}>A1 Narration</span>
             </div>
           </div>
           <div className={s.trackHeader}>
             <div className={s.trackTitleWrap}>
               <span className={s.trackIcon}>🎵</span>
-              <span className={s.trackLabel}>A2 Экстракт</span>
+              <span className={s.trackLabel}>A2 Music</span>
             </div>
           </div>
           <div className={s.trackHeader}>
             <div className={s.trackTitleWrap}>
               <span className={s.trackIcon}>💬</span>
-              <span className={s.trackLabel}>C1 Подсказки</span>
+              <span className={s.trackLabel}>C1 Hints</span>
             </div>
           </div>
         </div>
@@ -760,7 +749,11 @@ export function TrackMixer(): ReactNode {
               ))}
             </div>
 
-            <div className={s.trackBody}>
+            <div className={`${s.trackBody} ${s.trackBodyVideo}`}>
+              {v2Clips.map((clip, index) => renderMixerClip(clip, index, 'still'))}
+            </div>
+
+            <div className={`${s.trackBody} ${s.trackBodyVideo}`}>
               {v1Clips.length > 0 ? (
                 v1Clips.map((clip, index) => renderMixerClip(clip, index, 'video'))
               ) : d.voiceoverSource ? (
@@ -773,10 +766,6 @@ export function TrackMixer(): ReactNode {
                   <span className={s.clipDuration}>{formatTimecode(d.voiceoverSource.durationSec)}</span>
                 </div>
               ) : null}
-            </div>
-
-            <div className={s.trackBody}>
-              {v2Clips.map((clip, index) => renderMixerClip(clip, index, 'still'))}
             </div>
 
             <div className={s.trackBody}>

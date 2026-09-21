@@ -581,6 +581,10 @@
   min-height: 0;
 }
 
+.resultPane[data-compact='true'] {
+  gap: 0;
+}
+
 .resultPane .stage {
   flex: 1;
   min-height: 8rem;
@@ -601,6 +605,14 @@
 .resultPane > [class*='wrapper'] > [class*='previewContainer'] > * {
   flex: 1;
   min-height: 0;
+}
+
+.sourcesPane[data-compact='true'] {
+  gap: 8px;
+}
+
+.sourcesPane[data-compact='true'] .inspector {
+  display: none;
 }
 
 .densePane .card {
@@ -1092,6 +1104,17 @@
   background: var(--color-bg-elevated);
 }
 
+.mixerHost {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
 .board {
   position: relative;
 }
@@ -1285,6 +1308,7 @@
   position: absolute;
   top: 4px;
   height: calc(100% - 8px);
+  box-sizing: border-box;
   display: flex;
   align-items: stretch;
   gap: 2px;
@@ -1300,6 +1324,13 @@
   cursor: grab;
   user-select: none;
   touch-action: none;
+  will-change: left, width;
+  transition:
+    left 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.22s ease,
+    box-shadow 0.28s ease,
+    outline-color 0.2s ease;
 }
 
 .blockLabel {
@@ -1374,6 +1405,13 @@
 .block[data-on='true'] {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
+  z-index: 3;
+  transition:
+    left 0.01s linear,
+    width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.22s ease,
+    box-shadow 0.28s ease,
+    outline-color 0.2s ease;
 }
 
 .block[data-live='true'] {

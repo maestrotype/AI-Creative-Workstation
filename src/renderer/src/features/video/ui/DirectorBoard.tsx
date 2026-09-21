@@ -40,7 +40,8 @@ import {
   type TrackId,
   type TrackLayout,
 } from '../model/directorTimeline';
-import { assembleShots, planToTimeline, promptForPurpose, type AssembleFootage } from '../model/autoAssemble';
+import { assembleShots, planToTimeline, promptForPurpose, purposeWord, type AssembleFootage } from '../model/autoAssemble';
+import { humanizeFileStem, isTechnicalMediaName } from '../model/clipDisplayName';
 import { sceneHasMedia, shotFromGeneration, type FilmShot, type FilmTimeline, type ProjectDoc, type ShotPurpose } from '../../projects/model/project';
 import { DEFAULT_TRACK_LAYOUT } from '../model/directorTimeline';
 import { sourcesFromScenes, takeProjectHandoff } from '../../projects/model/handoff';
@@ -250,7 +251,8 @@ type DirectorSnap = {
     purpose: ShotPurpose;
     prompt: string;
     durationSec: number;
-  }) => void;
+  }) => void | Promise<void>;
+  generateProductShotSet: () => void | Promise<void>;
   restoreClip: (clipId: string) => void;
 };
 
@@ -2334,7 +2336,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     addSources([{
       kind: 'video',
       path: shot.artifactPath,
-      name: shot.shotPurpose,
+      name: purposeWord(shot.shotPurpose),
       durationSec: shot.duration || 1.7,
       shotId: shot.id,
     }], true);
@@ -2446,11 +2448,12 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       };
       setShots((prev) => [...prev, shot]);
       const dur = Math.max(0.4, duration || durationSec);
+      const semantic = purposeWord(shot.shotPurpose);
       const bin: BinItem = {
         id: newId('bin'),
         kind: 'video',
         path: shot.artifactPath,
-        name: shot.shotPurpose.replaceAll('_', ' ').toLowerCase(),
+        name: semantic,
         durationSec: dur,
         inSec: 0,
         outSec: dur,
@@ -2467,7 +2470,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
                 binId: bin.id,
                 durationSec: dur,
                 sourceInSec: 0,
-                label: bin.name,
+                label: semantic,
                 autoLength: false,
                 previousBinId: item.previousBinId ?? replacing.binId ?? undefined,
                 previousDurationSec: item.previousDurationSec ?? replacing.durationSec,
@@ -2483,7 +2486,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           startSec: at,
           durationSec: dur,
           sourceInSec: 0,
-          label: bin.name,
+          label: semantic,
           autoLength: false,
         };
         setClips((prev) => insertClipOnTrack(prev, 'v1', at, clip));
@@ -2499,14 +2502,89 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     }
   };
 
+  const generateProductShotSet = async () => {
+    if (aiBusy) return;
+    if (!productStillPath) {
+      setAiError(t('video.ai_need_still'));
+      return;
+    }
+    if (!window.api?.generateVideo) {
+      setAiError(t('projects.no_ai_video'));
+      return;
+    }
+    const purposes: ShotPurpose[] = ['PRODUCT_HERO', 'DETAIL', 'ANGLE', 'FEATURE'];
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const motionModel = await window.api.getActiveVideoModel?.();
+      if (!motionModel || !/runway|minimax|h3|ti2v|anes1032/i.test(motionModel)) {
+        setAiError(t('projects.no_ai_video'));
+        return;
+      }
+      for (let i = 0; i < purposes.length; i += 1) {
+        const purpose = purposes[i];
+        setAiStatus(`${purposeWord(purpose)} (${i + 1}/${purposes.length})`);
+        const prompt = promptForPurpose(purpose, filmBrief);
+        const result = await window.api.generateVideo({
+          prompt,
+          format: filmFormat === 'shorts' ? 'portrait' : 'wide',
+          duration_sec: 3.4,
+          model_id: motionModel,
+          image_path: productStillPath,
+          mode: 'ai_video',
+          shot_index: i + 1,
+          shot_total: purposes.length,
+        });
+        if (!result.file_path) throw new Error(t('projects.generate_fail'));
+        const duration = result.quality?.duration_sec
+          ?? await window.api.probeMediaDuration(result.file_path).catch(() => 3.4);
+        const shot = shotFromGeneration({
+          path: result.file_path,
+          prompt,
+          purpose,
+          provider: result.provider_id || motionModel,
+          modelId: result.provider_id || motionModel,
+          sourceAsset: productStillPath,
+          projectId: scopeIdRef.current,
+          quality: { ...result.quality, duration_sec: duration },
+          status: result.status,
+        });
+        const semantic = purposeWord(purpose);
+        const dur = Math.max(0.4, duration || 3.4);
+        const bin: BinItem = {
+          id: newId('bin'),
+          kind: 'video',
+          path: shot.artifactPath,
+          name: semantic,
+          durationSec: dur,
+          inSec: 0,
+          outSec: dur,
+          durationKnown: true,
+          shotId: shot.id,
+        };
+        setShots((prev) => [...prev, shot]);
+        setBins((prev) => [...prev, bin]);
+      }
+      setAiStatus(null);
+    } catch (err) {
+      setAiError(ipcMessage(err, t('projects.generate_fail')));
+      setAiStatus(null);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   const applyAutoAssemble = (targetSec: number) => {
     const footage: AssembleFootage[] = binsRef.current
       .filter((bin) => bin.kind === 'video' || bin.kind === 'image')
       .filter((bin) => bin.path !== productStillPath)
+      .filter((bin) => !bin.shotId)
       .map((bin) => ({
         path: bin.path,
         durationSec: Math.max(0.4, bin.durationSec || 0),
-        label: bin.name,
+        label: isTechnicalMediaName(bin.name)
+          ? (bin.kind === 'image' ? 'Product Image' : 'Uploaded Video')
+          : (humanizeFileStem(bin.name) || bin.name || 'Footage'),
         kind: bin.kind === 'image' ? 'image' : 'video',
       }));
     const plan = assembleShots({
@@ -2919,7 +2997,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     aiBusy,
     aiError,
     aiStatus,
-    generateAiClip: (args) => { void generateAiClip(args); },
+    generateAiClip,
+    generateProductShotSet,
     restoreClip,
     patchClip,
     moveClipWithRipple: moveClipWithRippleFn,

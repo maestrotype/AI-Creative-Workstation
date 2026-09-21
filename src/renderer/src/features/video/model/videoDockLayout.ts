@@ -1,5 +1,5 @@
 export type DockPanelId = 'timeline' | 'preview' | 'sources' | 'storyboard' | 'recording';
-export type DockMode = 'pipeline' | 'tile' | 'free';
+export type DockMode = 'editor' | 'pipeline' | 'tile' | 'free';
 
 export interface DockRect {
   /* free mode, in % of the canvas */
@@ -34,30 +34,40 @@ export const DOCK_TITLE_KEYS: Record<DockPanelId, string> = {
 
 export function defaultDockState(): DockState {
   return {
-    mode: 'tile',
+    mode: 'editor',
     panels: {
-      sources: { x: 0.5, y: 0.5, w: 32, h: 48, z: 2, span: 4, hpx: 340, order: 1, visible: true },
-      preview: { x: 33.5, y: 0.5, w: 66, h: 48, z: 3, span: 8, hpx: 340, order: 2, visible: true },
-      timeline: { x: 0.5, y: 50, w: 99, h: 48, z: 1, span: 12, hpx: 268, order: 3, visible: true },
+      sources: { x: 0.5, y: 0.5, w: 28, h: 42, z: 2, span: 3, hpx: 320, order: 1, visible: true },
+      preview: { x: 29, y: 0.5, w: 42, h: 42, z: 3, span: 5, hpx: 320, order: 2, visible: true },
+      timeline: { x: 0.5, y: 44, w: 99, h: 54, z: 1, span: 12, hpx: 420, order: 3, visible: true },
       storyboard: { x: 4, y: 3, w: 88, h: 90, z: 8, span: 8, hpx: 480, order: 4, visible: false },
       recording: { x: 8, y: 6, w: 82, h: 84, z: 8, span: 4, hpx: 360, order: 5, visible: false },
     },
   };
 }
 
-const STORAGE_KEY = 'video-dock-layout-v8';
+const STORAGE_KEY = 'video-dock-layout-v9';
 
 export function loadDockState(): DockState {
   const base = defaultDockState();
   try {
     let raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) raw = localStorage.getItem('video-dock-layout-v8');
     if (!raw) raw = localStorage.getItem('video-dock-layout-v7');
     if (!raw) raw = localStorage.getItem('video-dock-layout-v6');
     if (!raw) raw = localStorage.getItem('video-dock-layout-v5');
     if (!raw) raw = localStorage.getItem('video-dock-layout-v4');
     if (!raw) return base;
     const parsed = JSON.parse(raw) as Partial<DockState>;
-    if (parsed.mode === 'pipeline' || parsed.mode === 'tile' || parsed.mode === 'free') base.mode = parsed.mode;
+    if (
+      parsed.mode === 'editor'
+      || parsed.mode === 'pipeline'
+      || parsed.mode === 'tile'
+      || parsed.mode === 'free'
+    ) {
+      base.mode = parsed.mode;
+    } else if (parsed.mode) {
+      base.mode = 'editor';
+    }
     for (const id of DOCK_PANEL_IDS) {
       const next = parsed.panels?.[id];
       if (next && typeof next.span === 'number') base.panels[id] = { ...base.panels[id], ...next };
@@ -65,11 +75,16 @@ export function loadDockState(): DockState {
     if (base.panels.recording.span >= 8) {
       base.panels.recording = { ...base.panels.recording, span: 4 };
     }
+    // Prefer the new editor workspace when migrating from older card layouts.
+    if (!localStorage.getItem(STORAGE_KEY) && base.mode === 'tile') {
+      base.mode = 'editor';
+      base.panels.timeline = { ...base.panels.timeline, span: 12, hpx: Math.max(base.panels.timeline.hpx, 420) };
+    }
   } catch {
     /* defaults */
   }
-  if (base.mode === 'pipeline') {
-    return { ...packTileLayout({ ...base, mode: 'tile' }), mode: 'pipeline' };
+  if (base.mode === 'pipeline' || base.mode === 'editor') {
+    return { ...packTileLayout({ ...base, mode: 'tile' }), mode: base.mode };
   }
   if (base.mode === 'tile') return packTileLayout(base);
   if (!base.freeCanvasHpx) return tileToFreeLayout({ ...base, mode: 'tile' });

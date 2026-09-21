@@ -16,6 +16,24 @@
   box-sizing: border-box;
 }
 
+.embedded {
+  border: none;
+  border-radius: 0;
+  padding: 8px 10px 10px;
+  background: transparent;
+  gap: 8px;
+}
+
+.embedded .topBar {
+  flex-shrink: 0;
+  padding-bottom: 6px;
+}
+
+.embedded .timelineShell {
+  flex: 1;
+  min-height: 0;
+}
+
 .topBar {
   display: flex;
   flex-wrap: wrap;
@@ -153,7 +171,7 @@
 .timelineShell {
   display: flex;
   flex-direction: row;
-  align-items: stretch;
+  align-items: flex-start;
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -163,7 +181,10 @@
   border-radius: var(--radius-md);
   background: var(--color-bg-card);
   box-sizing: border-box;
-  overflow: hidden;
+  /* Vertical scroll reveals V1/A1/… when tracks exceed the panel height. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .labelRail {
@@ -176,6 +197,8 @@
   border-right: 1px solid var(--color-border-subtle);
   z-index: 4;
   box-shadow: 4px 0 8px rgba(0, 0, 0, 0.25);
+  position: sticky;
+  left: 0;
 }
 
 .timelineArea {
@@ -183,18 +206,28 @@
   display: block;
   flex: 1;
   min-width: 0;
-  min-height: 0;
+  /* Height comes from tracks; parent shell scrolls vertically. */
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
   background: var(--color-bg-card);
   box-sizing: border-box;
+  scrollbar-gutter: stable;
+}
+
+.timelineArea::-webkit-scrollbar {
+  height: 10px;
+}
+
+.timelineArea::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-text-tertiary) 55%, transparent);
+  border-radius: 999px;
 }
 
 .timelineCanvas {
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  min-height: min-content;
 }
 
 /* Ruler */
@@ -290,7 +323,7 @@
 
 /* Track Lane labels (fixed rail) */
 .trackHeader {
-  height: 48px;
+  height: 64px;
   flex-shrink: 0;
   background: var(--color-bg-elevated);
   border-bottom: 1px solid var(--color-border-subtle);
@@ -300,6 +333,15 @@
   padding: 0 var(--space-3);
   gap: var(--space-2);
   box-sizing: border-box;
+}
+
+.trackHeader[data-lane='overlay'],
+.trackHeader[data-lane='video'] {
+  height: 72px;
+}
+
+.trackHeader:nth-child(n + 4) {
+  height: 48px;
 }
 
 .trackHeader:last-child {
@@ -365,6 +407,10 @@
   border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-bg-surface);
   box-sizing: border-box;
+}
+
+.trackBodyVideo {
+  height: 72px;
 }
 
 .trackBody:last-child {
@@ -469,18 +515,33 @@
   opacity: 0.85;
 }
 
-/* Duration badge for image clips (displayed prominently in center) */
-.clipDurBadge {
+/* Duration badge over media face */
+.clipDurFloat {
+  position: absolute;
+  right: 22px;
+  bottom: 5px;
+  z-index: 3;
   font-size: 10px;
   font-family: var(--font-mono, monospace);
-  font-weight: var(--weight-semibold);
-  background: rgba(0, 0, 0, 0.55);
+  font-weight: 600;
   color: #fff;
+  background: rgba(0, 0, 0, 0.55);
   padding: 1px 5px;
   border-radius: 3px;
-  white-space: nowrap;
-  flex-shrink: 0;
-  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.clipBlock[data-narrow='true'] .clipDurFloat {
+  display: none;
+}
+
+.clipIsVideo,
+.clipIsImage {
+  border-left-width: 2px;
+}
+
+.clipIsAudio {
+  border-left-width: 3px;
 }
 
 /* Trim handles — wider and more visible */
