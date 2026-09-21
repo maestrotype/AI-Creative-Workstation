@@ -10,6 +10,7 @@ import {
 } from './DirectorPanes';
 import { FromIdeaPanel } from './FromIdeaPanel';
 import { FromRecordingPanel } from './FromRecordingPanel';
+import { FilmWorkspace } from './FilmWorkspace';
 import { VideoDock, VideoMenuBar, useDockLayout } from './VideoDock';
 import { VideoPipelineShell } from './VideoPipelineShell';
 import type { DockState } from '../model/videoDockLayout';
@@ -62,7 +63,7 @@ function VideoStudioShell({ projectId }: { projectId: string | null }): ReactNod
   const openMontage = () => {
     setDock({
       ...dock,
-      mode: 'tile',
+      mode: 'editor',
     });
   };
 
@@ -159,7 +160,10 @@ function VideoStudioShell({ projectId }: { projectId: string | null }): ReactNod
         <div className={styles.studioLayer} hidden={dock.mode !== 'pipeline'}>
           <VideoPipelineShell active={dock.mode === 'pipeline'} />
         </div>
-        <div className={styles.studioLayer} hidden={dock.mode === 'pipeline'}>
+        <div className={styles.studioLayer} hidden={dock.mode !== 'editor'}>
+          <FilmWorkspace onOpenVoiceover={openVoiceover} />
+        </div>
+        <div className={styles.studioLayer} hidden={dock.mode === 'pipeline' || dock.mode === 'editor'}>
           <VideoDock
             state={dock}
             onState={setDock}

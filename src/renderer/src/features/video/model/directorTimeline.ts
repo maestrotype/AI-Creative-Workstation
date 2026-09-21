@@ -333,6 +333,63 @@ export function timelineLength(clips: TimelineClip[], fallback: number): number 
   return Math.max(...clips.map((c) => c.startSec + c.durationSec), 1);
 }
 
+/**
+ * Ruler / playhead length for the Film editor.
+ * Picture + callouts define the film. A runaway narration/source probe must not
+ * stretch the timeline into empty minutes.
+ */
+export function filmTotalSec(
+  clips: TimelineClip[],
+  callouts: Array<{ endSec: number }> = [],
+  voiceoverSourceDur = 0,
+): number {
+  const pictureEnd = Math.max(
+    0,
+    ...clips
+      .filter((c) => c.track.startsWith('v') || c.track.startsWith('t'))
+      .map((c) => c.startSec + c.durationSec),
+  );
+  const audioEnd = Math.max(
+    0,
+    ...clips.filter((c) => c.track.startsWith('a')).map((c) => c.startSec + c.durationSec),
+  );
+  const calloutEnd = Math.max(0, ...callouts.map((c) => c.endSec));
+
+  if (pictureEnd > 0.5) {
+    // Allow short audio overhang; ignore narration that dwarfs the picture.
+    const audioSlack = Math.max(pictureEnd + 2, pictureEnd * 1.08);
+    const usableAudio = audioEnd > audioSlack * 1.35 ? 0 : Math.min(audioEnd, audioSlack);
+    return Math.max(8, pictureEnd, usableAudio, calloutEnd);
+  }
+
+  const audioOrSource = Math.max(audioEnd, voiceoverSourceDur > 0.5 ? voiceoverSourceDur : 0);
+  return Math.max(8, audioOrSource, calloutEnd);
+}
+
+/** Cap audio clips that wildly overshoot the picture (e.g. 20min narration on a 2min cut). */
+export function trimRunawayAudioClips(clips: TimelineClip[]): TimelineClip[] {
+  const pictureEnd = Math.max(
+    0,
+    ...clips
+      .filter((c) => c.track.startsWith('v') || c.track.startsWith('t'))
+      .map((c) => c.startSec + c.durationSec),
+  );
+  if (pictureEnd < 1) return clips;
+  const limit = pictureEnd;
+  let changed = false;
+  const next = clips.map((clip) => {
+    if (!clip.track.startsWith('a')) return clip;
+    const end = clip.startSec + clip.durationSec;
+    if (end <= limit + 0.35) return clip;
+    const durationSec = Math.max(0.4, Math.round((limit - clip.startSec) * 100) / 100);
+    if (durationSec <= 0.4 && clip.startSec >= limit) return clip;
+    if (Math.abs(durationSec - clip.durationSec) < 0.05) return clip;
+    changed = true;
+    return { ...clip, durationSec, autoLength: false };
+  });
+  return changed ? next : clips;
+}
+
 export function clipAtTime(clips: TimelineClip[], track: TrackId, t: number): TimelineClip | null {
   const hits = clips.filter((c) => c.track === track && t >= c.startSec && t < c.startSec + c.durationSec);
   return hits.at(-1) ?? null;
@@ -396,18 +453,151 @@ export function unstackOverlaps(clips: TimelineClip[], track: TrackId): Timeline
   let cursor = 0;
   const starts = new Map<string, number>();
   for (const clip of on) {
-    const start = clip.startSec < cursor - 0.04 ? cursor : clip.startSec;
-    starts.set(clip.id, start);
-    cursor = start + clip.durationSec;
+    // Hard collision: never allow start inside a previous clip's span.
+    // Gaps (start > cursor) are preserved.
+    const start = Math.max(0, Math.max(clip.startSec, cursor));
+    starts.set(clip.id, Math.round(start * 1000) / 1000);
+    cursor = start + Math.max(0.05, clip.durationSec);
   }
   let changed = false;
   const next = clips.map((clip) => {
     const start = starts.get(clip.id);
-    if (start == null || Math.abs(start - clip.startSec) < 0.02) return clip;
+    if (start == null || Math.abs(start - clip.startSec) < 0.001) return clip;
     changed = true;
     return { ...clip, startSec: start };
   });
   return changed ? next : clips;
+}
+
+/** Shift a lane so the first clip starts at 0; keeps gaps between clips. */
+export function trimLeadingGap(clips: TimelineClip[], track: TrackId): TimelineClip[] {
+  const on = clips
+    .filter((c) => c.track === track)
+    .sort((a, b) => a.startSec - b.startSec || a.id.localeCompare(b.id));
+  if (on.length === 0) return clips;
+  const lead = on[0].startSec;
+  if (lead < 0.05) return clips;
+  return clips.map((clip) => (
+    clip.track === track
+      ? { ...clip, startSec: Math.round((clip.startSec - lead) * 1000) / 1000 }
+      : clip
+  ));
+}
+
+/**
+ * Guarantee no overlaps on video/audio lanes. Safe to run on every commit.
+ * Preserves intentional leading silence (e.g. music starting mid-film).
+ * Use packGaps / trimLeadingGap only when the user asks to close gaps.
+ */
+export function sanitizeClips(clips: TimelineClip[]): TimelineClip[] {
+  return unstackAllTracks(clips);
+}
+
+/**
+ * Moves a clip to `targetStartSec` on its track and magnetically pushes neighbors
+ * apart so clips on the same lane never stack. Pass a drag-start snapshot as
+ * `clips` for stable live previews while dragging.
+ */
+export function moveClipWithRipple(
+  clips: TimelineClip[],
+  clipId: string,
+  targetStartSec: number,
+): TimelineClip[] {
+  const target = clips.find((c) => c.id === clipId);
+  if (!target) return clips;
+
+  const track = target.track;
+  const duration = Math.max(0.4, target.durationSec);
+  const others = clips
+    .filter((c) => c.track === track && c.id !== clipId)
+    .sort((a, b) => a.startSec - b.startSec || a.id.localeCompare(b.id));
+
+  let startSec = Math.max(0, targetStartSec);
+
+  const snapThreshold = 0.35;
+  const snapPoints = [0];
+  for (const other of others) {
+    snapPoints.push(other.startSec);
+    snapPoints.push(other.startSec + other.durationSec);
+    snapPoints.push(Math.max(0, other.startSec - duration));
+  }
+  let best = snapThreshold;
+  for (const point of snapPoints) {
+    const dist = Math.abs(startSec - point);
+    if (dist < best) {
+      best = dist;
+      startSec = point;
+    }
+  }
+
+  // Order by drop start vs neighbor midpoints so a drop at 0 lands first,
+  // and a drop between two clips parts them instead of stacking.
+  let insertAt = others.length;
+  for (let i = 0; i < others.length; i += 1) {
+    const otherMid = others[i].startSec + others[i].durationSec / 2;
+    if (startSec < otherMid) {
+      insertAt = i;
+      break;
+    }
+  }
+
+  const ordered: TimelineClip[] = [
+    ...others.slice(0, insertAt),
+    { ...target, startSec, durationSec: duration },
+    ...others.slice(insertAt),
+  ];
+
+  const newPositions = new Map<string, number>();
+  let cursor = 0;
+  for (let i = 0; i < ordered.length; i += 1) {
+    const clip = ordered[i];
+    const desired = i === insertAt ? startSec : clip.startSec;
+    const pos = Math.max(0, Math.max(desired, cursor));
+    newPositions.set(clip.id, Math.round(pos * 100) / 100);
+    cursor = pos + clip.durationSec;
+  }
+
+  return clips.map((clip) => {
+    if (clip.track !== track) return clip;
+    const newPos = newPositions.get(clip.id);
+    if (newPos == null) return clip;
+    if (clip.id === clipId) {
+      return { ...clip, startSec: newPos, durationSec: duration };
+    }
+    if (Math.abs(newPos - clip.startSec) < 0.001) return clip;
+    return { ...clip, startSec: newPos };
+  });
+}
+
+/** Shift callouts on the hints lane so they do not stack when one is moved. */
+export function moveTimedRangeWithRipple<T extends { id: string; startSec: number; endSec: number }>(
+  items: T[],
+  itemId: string,
+  targetStartSec: number,
+): T[] {
+  const target = items.find((item) => item.id === itemId);
+  if (!target) return items;
+  const duration = Math.max(0.4, target.endSec - target.startSec);
+  const asClips: TimelineClip[] = items.map((item) => ({
+    id: item.id,
+    binId: null,
+    track: 't1',
+    startSec: item.startSec,
+    durationSec: Math.max(0.4, item.endSec - item.startSec),
+    sourceInSec: 0,
+    label: item.id,
+  }));
+  const next = moveClipWithRipple(asClips, itemId, targetStartSec);
+  const byId = new Map(next.map((clip) => [clip.id, clip]));
+  return items.map((item) => {
+    const clip = byId.get(item.id);
+    if (!clip) return item;
+    return {
+      ...item,
+      startSec: clip.startSec,
+      endSec: clip.startSec + (item.id === itemId ? duration : clip.durationSec),
+    };
+  });
 }
 
 export function canRemoveEmptyTrack(track: TrackId, clips: TimelineClip[], layout: TrackLayout): boolean {

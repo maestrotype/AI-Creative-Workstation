@@ -237,7 +237,13 @@ export function applyStillCompose(
   };
 
   if (mode === 'pip') {
-    return [...base, ...images.map((img) => makeStill(img, 'v2', 0))];
+    let pipCursor = 0;
+    const pipStills = images.map((img) => {
+      const clip = makeStill(img, 'v2', pipCursor);
+      pipCursor += clip.durationSec;
+      return clip;
+    });
+    return [...base, ...pipStills];
   }
 
   let cursor = 0;
@@ -255,13 +261,19 @@ export function demoteShortClipsFromV1(bins: BinItem[], clips: TimelineClip[]): 
   const longest = pickLongestVideoBin(bins);
   if (!longest) return clips;
   const threshold = Math.max(8, binMediaDuration(longest) * 0.35);
+  const onV2 = clips.filter((c) => c.track === 'v2');
+  let overlayCursor = onV2.length === 0
+    ? 0
+    : Math.max(...onV2.map((c) => c.startSec + c.durationSec));
   const next = clips.map((clip) => {
     if (clip.track !== 'v1') return clip;
     const bin = bins.find((item) => item.id === clip.binId);
     if (!bin) return clip;
     if (bin.kind === 'image') return clip;
     if (bin.kind === 'video' && bin.id !== longest.id && binMediaDuration(bin) < threshold) {
-      return { ...clip, track: 'v2' as const, startSec: 0 };
+      const startSec = overlayCursor;
+      overlayCursor += clip.durationSec;
+      return { ...clip, track: 'v2' as const, startSec };
     }
     return clip;
   });

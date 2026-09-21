@@ -1,0 +1,144 @@
+.face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.still,
+.stillFallback,
+.videoFallback {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.still {
+  object-fit: cover;
+  object-position: center;
+}
+
+.stillFallback {
+  background:
+    radial-gradient(circle at 30% 35%, rgba(103, 232, 249, 0.35), transparent 55%),
+    linear-gradient(135deg, #0e7490, #155e75);
+}
+
+.videoFallback {
+  background:
+    linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 55%, #0f172a 100%);
+}
+
+.filmstrip {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  background: #0b1220;
+}
+
+.frame {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.05) 0%,
+    rgba(0, 0, 0, 0.18) 45%,
+    rgba(0, 0, 0, 0.72) 100%
+  );
+  z-index: 1;
+}
+
+.meta {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 5px;
+  min-width: 0;
+}
+
+.badge {
+  flex-shrink: 0;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 1px 4px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.4);
+  color: rgba(248, 250, 252, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+}
+
+.face[data-narrow='true'] .label {
+  font-size: 9px;
+  letter-spacing: 0.02em;
+}
+
+.face[data-tone='audio'] {
+  background: linear-gradient(180deg, #166534 0%, #14532d 100%);
+}
+
+.audioBody {
+  position: absolute;
+  inset: 8px 8px 22px;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  opacity: 0.85;
+}
+
+.audioStripe {
+  flex: 1;
+  border-radius: 2px 2px 0 0;
+  background: linear-gradient(180deg, #86efac, #22c55e 70%, #166534);
+  min-width: 2px;
+}
+
+.audioStripe:nth-child(1) { height: 38%; }
+.audioStripe:nth-child(2) { height: 72%; }
+.audioStripe:nth-child(3) { height: 54%; }
+
+.face[data-tone='audio'] .audioBody::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgba(187, 247, 208, 0.35) 0 2px,
+    transparent 2px 7px
+  );
+  mask-image: linear-gradient(180deg, transparent 0%, #000 35%, #000 100%);
+  border-radius: 2px;
+}

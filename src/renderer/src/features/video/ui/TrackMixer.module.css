@@ -7,6 +7,31 @@
   border-radius: var(--radius-lg);
   padding: var(--space-4);
   user-select: none;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.embedded {
+  border: none;
+  border-radius: 0;
+  padding: 8px 10px 10px;
+  background: transparent;
+  gap: 8px;
+}
+
+.embedded .topBar {
+  flex-shrink: 0;
+  padding-bottom: 6px;
+}
+
+.embedded .timelineShell {
+  flex: 1;
+  min-height: 0;
 }
 
 .topBar {
@@ -23,6 +48,55 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.zoomGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: var(--space-2);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--color-border-subtle);
+}
+
+.zoomBtn {
+  min-width: 1.75rem;
+  height: 1.75rem;
+  padding: 0 6px;
+  border: 1px solid var(--color-border-default);
+  background: var(--color-bg-card);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--text-body-sm);
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.zoomBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+.zoomBtn[data-fit='true'] {
+  border-color: var(--color-accent);
+  color: var(--color-bg-base);
+  background: var(--color-accent);
+  font-weight: 700;
+}
+
+.zoomHint {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+.zoomHint[data-scroll='true'] {
+  color: var(--color-accent);
+  font-weight: 600;
 }
 
 .playBtn {
@@ -75,13 +149,20 @@
   font: inherit;
   font-size: var(--text-body-sm);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    color 0.22s ease,
+    border-color 0.22s ease,
+    background 0.22s ease,
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.22s ease;
 }
 
 .actionBtn:hover:not(:disabled) {
   color: var(--color-text-primary);
   border-color: var(--color-accent);
   background: var(--color-bg-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
 }
 
 .actionBtnPrimary {
@@ -99,34 +180,99 @@
 
 /* ── Timeline Track Grid ─────────────────────────────────── */
 
-.timelineArea {
-  position: relative;
+.timelineShell {
   display: flex;
-  flex-direction: column;
-  overflow-x: auto;
-  overflow-y: hidden;
+  flex-direction: row;
+  align-items: flex-start;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  flex: 1;
+  min-height: 0;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
   background: var(--color-bg-card);
+  box-sizing: border-box;
+  /* Vertical scroll reveals V1/A1/… when tracks exceed the panel height. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
-/* Ruler */
-.rulerRow {
-  display: flex;
-  height: 24px;
-  background: var(--color-bg-base);
-  border-bottom: 1px solid var(--color-border-subtle);
-  position: sticky;
-  top: 0;
-  z-index: 5;
-}
-
-.headerCol {
+.labelRail {
   width: 140px;
   min-width: 140px;
   flex-shrink: 0;
-  background: var(--color-bg-base);
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-elevated);
   border-right: 1px solid var(--color-border-subtle);
+  z-index: 4;
+  box-shadow: 4px 0 8px rgba(0, 0, 0, 0.25);
+  position: sticky;
+  left: 0;
+}
+
+.timelineArea {
+  position: relative;
+  display: block;
+  flex: 1;
+  min-width: 0;
+  /* Height comes from tracks; parent shell scrolls vertically. */
+  overflow-x: auto;
+  overflow-y: visible;
+  background: var(--color-bg-card);
+  box-sizing: border-box;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+  scrollbar-color: color-mix(in srgb, var(--color-accent) 70%, #64748b)
+    color-mix(in srgb, var(--color-bg-base) 80%, #1e293b);
+}
+
+.timelineArea[data-can-scroll='true'] {
+  box-shadow: inset -18px 0 16px -14px rgba(212, 168, 75, 0.35);
+  cursor: grab;
+}
+
+.timelineArea::-webkit-scrollbar {
+  height: 14px;
+}
+
+.timelineArea::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--color-bg-base) 70%, #0f172a);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.timelineArea::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-accent) 55%, #64748b),
+    var(--color-accent)
+  );
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+.timelineArea::-webkit-scrollbar-thumb:hover {
+  background: var(--color-accent);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+.timelineCanvas {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: min-content;
+}
+
+/* Ruler */
+.headerCol {
+  height: 24px;
+  flex-shrink: 0;
+  background: var(--color-bg-base);
+  border-bottom: 1px solid var(--color-border-subtle);
   display: flex;
   align-items: center;
   padding: 0 var(--space-3);
@@ -138,10 +284,13 @@
 }
 
 .rulerCanvas {
-  flex: 1;
   position: relative;
-  height: 100%;
-  cursor: pointer;
+  height: 24px;
+  flex-shrink: 0;
+  background: var(--color-bg-base);
+  border-bottom: 1px solid var(--color-border-subtle);
+  cursor: ew-resize;
+  user-select: none;
 }
 
 .rulerTick {
@@ -155,55 +304,85 @@
   color: var(--color-text-tertiary);
   line-height: 24px;
   pointer-events: none;
+  white-space: nowrap;
+  transform: translateX(0);
 }
 
-/* Playhead Scrubber */
+.rulerTick:last-child {
+  transform: translateX(-100%);
+  padding-left: 0;
+  padding-right: 4px;
+  border-left: none;
+  border-right: 1px solid var(--color-border-subtle);
+}
+
+/* Playhead Scrubber — lives inside scroll canvas, left = time * pxPerSec only */
 .playheadLine {
   position: absolute;
   top: 0;
   bottom: 0;
   width: 2px;
   background: #ff4757;
-  z-index: 20;
+  z-index: 35;
   pointer-events: none;
+  transition: left 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.timelineShell[data-scrubbing='true'] .playheadLine {
+  transition: none;
 }
 
 .playheadThumb {
   position: absolute;
   top: 0;
-  left: -6px;
-  width: 14px;
-  height: 14px;
+  left: -9px;
+  width: 20px;
+  height: 22px;
   background: #ff4757;
   clip-path: polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%);
   pointer-events: auto;
-  cursor: ew-resize;
+  cursor: grab;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  transition: transform 0.1s ease, background 0.15s ease;
 }
 
-/* Track Lane */
-.trackLane {
-  display: flex;
-  height: 48px;
-  border-bottom: 1px solid var(--color-border-subtle);
-  background: var(--color-bg-surface);
-  position: relative;
+.playheadThumb:hover {
+  cursor: grab;
+  transform: scale(1.15);
+  background: #ff6b81;
 }
 
-.trackLane:last-child {
-  border-bottom: none;
+.playheadThumb:active {
+  cursor: grabbing;
+  transform: scale(1.2);
+  background: #ff4757;
 }
 
+/* Track Lane labels (fixed rail) */
 .trackHeader {
-  width: 140px;
-  min-width: 140px;
+  height: 64px;
   flex-shrink: 0;
   background: var(--color-bg-elevated);
-  border-right: 1px solid var(--color-border-subtle);
+  border-bottom: 1px solid var(--color-border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 var(--space-3);
   gap: var(--space-2);
+  box-sizing: border-box;
+}
+
+.trackHeader[data-lane='overlay'],
+.trackHeader[data-lane='video'] {
+  height: 72px;
+}
+
+.trackHeader:nth-child(n + 4) {
+  height: 48px;
+}
+
+.trackHeader:last-child {
+  border-bottom: none;
 }
 
 .trackTitleWrap {
@@ -256,10 +435,44 @@
 }
 
 .trackBody {
-  flex: 1;
   position: relative;
-  height: 100%;
-  cursor: pointer;
+  height: 48px;
+  flex-shrink: 0;
+  cursor: default;
+  overflow: hidden;
+  isolation: isolate;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-surface);
+  box-sizing: border-box;
+}
+
+.trackBodyVideo {
+  height: 72px;
+}
+
+.trackBody:last-child {
+  border-bottom: none;
+}
+
+.clipBlock[data-narrow='true'] .clipTitle,
+.clipBlock[data-narrow='true'] .clipDuration {
+  display: none;
+}
+
+.clipBlock[data-narrow='true'] {
+  padding-right: 4px;
+}
+
+.clipBlock[data-narrow='true'] .clipDeleteBtn {
+  display: none;
+}
+
+.clipBlock[data-narrow='true'][data-selected='true'] .clipDeleteBtn {
+  display: inline-flex;
+}
+
+.clipBlock[data-narrow='true'] .clipTrim {
+  opacity: 0.85;
 }
 
 /* Clip Blocks */
@@ -267,56 +480,273 @@
   position: absolute;
   top: 4px;
   bottom: 4px;
-  border-radius: var(--radius-sm);
-  padding: 0 var(--space-2);
+  box-sizing: border-box;
+  border-radius: 4px;
+  padding: 0;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  min-width: 0;
+  max-width: none;
+  border-style: solid;
+  border-width: 1px;
+  border-left-width: 3px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3),
+    0 2px 6px rgba(0, 0, 0, 0.25);
+  will-change: left, width;
+  transition:
+    left 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.22s ease,
+    box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    outline-color 0.2s ease,
+    opacity 0.22s ease,
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Thumbnail image inside image clips — fills the clip block */
+.clipThumb {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 0;
+}
+
+/* Dark gradient overlay so text is always readable over thumbnail */
+.clipIsImage .clipContent {
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.72) 0%,
+    rgba(0, 0, 0, 0.48) 40%,
+    rgba(0, 0, 0, 0.24) 80%,
+    rgba(0, 0, 0, 0.48) 100%
+  );
+}
+
+/* Content overlay — sits above the thumbnail */
+.clipContent {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
+  gap: 4px;
+  padding: 0 10px;
+  padding-right: 22px;
+  width: 100%;
+  min-width: 0;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-  cursor: grab;
-  transition: filter 0.15s ease;
+}
+
+.clipIcon {
+  font-size: 11px;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+/* Duration badge over media face */
+.clipDurFloat {
+  position: absolute;
+  right: 22px;
+  bottom: 5px;
+  z-index: 3;
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 1px 5px;
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.clipBlock[data-narrow='true'] .clipDurFloat {
+  display: none;
+}
+
+.clipIsVideo,
+.clipIsImage {
+  border-left-width: 2px;
+}
+
+.clipIsAudio {
+  border-left-width: 3px;
+}
+
+/* Trim handles — wider and more visible */
+.clipTrim {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  z-index: 10;
+  cursor: ew-resize;
+  touch-action: none;
+  opacity: 0;
+  transition: opacity 0.18s ease, background 0.18s ease, width 0.18s ease;
+}
+
+.clipBlock:hover .clipTrim,
+.clipBlock[data-selected='true'] .clipTrim {
+  opacity: 1;
+}
+
+.clipTrim[data-edge='in'] {
+  left: 0;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.55), transparent);
+  border-left: 3px solid rgba(255, 255, 255, 0.95);
+  border-radius: 4px 0 0 4px;
+}
+
+.clipTrim[data-edge='out'] {
+  right: 0;
+  background: linear-gradient(270deg, rgba(255, 255, 255, 0.55), transparent);
+  border-right: 3px solid rgba(255, 255, 255, 0.95);
+  border-radius: 0 4px 4px 0;
+}
+
+/* Expand trim zone on hover for easier grabbing */
+.clipBlock:hover .clipTrim[data-edge='in'],
+.clipBlock[data-selected='true'] .clipTrim[data-edge='in'] {
+  width: 12px;
+}
+
+.clipBlock:hover .clipTrim[data-edge='out'],
+.clipBlock[data-selected='true'] .clipTrim[data-edge='out'] {
+  width: 12px;
+}
+
+.durationGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card);
+}
+
+.durationLabel {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 2px;
+}
+
+.durationInput {
+  width: 3.2rem;
+  height: 1.75rem;
+  border: 1px solid var(--color-border-default);
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-body-sm);
+  text-align: center;
+  padding: 0 4px;
+}
+
+.durationUnit {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
 }
 
 .clipBlock:hover {
+  filter: brightness(1.12);
+  z-index: 6;
+}
+
+.clipBlock[data-selected='true'] {
+  outline: 2px solid var(--color-accent) !important;
+  box-shadow: 0 0 14px rgba(59, 130, 246, 0.6) !important;
+  filter: brightness(1.15);
+  z-index: 5;
+}
+
+.clipBlock[data-shoving='true'] {
+  z-index: 3;
+}
+
+.clipBlock[data-alt='true'] {
   filter: brightness(1.1);
 }
 
 .clipVideo {
   background: linear-gradient(135deg, #1e3a8a, #2563eb);
-  border: 1px solid #3b82f6;
+  border-color: #60a5fa;
   color: #eff6ff;
 }
 
 .clipStill {
   background: linear-gradient(135deg, #0e7490, #06b6d4);
-  border: 1px solid #22d3ee;
+  border-color: #67e8f9;
   color: #ecfeff;
+}
+
+/* Image clips that have a thumbnail — keep a thin colored left bar */
+.clipIsImage {
+  border-color: #67e8f9;
 }
 
 .clipAudioOriginal {
   background: linear-gradient(135deg, #14532d, #16a34a);
-  border: 1px solid #22c55e;
+  border-color: #4ade80;
   color: #f0fdf4;
 }
 
 .clipAudioExtracted {
   background: linear-gradient(135deg, #3f6212, #84cc16);
-  border: 1px solid #a3e635;
+  border-color: #a3e635;
   color: #f7fee7;
 }
 
 .clipCallout {
   background: linear-gradient(135deg, #c2410c, #ea580c);
-  border: 1px solid #f97316;
+  border-color: #fb923c;
   color: #fff7ed;
   font-weight: var(--weight-medium);
+  min-width: 10px;
+  z-index: 2;
+}
+
+.clipCallout[data-hint-tone='text'] {
+  background: linear-gradient(135deg, #0e7490, #0891b2);
+  border-color: #22d3ee;
+}
+
+.clipCallout[data-hint-tone='card'] {
+  background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+  border-color: #93c5fd;
+}
+
+.clipCallout[data-hint-tone='sticker'] {
+  background: linear-gradient(135deg, #7c2d12, #ea580c);
+  border-color: #fdba74;
+}
+
+.clipCallout[data-hint-tone='pointer'] {
+  background: linear-gradient(135deg, #9f1239, #e11d48);
+  border-color: #fda4af;
+}
+
+.clipCallout[data-selected='true'] {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
 
 .clipFx {
   background: linear-gradient(135deg, #374151, #4b5563);
-  border: 1px solid #6b7280;
+  border-color: #9ca3af;
   color: #f9fafb;
 }
 
@@ -326,6 +756,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
 }
 
 .clipDuration {
@@ -333,6 +765,7 @@
   font-family: var(--font-mono, monospace);
   opacity: 0.8;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .badgeMuted {
@@ -343,6 +776,7 @@
   color: #fca5a5;
   margin-left: 4px;
 }
+
 
 /* ── Extraction Modal ────────────────────────────────────── */
 
@@ -480,4 +914,54 @@
   gap: var(--space-3);
   padding-top: var(--space-3);
   border-top: 1px solid var(--color-border-subtle);
+}
+
+/* ── Interactive Clip Dragging and Deletion ──────────────── */
+
+.clipDeleteBtn {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  font-size: 11px;
+  font-weight: bold;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, transform 0.15s ease;
+  z-index: 2;
+}
+
+.clipBlock:hover .clipDeleteBtn,
+.clipBlock[data-selected='true'] .clipDeleteBtn {
+  display: inline-flex;
+}
+
+.clipDeleteBtn:hover {
+  background: #ff4757;
+  border-color: #ff4757;
+  transform: translateY(-50%) scale(1.2);
+}
+
+.clipDragging {
+  opacity: 0.95;
+  cursor: grabbing !important;
+  z-index: 8 !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55) !important;
+  outline: 2px solid #fff !important;
+  filter: brightness(1.22) !important;
+  transform: translateY(-1px);
+  transition:
+    box-shadow 0.22s ease,
+    filter 0.18s ease,
+    opacity 0.18s ease,
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }

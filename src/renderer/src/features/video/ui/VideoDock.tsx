@@ -73,14 +73,31 @@ export function VideoMenuBar({
     <header className={styles.menuBar}>
       <div className={styles.menuTop}>
         <div className={styles.menuBrand}>
-          <span className={styles.brand}>{t('video.title')}</span>
+          <span className={styles.brand}>
+            {t(state.mode === 'editor' ? 'video.menu_layout_editor' : 'video.title')}
+          </span>
           <span className={styles.brandHint}>
-            {t(state.mode === 'pipeline' ? 'video.menu_lead_pipeline' : 'video.menu_lead')}
+            {t(
+              state.mode === 'pipeline'
+                ? 'video.menu_lead_pipeline'
+                : state.mode === 'editor'
+                  ? 'video.menu_lead'
+                  : 'video.menu_lead',
+            )}
           </span>
         </div>
         <div className={styles.menuTools}>
           <span className={styles.toolsLabel}>{t('video.menu_layout_label')}</span>
           <div className={styles.modeSwitch}>
+            <button
+              type="button"
+              className={styles.modeBtn}
+              data-on={state.mode === 'editor'}
+              title={t('video.menu_layout_editor_hint')}
+              onClick={() => onState({ ...state, mode: 'editor' })}
+            >
+              {t('video.menu_layout_editor')}
+            </button>
             <button
               type="button"
               className={styles.modeBtn}
@@ -113,15 +130,17 @@ export function VideoMenuBar({
             type="button"
             className={styles.resetBtn}
             onClick={() => {
-              const base = packTileLayout({ ...defaultDockState(), mode: 'tile' });
-              onState(state.mode === 'free' ? tileToFreeLayout(base) : { ...base, mode: state.mode });
+              const base = defaultDockState();
+              if (state.mode === 'free') onState(tileToFreeLayout({ ...base, mode: 'tile' }));
+              else if (state.mode === 'tile') onState(packTileLayout({ ...base, mode: 'tile' }));
+              else onState({ ...base, mode: state.mode });
             }}
           >
             {t('video.menu_reset')}
           </button>
         </div>
       </div>
-      {state.mode === 'pipeline' ? null : (
+      {state.mode === 'pipeline' || state.mode === 'editor' ? null : (
       <div className={styles.menuGroups}>
         {GROUPS.map((group) => (
           <section key={group.labelKey} className={styles.menuGroup}>
