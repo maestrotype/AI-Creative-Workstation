@@ -27,7 +27,8 @@ import {
   insertClipOnTrack,
   trackHasGap,
   syncClipDuration,
-  timelineLength,
+  filmTotalSec,
+  trimRunawayAudioClips,
   trackIndex,
   unstackAllTracks,
   sanitizeClips,
@@ -41,6 +42,7 @@ import {
   type TrackLayout,
 } from '../model/directorTimeline';
 import { assembleShots, planToTimeline, promptForPurpose, purposeWord, type AssembleFootage } from '../model/autoAssemble';
+import { createDirectorHistory, type DirectorHistorySnap } from '../model/directorHistory';
 import { humanizeFileStem, isTechnicalMediaName } from '../model/clipDisplayName';
 import { sceneHasMedia, shotFromGeneration, type FilmShot, type FilmTimeline, type ProjectDoc, type ShotPurpose } from '../../projects/model/project';
 import { DEFAULT_TRACK_LAYOUT } from '../model/directorTimeline';
@@ -62,7 +64,7 @@ import {
 import { hasScreencastBin, v1Clips, visualTimelineFingerprint } from '../model/filmVisual';
 import type { VideoAnalysisContext } from '../model/videoAnalysis';
 import type { VoiceoverScript } from '../model/voiceoverScript';
-import { newCallout, type Callout } from '../model/callout';
+import { newCallout, normalizeCalloutList, type Callout } from '../model/callout';
 import { MARKETPLACE_V0_BLOCKS, MARKETPLACE_PROJECT_BRIEF } from '../model/marketplaceVoiceoverPack';
 
 const LABEL_W = 118;
@@ -230,6 +232,16 @@ type DirectorSnap = {
   addCallout: (params: Partial<Callout> & { targetX: number; targetY: number }) => Callout;
   updateCallout: (id: string, patch: Partial<Callout>) => void;
   removeCallout: (id: string) => void;
+  selectedCallout: string | null;
+  setSelectedCallout: (id: string | null) => void;
+  showHints: boolean;
+  setShowHints: (on: boolean) => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  undo: () => void;
+  redo: () => void;
+  pickProductStill: () => void;
+  setProductStillFromBin: (binId: string) => void;
   extractAudioTrack: (mode: 'both' | 'audio_only' | 'mute_video') => Promise<void>;
   extractAudioBusy: boolean;
   extractAudioError: string | null;
@@ -349,6 +361,11 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const [shots, setShots] = useState<FilmShot[]>([]);
   const [assemblyRationale, setAssemblyRationale] = useState<string | null>(null);
   const [productStillPath, setProductStillPath] = useState<string | null>(null);
+  const [selectedCallout, setSelectedCallout] = useState<string | null>(null);
+  const [showHints, setShowHints] = useState(true);
+  const [historyTick, setHistoryTick] = useState(0);
+  const historyRef = useRef(createDirectorHistory(40));
+  const applyingHistoryRef = useRef(false);
   const [filmBrief, setFilmBrief] = useState('');
   const [filmFormat, setFilmFormat] = useState<'landscape' | 'shorts'>('landscape');
   const [aiBusy, setAiBusy] = useState(false);
@@ -393,6 +410,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     () => ({
       ...emptyVoiceoverSession(),
       ...(boot?.voiceover ?? {}),
+      callouts: normalizeCalloutList(boot?.voiceover?.callouts ?? []),
     }),
   );
 
@@ -436,6 +454,61 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   shotsRef.current = shots;
   const assemblyRef = useRef(assemblyRationale);
   assemblyRef.current = assemblyRationale;
+  const productStillPathRef = useRef(productStillPath);
+  productStillPathRef.current = productStillPath;
+  const voiceoverRef = useRef(voiceover);
+  voiceoverRef.current = voiceover;
+  const selectedCalloutRef = useRef(selectedCallout);
+  selectedCalloutRef.current = selectedCallout;
+  const selectedClipRef = useRef(selectedClip);
+  selectedClipRef.current = selectedClip;
+  const selectedBinRef = useRef(selectedBin);
+  selectedBinRef.current = selectedBin;
+
+  const takeHistorySnap = (): DirectorHistorySnap => ({
+    clips: clipsRef.current,
+    bins: binsRef.current,
+    callouts: voiceoverRef.current.callouts ?? [],
+    productStillPath: productStillPathRef.current,
+    assemblyRationale: assemblyRef.current,
+    trackLayout: trackLayoutRef.current,
+    selectedClip: selectedClipRef.current,
+    selectedBin: selectedBinRef.current,
+    selectedCallout: selectedCalloutRef.current,
+  });
+
+  const pushHistory = () => {
+    if (applyingHistoryRef.current) return;
+    historyRef.current.push(takeHistorySnap());
+    setHistoryTick((n) => n + 1);
+  };
+
+  const restoreHistorySnap = (snap: DirectorHistorySnap) => {
+    applyingHistoryRef.current = true;
+    setClipsState(sanitizeClips(snap.clips));
+    setBins(snap.bins);
+    setVoiceover((prev) => ({ ...prev, callouts: normalizeCalloutList(snap.callouts) }));
+    setProductStillPath(snap.productStillPath);
+    setAssemblyRationale(snap.assemblyRationale);
+    setTrackLayout(snap.trackLayout);
+    setSelectedClip(snap.selectedClip);
+    setSelectedBin(snap.selectedBin);
+    setSelectedCallout(snap.selectedCallout);
+    applyingHistoryRef.current = false;
+    setHistoryTick((n) => n + 1);
+  };
+
+  const undo = () => {
+    const prev = historyRef.current.undo(takeHistorySnap());
+    if (!prev) return;
+    restoreHistorySnap(prev);
+  };
+
+  const redo = () => {
+    const next = historyRef.current.redo(takeHistorySnap());
+    if (!next) return;
+    restoreHistorySnap(next);
+  };
   const projectHydrated = useRef(!scopeIdRef.current);
   const assembledPreviewRef = useRef(assembledPreview);
   assembledPreviewRef.current = assembledPreview;
@@ -629,8 +702,42 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     [clips, trackLayout],
   );
   const tracks = useMemo(() => buildTrackList(effectiveLayout), [effectiveLayout]);
-  const total = Math.max(timelineLength(clips, 8), voiceoverSource?.durationSec ?? 0);
+  const total = filmTotalSec(clips, voiceover.callouts ?? [], voiceoverSource?.durationSec ?? 0);
   totalRef.current = total;
+
+  // Keep narration from stretching a short product cut into empty minutes.
+  useEffect(() => {
+    if (applyingHistoryRef.current) return;
+    const trimmed = trimRunawayAudioClips(clipsRef.current);
+    if (trimmed === clipsRef.current) return;
+    setClipsState(sanitizeClips(trimmed));
+  }, [clips]);
+
+  // Product films need a still — bind the only image bin, or the first on-timeline still.
+  useEffect(() => {
+    if (productStillPathRef.current || applyingHistoryRef.current) return;
+    const images = binsRef.current.filter((b) => b.kind === 'image');
+    if (images.length === 0) return;
+    let pick = images.length === 1 ? images[0] : null;
+    if (!pick) {
+      const onTimeline = clipsRef.current
+        .filter((c) => c.track.startsWith('v') && c.binId)
+        .sort((a, b) => a.startSec - b.startSec)
+        .map((c) => images.find((b) => b.id === c.binId))
+        .find(Boolean);
+      pick = onTimeline ?? null;
+    }
+    if (!pick) return;
+    setProductStillPath(pick.path);
+    const id = scopeIdRef.current;
+    if (id && window.api?.loadProject && window.api.saveProject) {
+      void window.api.loadProject(id).then((doc) => {
+        if (!doc || (doc as ProjectDoc).productStillPath) return;
+        return window.api.saveProject({ ...doc, productStillPath: pick!.path });
+      }).catch(() => { /* keep local */ });
+    }
+  }, [bins, clips, productStillPath]);
+
   const fitPxPerSec = Math.max(1.2, (Math.max(viewW, 240) - LABEL_W - 20) / Math.max(total, 1));
   const minPxPerSec = fitPxPerSec;
   const maxPxPerSec = Math.max(48, fitPxPerSec * 12);
@@ -702,6 +809,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         };
         return window.api.saveProject({
           ...doc,
+          productStillPath: productStillPathRef.current ?? (doc as ProjectDoc).productStillPath ?? null,
           timeline,
           shots: shotsRef.current.length ? shotsRef.current : (doc as ProjectDoc).shots ?? [],
           assembledPath: assembledPreviewRef.current?.path ?? (doc as ProjectDoc).assembledPath,
@@ -957,6 +1065,17 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        redo();
+        return;
+      }
       if (e.code === 'Space') {
         e.preventDefault();
         togglePlay();
@@ -965,6 +1084,10 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       if ((e.key === 'Backspace' || e.key === 'Delete') && selectedClip) {
         e.preventDefault();
         removeClip(selectedClip);
+      }
+      if ((e.key === 'Backspace' || e.key === 'Delete') && selectedCallout) {
+        e.preventDefault();
+        removeCallout(selectedCallout);
       }
       if ((e.key === 's' || e.key === 'S') && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
@@ -1314,7 +1437,42 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
 
   const pickImage = async () => {
     const path = await window.api?.pickImage?.();
-    if (path) addBin('image', path, 4);
+    if (path) {
+      pushHistory();
+      addBin('image', path, 4);
+    }
+  };
+
+  const pickProductStill = async () => {
+    const path = await window.api?.pickImage?.();
+    if (!path) return;
+    pushHistory();
+    setProductStillPath(path);
+    const existing = binsRef.current.find((b) => b.path === path && b.kind === 'image');
+    if (!existing) {
+      addBin('image', path, 4);
+    }
+    const id = scopeIdRef.current;
+    if (id && window.api?.loadProject && window.api.saveProject) {
+      void window.api.loadProject(id).then((doc) => {
+        if (!doc) return;
+        return window.api.saveProject({ ...doc, productStillPath: path });
+      }).catch(() => { /* keep local */ });
+    }
+  };
+
+  const setProductStillFromBin = (binId: string) => {
+    const bin = binsRef.current.find((b) => b.id === binId);
+    if (!bin || bin.kind !== 'image') return;
+    pushHistory();
+    setProductStillPath(bin.path);
+    const id = scopeIdRef.current;
+    if (id && window.api?.loadProject && window.api.saveProject) {
+      void window.api.loadProject(id).then((doc) => {
+        if (!doc) return;
+        return window.api.saveProject({ ...doc, productStillPath: bin.path });
+      }).catch(() => { /* keep local */ });
+    }
   };
 
   const pickAudio = async () => {
@@ -1338,6 +1496,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   };
 
   const removeBin = (id: string) => {
+    pushHistory();
     setBins((prev) => prev.filter((b) => b.id !== id));
     setClips((prev) => prev.filter((c) => c.binId !== id));
     if (selectedBin === id) setSelectedBin(null);
@@ -1349,6 +1508,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     if (isAudioTrack(track) && bin.kind !== 'audio') return;
     if (isVideoTrack(track) && bin.kind === 'audio') return;
     if (track.startsWith('t')) return;
+    pushHistory();
     setTrackLayout((layout) => ensureTrackVisible(layout, track));
     const duration = clipSpan(bin);
     let queuedStart: number | null = null;
@@ -2135,18 +2295,33 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const callouts = voiceover.callouts ?? [];
 
   const addCallout = (params: Partial<Callout> & { targetX: number; targetY: number }): Callout => {
+    pushHistory();
     const item = newCallout({
       startSec: params.startSec ?? playhead,
+      endSec: params.endSec ?? (params.startSec ?? playhead) + 3,
       ...params,
     });
     setVoiceover((prev) => ({
       ...prev,
       callouts: [...(prev.callouts ?? []), item],
     }));
+    setSelectedCallout(item.id);
+    setSelectedClip(null);
     return item;
   };
 
   const updateCallout = (id: string, patch: Partial<Callout>) => {
+    const keys = Object.keys(patch);
+    const structural = keys.some((k) => (
+      k === 'startSec' || k === 'endSec' || k === 'targetX' || k === 'targetY'
+      || k === 'boxX' || k === 'boxY' || k === 'boxW' || k === 'boxH'
+      || k === 'type' || k === 'size' || k === 'animationIn' || k === 'animationOut'
+      || k === 'anchor' || k === 'stickerUrl' || k === 'stickerScale' || k === 'color'
+    ));
+    const styleOrDelete = keys.some((k) => (
+      k === 'theme' || k === 'shape' || k === 'arrowStyle' || k === 'pulse' || k === 'title'
+    ));
+    if (structural || styleOrDelete) pushHistory();
     setVoiceover((prev) => ({
       ...prev,
       callouts: (prev.callouts ?? []).map((c) => (c.id === id ? { ...c, ...patch } : c)),
@@ -2154,10 +2329,12 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   };
 
   const removeCallout = (id: string) => {
+    pushHistory();
     setVoiceover((prev) => ({
       ...prev,
       callouts: (prev.callouts ?? []).filter((c) => c.id !== id),
     }));
+    if (selectedCallout === id) setSelectedCallout(null);
   };
 
   const extractAudioTrack = async (mode: 'both' | 'audio_only' | 'mute_video') => {
@@ -2283,6 +2460,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   };
 
   const removeClip = (id: string) => {
+    pushHistory();
     setClips((prev) => prev.filter((c) => c.id !== id));
     if (selectedClip === id) setSelectedClip(null);
   };
@@ -2295,6 +2473,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     if (!target) return;
     const next = splitClipAt(clipsRef.current, target.id, at);
     if (next === clipsRef.current) return;
+    pushHistory();
     setClips(next);
   };
 
@@ -2319,6 +2498,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     if (!selectedClip) return;
     const { nextClips, nextBins, newClipId } = detachAudioFromClip(clipsRef.current, binsRef.current, selectedClip);
     if (newClipId) {
+      pushHistory();
       setBins(nextBins);
       setClips(nextClips);
       setSelectedClip(newClipId);
@@ -2362,6 +2542,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     if (!clip?.previousBinId) return;
     const bin = binsRef.current.find((item) => item.id === clip.previousBinId);
     if (!bin) return;
+    pushHistory();
     setClips((prev) => prev.map((item) => (
       item.id !== clipId
         ? item
@@ -2594,6 +2775,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       footage,
     });
     if (plan.placements.length === 0) return;
+    pushHistory();
     const built = planToTimeline(plan);
     setTrackLayout((prev) => ({
       videos: Math.max(prev.videos, plan.trackLayout.videos),
@@ -2623,20 +2805,24 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   };
 
   const clearTrack = (track: TrackId) => {
+    pushHistory();
     setClips((prev) => prev.filter((c) => c.track !== track));
     if (activeClip?.track === track) setSelectedClip(null);
   };
 
   const patchClip = (id: string, patch: Partial<TimelineClip>) => {
+    pushHistory();
     setClips((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   };
 
   const moveClipWithRippleFn = (id: string, targetStartSec: number) => {
+    pushHistory();
     setClips((prev) => moveClipWithRipple(prev, id, targetStartSec));
   };
 
   /** Replace the full clip list in one commit (used after multi-clip shove preview). */
   const replaceClipsFn = (next: TimelineClip[]) => {
+    pushHistory();
     setClips(next);
   };
 
@@ -2979,6 +3165,16 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     addCallout,
     updateCallout,
     removeCallout,
+    selectedCallout,
+    setSelectedCallout,
+    showHints,
+    setShowHints,
+    canUndo: historyTick >= 0 && historyRef.current.canUndo,
+    canRedo: historyTick >= 0 && historyRef.current.canRedo,
+    undo,
+    redo,
+    pickProductStill: () => { void pickProductStill(); },
+    setProductStillFromBin,
     extractAudioTrack,
     extractAudioBusy,
     extractAudioError,

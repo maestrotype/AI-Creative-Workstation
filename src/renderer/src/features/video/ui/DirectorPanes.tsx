@@ -11,7 +11,7 @@ import {
   type TrackId,
 } from '../model/directorTimeline';
 import { promptForPurpose, SHOT_DURATION_PROFILES } from '../model/autoAssemble';
-import { shotCardTitle, shotProviderShort, humanizeFileStem, isTechnicalMediaName } from '../model/clipDisplayName';
+import { shotCardTitle, shotProviderShort, mediaBinDisplayName } from '../model/clipDisplayName';
 import type { ShotPurpose } from '../../projects/model/project';
 import { toAssetUrl } from '../model/directorMedia';
 import { DirectorPreview } from './DirectorPreview';
@@ -320,14 +320,20 @@ export function DirectorTimelinePane(): ReactNode {
 export function DirectorResultPane({
   previewActive = true,
   compact = false,
+  onHintPlacementChange,
 }: {
   previewActive?: boolean;
   compact?: boolean;
+  onHintPlacementChange?: (placing: boolean) => void;
 } = {}): ReactNode {
   const d = useDirector();
   return (
     <div className={`${styles.paneFill} ${styles.resultPane}`} data-compact={compact || undefined}>
-      <CalloutEditor active={previewActive}>
+      <CalloutEditor
+        active={previewActive}
+        compactChrome={compact}
+        onPlacementModeChange={onHintPlacementChange}
+      >
         <DirectorPreview
           playhead={d.playhead}
           playing={d.playing}
@@ -749,9 +755,11 @@ export function DirectorSourcesPane({
                   }}
                 >
                   <strong>
-                    {isTechnicalMediaName(item.name)
-                      ? (item.kind === 'image' ? 'Product Image' : item.kind === 'audio' ? 'Audio' : 'Uploaded Video')
-                      : (humanizeFileStem(item.name) || item.name)}
+                    {mediaBinDisplayName(
+                      item,
+                      item.shotId ? d.shots.find((shot) => shot.id === item.shotId) ?? null : null,
+                      d.productStillPath,
+                    )}
                   </strong>
                   <span>
                     {item.shotId ? 'AI' : 'Original'}

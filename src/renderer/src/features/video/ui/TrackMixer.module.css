@@ -80,11 +80,23 @@
   background: var(--color-bg-hover);
 }
 
+.zoomBtn[data-fit='true'] {
+  border-color: var(--color-accent);
+  color: var(--color-bg-base);
+  background: var(--color-accent);
+  font-weight: 700;
+}
+
 .zoomHint {
   font-size: 10px;
   color: var(--color-text-tertiary);
   margin-left: 4px;
   white-space: nowrap;
+}
+
+.zoomHint[data-scroll='true'] {
+  color: var(--color-accent);
+  font-weight: 600;
 }
 
 .playBtn {
@@ -212,15 +224,40 @@
   background: var(--color-bg-card);
   box-sizing: border-box;
   scrollbar-gutter: stable;
+  scrollbar-width: auto;
+  scrollbar-color: color-mix(in srgb, var(--color-accent) 70%, #64748b)
+    color-mix(in srgb, var(--color-bg-base) 80%, #1e293b);
+}
+
+.timelineArea[data-can-scroll='true'] {
+  box-shadow: inset -18px 0 16px -14px rgba(212, 168, 75, 0.35);
+  cursor: grab;
 }
 
 .timelineArea::-webkit-scrollbar {
-  height: 10px;
+  height: 14px;
+}
+
+.timelineArea::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--color-bg-base) 70%, #0f172a);
+  border-top: 1px solid var(--color-border-subtle);
 }
 
 .timelineArea::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--color-text-tertiary) 55%, transparent);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-accent) 55%, #64748b),
+    var(--color-accent)
+  );
   border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+.timelineArea::-webkit-scrollbar-thumb:hover {
+  background: var(--color-accent);
+  background-clip: padding-box;
+  border: 2px solid transparent;
 }
 
 .timelineCanvas {
@@ -678,6 +715,33 @@
   border-color: #fb923c;
   color: #fff7ed;
   font-weight: var(--weight-medium);
+  min-width: 10px;
+  z-index: 2;
+}
+
+.clipCallout[data-hint-tone='text'] {
+  background: linear-gradient(135deg, #0e7490, #0891b2);
+  border-color: #22d3ee;
+}
+
+.clipCallout[data-hint-tone='card'] {
+  background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+  border-color: #93c5fd;
+}
+
+.clipCallout[data-hint-tone='sticker'] {
+  background: linear-gradient(135deg, #7c2d12, #ea580c);
+  border-color: #fdba74;
+}
+
+.clipCallout[data-hint-tone='pointer'] {
+  background: linear-gradient(135deg, #9f1239, #e11d48);
+  border-color: #fda4af;
+}
+
+.clipCallout[data-selected='true'] {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
 
 .clipFx {

@@ -90,15 +90,20 @@
 .label {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-transform: none;
   color: #fff;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+}
+
+.face[data-narrow='true'] .label {
+  font-size: 9px;
+  letter-spacing: 0.02em;
 }
 
 .face[data-tone='audio'] {

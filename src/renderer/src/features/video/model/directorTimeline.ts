@@ -333,6 +333,63 @@ export function timelineLength(clips: TimelineClip[], fallback: number): number 
   return Math.max(...clips.map((c) => c.startSec + c.durationSec), 1);
 }
 
+/**
+ * Ruler / playhead length for the Film editor.
+ * Picture + callouts define the film. A runaway narration/source probe must not
+ * stretch the timeline into empty minutes.
+ */
+export function filmTotalSec(
+  clips: TimelineClip[],
+  callouts: Array<{ endSec: number }> = [],
+  voiceoverSourceDur = 0,
+): number {
+  const pictureEnd = Math.max(
+    0,
+    ...clips
+      .filter((c) => c.track.startsWith('v') || c.track.startsWith('t'))
+      .map((c) => c.startSec + c.durationSec),
+  );
+  const audioEnd = Math.max(
+    0,
+    ...clips.filter((c) => c.track.startsWith('a')).map((c) => c.startSec + c.durationSec),
+  );
+  const calloutEnd = Math.max(0, ...callouts.map((c) => c.endSec));
+
+  if (pictureEnd > 0.5) {
+    // Allow short audio overhang; ignore narration that dwarfs the picture.
+    const audioSlack = Math.max(pictureEnd + 2, pictureEnd * 1.08);
+    const usableAudio = audioEnd > audioSlack * 1.35 ? 0 : Math.min(audioEnd, audioSlack);
+    return Math.max(8, pictureEnd, usableAudio, calloutEnd);
+  }
+
+  const audioOrSource = Math.max(audioEnd, voiceoverSourceDur > 0.5 ? voiceoverSourceDur : 0);
+  return Math.max(8, audioOrSource, calloutEnd);
+}
+
+/** Cap audio clips that wildly overshoot the picture (e.g. 20min narration on a 2min cut). */
+export function trimRunawayAudioClips(clips: TimelineClip[]): TimelineClip[] {
+  const pictureEnd = Math.max(
+    0,
+    ...clips
+      .filter((c) => c.track.startsWith('v') || c.track.startsWith('t'))
+      .map((c) => c.startSec + c.durationSec),
+  );
+  if (pictureEnd < 1) return clips;
+  const limit = pictureEnd;
+  let changed = false;
+  const next = clips.map((clip) => {
+    if (!clip.track.startsWith('a')) return clip;
+    const end = clip.startSec + clip.durationSec;
+    if (end <= limit + 0.35) return clip;
+    const durationSec = Math.max(0.4, Math.round((limit - clip.startSec) * 100) / 100);
+    if (durationSec <= 0.4 && clip.startSec >= limit) return clip;
+    if (Math.abs(durationSec - clip.durationSec) < 0.05) return clip;
+    changed = true;
+    return { ...clip, durationSec, autoLength: false };
+  });
+  return changed ? next : clips;
+}
+
 export function clipAtTime(clips: TimelineClip[], track: TrackId, t: number): TimelineClip | null {
   const hits = clips.filter((c) => c.track === track && t >= c.startSec && t < c.startSec + c.durationSec);
   return hits.at(-1) ?? null;
@@ -427,12 +484,13 @@ export function trimLeadingGap(clips: TimelineClip[], track: TrackId): TimelineC
   ));
 }
 
-/** Guarantee no overlaps on video/audio lanes. Safe to run on every commit. */
+/**
+ * Guarantee no overlaps on video/audio lanes. Safe to run on every commit.
+ * Preserves intentional leading silence (e.g. music starting mid-film).
+ * Use packGaps / trimLeadingGap only when the user asks to close gaps.
+ */
 export function sanitizeClips(clips: TimelineClip[]): TimelineClip[] {
-  let next = unstackAllTracks(clips);
-  const tracks = [...new Set(next.map((c) => c.track))].filter((id) => !id.startsWith('t'));
-  for (const track of tracks) next = trimLeadingGap(next, track);
-  return next;
+  return unstackAllTracks(clips);
 }
 
 /**

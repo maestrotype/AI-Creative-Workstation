@@ -8,6 +8,7 @@ import { clipDisplayName, shotProviderShort } from '../model/clipDisplayName';
 import type { ShotPurpose } from '../../projects/model/project';
 import { useDirector } from './DirectorBoard';
 import { formatTimecode } from '../model/videoAnalysis';
+import { HintInspector } from './HintInspector';
 import s from './ClipInspector.module.css';
 
 const IMAGE_PRESETS = [2, 4, 6, 8];
@@ -41,6 +42,18 @@ export function ClipInspector({
       return b && !b.shotId && (b.kind === 'video' || b.kind === 'image');
     }).length;
     const narration = d.clips.some((c) => c.track === 'a1') || d.voiceover.status === 'voiced';
+    const stillOrder = d.clips
+      .filter((c) => c.track.startsWith('v'))
+      .sort((a, b) => a.startSec - b.startSec);
+    let stillIdx = 0;
+    const seqById = new Map<string, number>();
+    for (const c of stillOrder) {
+      const b = c.binId ? d.bins.find((x) => x.id === c.binId) : null;
+      if (b?.kind === 'image') {
+        seqById.set(c.id, stillIdx);
+        stillIdx += 1;
+      }
+    }
     return {
       duration: d.total,
       clips: d.clips.filter((c) => c.track.startsWith('v')).length,
@@ -50,8 +63,12 @@ export function ClipInspector({
       narration,
       exportReady: Boolean(d.exportPath),
       product: Boolean(d.productStillPath),
+      seqById,
     };
   }, [d.clips, d.bins, d.shots, d.total, d.voiceover.status, d.exportPath, d.productStillPath]);
+
+  const productThumb = d.productStillPath ? toAssetUrl(d.productStillPath) : null;
+  const filmName = d.projectScope?.name?.trim() || 'Product film';
 
   const setDuration = (seconds: number) => {
     if (!clip) return;
@@ -68,25 +85,129 @@ export function ClipInspector({
     d.replaceClips(unstackAllTracks(baseline));
   };
 
+  const filmActions = (
+    <div className={s.block}>
+      <div className={s.sectionLabel}>Film actions</div>
+      <div className={s.presets}>
+        {ASSEMBLE_TARGETS.map((sec) => (
+          <button
+            key={sec}
+            type="button"
+            className={s.preset}
+            data-on={assembleTarget === sec}
+            onClick={() => setAssembleTarget(sec)}
+          >
+            {sec}s
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        className={s.btnPrimaryWide}
+        onClick={() => d.applyAutoAssemble(assembleTarget)}
+        disabled={d.shots.length === 0 && !d.productStillPath}
+      >
+        Auto Assemble → {assembleTarget}s
+      </button>
+      <button
+        type="button"
+        className={s.btnWide}
+        disabled={d.aiBusy || !d.productStillPath}
+        onClick={() => { void d.generateProductShotSet(); }}
+      >
+        {d.aiBusy && d.aiStatus ? d.aiStatus : 'Generate 4 shots (Hero→Detail→Angle→Feature)'}
+      </button>
+      <button
+        type="button"
+        className={s.btnWide}
+        disabled={d.aiBusy || !d.productStillPath}
+        onClick={() => d.generateAiClip({
+          mode: 'shot',
+          purpose: 'PRODUCT_HERO',
+          prompt: promptForPurpose('PRODUCT_HERO', d.filmBrief),
+          durationSec: 3.4,
+        })}
+      >
+        Generate Hero shot
+      </button>
+      {onOpenVoiceover ? (
+        <button type="button" className={s.btnWide} onClick={onOpenVoiceover}>
+          Prepare narration
+        </button>
+      ) : null}
+      <div className={s.actions}>
+        <button type="button" className={s.btn} onClick={d.pickVideo}>Add video</button>
+        <button type="button" className={s.btn} onClick={d.pickImage}>Add image</button>
+      </div>
+      {!d.productStillPath ? (
+        <p className={s.hint}>Add a product still so AI shots stay on-product.</p>
+      ) : (
+        <p className={s.hint}>Click empty timeline space anytime to return here.</p>
+      )}
+    </div>
+  );
+
   if (!clip) {
-    const productThumb = d.productStillPath ? toAssetUrl(d.productStillPath) : null;
+    const hint = d.selectedCallout
+      ? (d.callouts ?? []).find((c) => c.id === d.selectedCallout) ?? null
+      : null;
+
+    if (hint) {
+      return <HintInspector hint={hint} />;
+    }
+
     return (
       <aside className={s.root}>
         <header className={s.head}>
           <h2 className={s.title}>Film</h2>
-          <span className={s.kind}>{d.projectScope?.name?.trim() || 'Untitled'}</span>
+          <span className={s.kind}>overview</span>
         </header>
 
-        <div className={s.productCard}>
+        <div className={s.productHero} data-missing={!productThumb || undefined}>
           {productThumb ? (
-            <img className={s.productThumb} src={productThumb} alt="" />
+            <img className={s.productHeroImg} src={productThumb} alt="" />
           ) : (
-            <div className={s.productThumbEmpty}>No product still</div>
+            <button type="button" className={s.productHeroEmpty} onClick={d.pickProductStill}>
+              Set product still
+            </button>
           )}
-          <div className={s.productMeta}>
-            <strong>{d.projectScope?.name?.trim() || 'Product film'}</strong>
-            <span>{formatClock(filmStats.duration)} · {filmStats.clips} clips · {filmStats.aiClips} AI</span>
-            {d.filmBrief?.trim() ? <span className={s.productBrief}>{d.filmBrief.trim().slice(0, 120)}</span> : null}
+          <div className={s.productHeroMeta}>
+            <strong>{filmName}</strong>
+            <span>
+              {formatClock(filmStats.duration)} · {filmStats.clips} clips · {filmStats.aiClips} AI
+              {filmStats.narration ? ' · narration' : ''}
+            </span>
+            {productThumb && d.filmBrief?.trim() ? (
+              <span className={s.productBrief}>{d.filmBrief.trim().slice(0, 140)}</span>
+            ) : null}
+            {!productThumb ? (
+              <>
+                <button type="button" className={s.btnPrimaryWide} onClick={d.pickProductStill}>
+                  Choose product still
+                </button>
+                {d.bins.some((b) => b.kind === 'image') ? (
+                  <div className={s.stillPickRow}>
+                    {d.bins.filter((b) => b.kind === 'image').slice(0, 4).map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        className={s.stillPick}
+                        onClick={() => d.setProductStillFromBin(b.id)}
+                        title={b.name}
+                      >
+                        <img src={toAssetUrl(b.path)} alt="" />
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className={s.hint}>Pick the hero product image — without it, AI shots stay off-product.</p>
+                )}
+              </>
+            ) : (
+              <button type="button" className={s.btn} onClick={d.pickProductStill}>
+                Change still
+              </button>
+            )}
           </div>
         </div>
 
@@ -94,78 +215,7 @@ export function ClipInspector({
           <p className={s.hint}>Assembly: {d.assemblyRationale}</p>
         ) : null}
 
-        <div className={s.block}>
-          <div className={s.sectionLabel}>Actions</div>
-          <div className={s.presets}>
-            {ASSEMBLE_TARGETS.map((sec) => (
-              <button
-                key={sec}
-                type="button"
-                className={s.preset}
-                data-on={assembleTarget === sec}
-                onClick={() => setAssembleTarget(sec)}
-              >
-                {sec}s
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            className={s.btnPrimaryWide}
-            onClick={() => d.applyAutoAssemble(assembleTarget)}
-            disabled={d.shots.length === 0 && !d.productStillPath}
-          >
-            Auto Assemble → {assembleTarget}s
-          </button>
-          <button
-            type="button"
-            className={s.btnWide}
-            disabled={d.aiBusy || !d.productStillPath}
-            onClick={() => d.generateAiClip({
-              mode: 'shot',
-              purpose: 'PRODUCT_HERO',
-              prompt: promptForPurpose('PRODUCT_HERO', d.filmBrief),
-              durationSec: 3.4,
-            })}
-          >
-            Generate Shot
-          </button>
-          <button
-            type="button"
-            className={s.btnWide}
-            disabled={d.aiBusy || !d.productStillPath}
-            onClick={() => { void d.generateProductShotSet(); }}
-          >
-            {d.aiBusy && d.aiStatus ? d.aiStatus : 'Generate 4 shots (Hero→Detail→Angle→Feature)'}
-          </button>
-          {onOpenVoiceover ? (
-            <button type="button" className={s.btnWide} onClick={onOpenVoiceover}>
-              Prepare narration
-            </button>
-          ) : null}
-          <div className={s.actions}>
-            <button type="button" className={s.btn} onClick={d.pickVideo}>Add video</button>
-            <button type="button" className={s.btn} onClick={d.pickImage}>Add image</button>
-            <button
-              type="button"
-              className={s.btn}
-              disabled={d.aiBusy || !d.productStillPath}
-              onClick={() => d.generateAiClip({
-                mode: 'insert',
-                purpose: 'DETAIL',
-                prompt: promptForPurpose('DETAIL', d.filmBrief),
-                durationSec: 3.4,
-              })}
-            >
-              Insert
-            </button>
-          </div>
-          {!d.productStillPath ? (
-            <p className={s.hint}>Add a product still to this film so AI shots stay on-product.</p>
-          ) : (
-            <p className={s.hint}>Fit the timeline to see the full {formatClock(filmStats.duration)} film.</p>
-          )}
-        </div>
+        {filmActions}
       </aside>
     );
   }
@@ -173,14 +223,36 @@ export function ClipInspector({
   const kind = bin?.kind ?? (clip.track.startsWith('a') ? 'audio' : 'video');
   const endSec = clip.startSec + clip.durationSec;
   const purpose = (shot?.shotPurpose || 'PRODUCT_HERO') as ShotPurpose;
-  const title = clipDisplayName(clip, bin, shot);
+  const title = clipDisplayName(clip, bin, shot, filmStats.seqById.get(clip.id));
 
   return (
     <aside className={s.root}>
       <header className={s.head}>
         <h2 className={s.title}>Clip</h2>
-        <span className={s.kind}>{kind}</span>
+        <button type="button" className={s.backFilm} onClick={() => d.setSelectedClip(null)}>
+          ← Film
+        </button>
       </header>
+
+      <div
+        className={s.productCardMini}
+        onClick={() => d.setSelectedClip(null)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') d.setSelectedClip(null);
+        }}
+        role="button"
+        tabIndex={0}
+      >
+        {productThumb ? (
+          <img className={s.productThumbMini} src={productThumb} alt="" />
+        ) : (
+          <div className={s.productThumbMiniEmpty} />
+        )}
+        <div className={s.productMeta}>
+          <strong>{filmName}</strong>
+          <span>{formatClock(filmStats.duration)} film · click for actions</span>
+        </div>
+      </div>
 
       <div className={s.previewBox}>
         {kind === 'image' && previewSrc ? (
@@ -200,7 +272,7 @@ export function ClipInspector({
         <div className={s.row}>
           <span className={s.key}>Type</span>
           <span className={s.val}>
-            {origin === 'ai' ? 'AI Video' : origin === 'original' ? (kind === 'image' ? 'Original still' : 'Uploaded / original') : kind}
+            {origin === 'ai' ? 'AI Video' : origin === 'original' ? (kind === 'image' ? 'Product still' : 'Uploaded') : kind}
           </span>
         </div>
         <div className={s.row}>
@@ -218,6 +290,16 @@ export function ClipInspector({
             <span className={s.key}>File</span>
             <span className={s.val} title={bin.path}>{bin.name}</span>
           </div>
+        ) : null}
+        {kind === 'image' && bin ? (
+          <button
+            type="button"
+            className={s.btnPrimary}
+            onClick={() => d.setProductStillFromBin(bin.id)}
+            disabled={Boolean(d.productStillPath && bin.path === d.productStillPath)}
+          >
+            {d.productStillPath && bin.path === d.productStillPath ? 'Product still ✓' : 'Use as product still'}
+          </button>
         ) : null}
       </div>
 

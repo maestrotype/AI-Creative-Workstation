@@ -316,7 +316,7 @@ export function purposeWord(purpose: ShotPurpose): string {
     case 'PRODUCT_HERO': return 'Hero';
     case 'DETAIL': return 'Detail';
     case 'FEATURE': return 'Feature';
-    case 'ANGLE': return 'Side';
+    case 'ANGLE': return 'Angle';
     case 'LIFESTYLE': return 'Lifestyle';
     case 'TRANSITION': return 'Transition';
     case 'CTA': return 'CTA';

@@ -24,42 +24,112 @@ export function humanizeFileStem(name: string): string {
     .trim();
 }
 
-/** Roles for stills / untitled clips on V1 so the timeline reads as a story. */
-const STILL_SEQUENCE_ROLES = ['Hero', 'Detail', 'Angle', 'Feature', 'Lifestyle', 'CTA'] as const;
-
-export function sequenceRoleLabel(index: number): string {
-  return STILL_SEQUENCE_ROLES[Math.max(0, index) % STILL_SEQUENCE_ROLES.length];
+/** Labels that look “named” but are not useful story roles. */
+export function isWeakClipTitle(name: string): boolean {
+  const n = (name || '').trim();
+  if (!n) return true;
+  if (isTechnicalMediaName(n)) return true;
+  if (/^(uploaded(\s+video)?|product(\s+(image|still|film))?|preview|footage|clip|audio|still|image|video|music|narration)$/i.test(n)) {
+    return true;
+  }
+  if (/^preview\b/i.test(n)) return true;
+  if (/\b[a-f0-9]{6,}\b/i.test(n) && /preview|audio|video|job|clip/i.test(n)) return true;
+  if (/оригинал|original(\s+(audio|sound|video|звук))?/i.test(n)) return true;
+  if (/что\s*это|what\s*is\s*this/i.test(n)) return true;
+  return false;
 }
 
-/** User-facing title for timeline / cards. Technical paths stay in Inspector. */
+/** Roles for stills on V1 so the timeline reads as a product story. */
+const STILL_SEQUENCE_ROLES = ['Hero', 'Detail', 'Angle', 'Feature', 'Lifestyle', 'CTA'] as const;
+const STILL_SEQUENCE_SHORT = ['Hero', 'Det', 'Ang', 'Fea', 'Life', 'CTA'] as const;
+
+export function sequenceRoleLabel(index: number, compact = false): string {
+  const list = compact ? STILL_SEQUENCE_SHORT : STILL_SEQUENCE_ROLES;
+  return list[Math.max(0, index) % list.length];
+}
+
+function purposeLabel(purpose: string, compact: boolean): string {
+  const full = purposeWord(purpose as Parameters<typeof purposeWord>[0]);
+  if (!compact) return full;
+  switch (purpose) {
+    case 'PRODUCT_HERO': return 'Hero';
+    case 'DETAIL': return 'Det';
+    case 'ANGLE': return 'Ang';
+    case 'FEATURE': return 'Fea';
+    case 'LIFESTYLE': return 'Life';
+    case 'CTA': return 'CTA';
+    case 'HOOK': return 'Hook';
+    default: return full.length > 5 ? full.slice(0, 4) : full;
+  }
+}
+
+/**
+ * User-facing title for timeline / cards.
+ * Prefer shot purpose / story roles over filenames and weak upload labels.
+ */
 export function clipDisplayName(
   clip: Pick<TimelineClip, 'label' | 'text' | 'track'>,
   bin: BinItem | null | undefined,
   shot: FilmShot | null | undefined,
   sequenceIndex?: number,
+  opts?: { compact?: boolean },
 ): string {
-  if (shot?.shotPurpose) return purposeWord(shot.shotPurpose);
-  if (clip.text?.trim()) return clip.text.trim().slice(0, 40);
+  const compact = Boolean(opts?.compact);
 
-  const fromLabel = humanizeFileStem(clip.label || '');
-  if (fromLabel && !/^product image$/i.test(fromLabel)) return fromLabel;
+  if (shot?.shotPurpose) return purposeLabel(shot.shotPurpose, compact);
 
-  const fromBin = humanizeFileStem(bin?.name || '');
-  if (fromBin && !/^product image$/i.test(fromBin)) return fromBin;
+  if (clip.track.startsWith('t') && clip.text?.trim()) {
+    return clip.text.trim().slice(0, compact ? 12 : 40);
+  }
 
-  if (bin?.kind === 'image' || (clip.track.startsWith('v') && bin?.kind !== 'video' && bin?.kind !== 'audio')) {
-    if (typeof sequenceIndex === 'number') return sequenceRoleLabel(sequenceIndex);
+  // Audio: lane role beats filename / hash labels.
+  if (bin?.kind === 'audio' || clip.track.startsWith('a')) {
+    if (clip.track === 'a2') return compact ? 'Music' : 'Music';
+    if (clip.track === 'a1') return compact ? 'Nar' : 'Narration';
+    return 'Audio';
+  }
+
+  // Product stills: Hero → Detail → Angle → … by order on the lane.
+  if (bin?.kind === 'image') {
+    if (typeof sequenceIndex === 'number') return sequenceRoleLabel(sequenceIndex, compact);
     return 'Still';
   }
-  if (bin?.kind === 'audio' || clip.track.startsWith('a')) {
-    if (/оригинал|original/i.test(clip.label || '')) return 'Original Audio';
-    return 'Narration';
+
+  // Footage without an AI purpose.
+  if (bin?.kind === 'video') return compact ? 'Up' : 'Uploaded';
+
+  const fromLabel = humanizeFileStem(clip.label || '');
+  if (fromLabel && !isWeakClipTitle(fromLabel)) {
+    return compact && fromLabel.length > 6 ? fromLabel.slice(0, 5) : fromLabel;
   }
-  if (bin?.kind === 'video') return 'Uploaded Video';
+
+  const fromBin = humanizeFileStem(bin?.name || '');
+  if (fromBin && !isWeakClipTitle(fromBin)) {
+    return compact && fromBin.length > 6 ? fromBin.slice(0, 5) : fromBin;
+  }
+
   if (typeof sequenceIndex === 'number' && clip.track.startsWith('v')) {
-    return sequenceRoleLabel(sequenceIndex);
+    return sequenceRoleLabel(sequenceIndex, compact);
   }
   return 'Clip';
+}
+
+export function mediaBinDisplayName(
+  bin: Pick<BinItem, 'name' | 'kind' | 'shotId' | 'path'>,
+  shot?: FilmShot | null,
+  productStillPath?: string | null,
+): string {
+  if (shot?.shotPurpose) return purposeWord(shot.shotPurpose);
+  if (bin.shotId) return 'AI Shot';
+  if (bin.kind === 'image') {
+    if (sameProductPath(bin.path, productStillPath)) return 'Product';
+    return 'Still';
+  }
+  if (bin.kind === 'audio') return 'Audio';
+  if (bin.kind === 'video') return 'Uploaded';
+  const human = humanizeFileStem(bin.name);
+  if (human && !isWeakClipTitle(human)) return human;
+  return bin.kind === 'image' ? 'Still' : 'Media';
 }
 
 export function shotCardTitle(shot: FilmShot): string {

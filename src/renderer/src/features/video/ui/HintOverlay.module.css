@@ -1,0 +1,206 @@
+.root {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  pointer-events: none;
+}
+
+.root[data-editable='true'] .hint {
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.root[data-editable='true'] .hint:active {
+  cursor: grabbing;
+}
+
+.hint {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  max-width: min(42%, 280px);
+  pointer-events: none;
+  user-select: none;
+}
+
+.hint[data-anchor='top-left'] { transform: translate(0, 0); }
+.hint[data-anchor='top-right'] { transform: translate(-100%, 0); }
+.hint[data-anchor='bottom-left'] { transform: translate(0, -100%); }
+.hint[data-anchor='bottom-right'] { transform: translate(-100%, -100%); }
+.hint[data-anchor='center'] { transform: translate(-50%, -50%); }
+
+.hint[data-selected='true'] {
+  z-index: 2;
+  outline: 1px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.text {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.dragHint {
+  margin-top: 2px;
+  font-size: 9px;
+  font-weight: 500;
+  opacity: 0.55;
+}
+
+/* ── Types ─────────────────────────────────────────────── */
+
+.typeMinimal .body {
+  padding: 0;
+  color: #f8fafc;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
+  background: none;
+}
+
+.typeAccent .body {
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: #0b0f14;
+  background: color-mix(in srgb, var(--hint-color, var(--color-accent)) 92%, #fff);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+.typeCard .body {
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: #f8fafc;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+.typePointer {
+  max-width: min(36%, 220px);
+}
+
+.typePointer .pointerDot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: var(--hint-color, #ff4757);
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 3px rgba(255, 71, 87, 0.25);
+}
+
+.typePointer .body {
+  position: absolute;
+  left: 14px;
+  top: -8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: #f8fafc;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.typePointer .text {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.typeSticker .stickerImg {
+  display: block;
+  max-width: 88px;
+  max-height: 88px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.35));
+}
+
+.typeSticker .body {
+  margin-top: 4px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: rgba(15, 23, 42, 0.65);
+  color: #fff;
+}
+
+/* ── Sizes ─────────────────────────────────────────────── */
+
+.sizeS .text { font-size: 11px; }
+.sizeS.typeAccent .body,
+.sizeS.typeCard .body { padding: 4px 7px; }
+
+.sizeM .text { font-size: 13px; }
+
+.sizeL .text { font-size: 16px; }
+.sizeL.typeAccent .body,
+.sizeL.typeCard .body { padding: 12px 14px; }
+
+/* ── Animations ────────────────────────────────────────── */
+
+.animFadeIn {
+  animation: hintFadeIn 0.35s ease both;
+}
+
+.animFadeOut {
+  animation: hintFadeOut 0.3s ease both;
+}
+
+.animSlideUp {
+  animation: hintSlideUp 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.animPop {
+  animation: hintPop 0.38s cubic-bezier(0.2, 1.2, 0.3, 1) both;
+}
+
+.animTypewriter .text {
+  overflow: hidden;
+  white-space: nowrap;
+  animation: hintType 0.7s steps(18, end) both;
+}
+
+@keyframes hintFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes hintFadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes hintSlideUp {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 12px)); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+@keyframes hintPop {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.72); }
+  70% { opacity: 1; transform: translate(-50%, -50%) scale(1.06); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes hintType {
+  from { max-width: 0; }
+  to { max-width: 100%; }
+}

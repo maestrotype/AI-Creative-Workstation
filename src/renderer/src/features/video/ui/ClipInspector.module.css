@@ -194,6 +194,61 @@
   gap: 6px;
 }
 
+.productHero {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: var(--color-bg-card);
+  overflow: hidden;
+}
+
+.productHero[data-missing='true'] {
+  border-color: var(--color-accent-border);
+  background: color-mix(in srgb, var(--color-accent-subtle) 45%, var(--color-bg-card));
+}
+
+.productHeroImg,
+.productHeroEmpty {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-height: 180px;
+  object-fit: cover;
+  background: #0b0f14;
+  display: block;
+}
+
+.productHeroEmpty {
+  border: none;
+  cursor: pointer;
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.productHeroMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 10px 10px;
+  min-width: 0;
+}
+
+.productHeroMeta strong {
+  font-size: var(--text-body);
+  color: var(--color-text-primary);
+}
+
+.productHeroMeta span {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
 .productCard {
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);
@@ -214,13 +269,65 @@
   background: #0b0f14;
 }
 
+.productCard[data-missing='true'] {
+  border-color: var(--color-accent-border);
+  background: color-mix(in srgb, var(--color-accent-subtle) 55%, var(--color-bg-card));
+}
+
 .productThumbEmpty {
   display: grid;
   place-items: center;
   font-size: 10px;
-  color: var(--color-text-tertiary);
+  font-weight: 700;
+  color: var(--color-accent);
   text-align: center;
   padding: 6px;
+  border: none;
+  cursor: pointer;
+}
+
+.stillPickRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.stillPick {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--color-accent-border);
+  border-radius: 5px;
+  overflow: hidden;
+  cursor: pointer;
+  background: #0b0f14;
+}
+
+.stillPick img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.stillPick:hover {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.hintText {
+  width: 100%;
+  min-height: 4.5rem;
+  border: 1px solid var(--color-border-default);
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  border-radius: 5px;
+  font: inherit;
+  font-size: var(--text-body-sm);
+  padding: 8px;
+  resize: vertical;
+  box-sizing: border-box;
 }
 
 .productMeta {
@@ -271,4 +378,47 @@
 .btnPrimaryWide:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.backFilm {
+  border: 1px solid var(--color-border-default);
+  background: var(--color-bg-card);
+  color: var(--color-accent);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.productCardMini {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  background: var(--color-bg-card);
+  cursor: pointer;
+}
+
+.productCardMini:hover {
+  border-color: var(--color-accent-border);
+}
+
+.productThumbMini,
+.productThumbMiniEmpty {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: #0b0f14;
+}
+
+.productThumbMiniEmpty {
+  background:
+    linear-gradient(135deg, rgba(212, 168, 75, 0.25), transparent 55%),
+    #0b0f14;
 }

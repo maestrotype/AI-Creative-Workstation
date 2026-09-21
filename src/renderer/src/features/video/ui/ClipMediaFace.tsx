@@ -129,7 +129,10 @@ export function ClipMediaFace({
   origin: 'ai' | 'original' | null;
   sequenceIndex?: number;
 }): ReactNode {
-  const title = clipDisplayName(clip, bin, shot ?? null, sequenceIndex);
+  const title = clipDisplayName(clip, bin, shot ?? null, sequenceIndex, {
+    compact: widthPx < 72,
+  });
+  const narrow = widthPx < 72;
   const imageSrc = useMemo(() => {
     if (!bin || bin.kind !== 'image' || !bin.path) return null;
     return toAssetUrl(bin.path);
@@ -144,14 +147,16 @@ export function ClipMediaFace({
     widthPx,
   );
 
+  const badge = origin === 'ai' ? 'AI' : null;
+
   if (tone === 'still') {
     return (
-      <div className={s.face} data-tone="still">
+      <div className={s.face} data-tone="still" data-narrow={narrow || undefined}>
         {imageSrc ? <img className={s.still} src={imageSrc} alt="" draggable={false} /> : <div className={s.stillFallback} />}
         <div className={s.scrim} />
         <div className={s.meta}>
           <span className={s.label}>{title}</span>
-          {origin ? <span className={s.badge}>{origin === 'ai' ? 'AI' : 'Orig'}</span> : null}
+          {badge ? <span className={s.badge}>{badge}</span> : null}
         </div>
       </div>
     );
@@ -159,7 +164,7 @@ export function ClipMediaFace({
 
   if (tone === 'audio') {
     return (
-      <div className={s.face} data-tone="audio">
+      <div className={s.face} data-tone="audio" data-narrow={narrow || undefined}>
         <div className={s.audioBody} aria-hidden>
           <span className={s.audioStripe} />
           <span className={s.audioStripe} />
@@ -167,14 +172,13 @@ export function ClipMediaFace({
         </div>
         <div className={s.meta}>
           <span className={s.label}>{title}</span>
-          {origin ? <span className={s.badge}>{origin === 'ai' ? 'AI' : 'Orig'}</span> : null}
         </div>
       </div>
     );
   }
 
   return (
-    <div className={s.face} data-tone="video">
+    <div className={s.face} data-tone="video" data-narrow={narrow || undefined}>
       {frames.length > 0 ? (
         <div className={s.filmstrip}>
           {frames.map((src, i) => (
@@ -187,7 +191,7 @@ export function ClipMediaFace({
       <div className={s.scrim} />
       <div className={s.meta}>
         <span className={s.label}>{title}</span>
-        {origin ? <span className={s.badge}>{origin === 'ai' ? 'AI' : 'Orig'}</span> : null}
+        {badge ? <span className={s.badge}>{badge}</span> : null}
       </div>
     </div>
   );

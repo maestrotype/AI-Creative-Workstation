@@ -7,9 +7,11 @@ import {
   moveTimedRangeWithRipple,
   sanitizeClips,
   unstackAllTracks,
+  filmTotalSec,
   type TimelineClip,
 } from '../model/directorTimeline';
 import type { Callout } from '../model/callout';
+import { hintDuration, hintLaneTone, hintTypeLabel } from '../model/callout';
 import { clipDisplayName } from '../model/clipDisplayName';
 import { ClipMediaFace } from './ClipMediaFace';
 import s from './TrackMixer.module.css';
@@ -88,11 +90,7 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
 
   // Calculate timeline bounds
   const totalSec = useMemo(() => {
-    const clipEnds = displayClips.map((c) => c.startSec + c.durationSec);
-    const sourceSec = d.voiceoverSource?.durationSec ?? 0;
-    const calloutEnds = displayCallouts.map((c) => c.endSec);
-    const maxEnd = Math.max(10, ...clipEnds, sourceSec, ...calloutEnds);
-    return Math.ceil(maxEnd);
+    return filmTotalSec(displayClips, displayCallouts, d.voiceoverSource?.durationSec ?? 0);
   }, [displayClips, d.voiceoverSource, displayCallouts]);
 
   const fitPx = Math.max(1.2, (Math.max(viewportW, 240) - LABEL_W - 24) / Math.max(totalSec, 1));
@@ -127,6 +125,33 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
     () => displayClips.filter((c) => c.track === 'a2').sort((a, b) => a.startSec - b.startSec),
     [displayClips],
   );
+
+  /** Still order on V1 → Hero / Detail / Angle… (skip uploaded video). */
+  const stillSeqById = useMemo(() => {
+    const map = new Map<string, number>();
+    let i = 0;
+    for (const clip of [...v1Clips, ...v2Clips]) {
+      const bin = clip.binId ? d.bins.find((b) => b.id === clip.binId) : null;
+      if (bin?.kind === 'image') {
+        map.set(clip.id, i);
+        i += 1;
+      }
+    }
+    return map;
+  }, [v1Clips, v2Clips, d.bins]);
+
+  const [canScrollX, setCanScrollX] = useState(false);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const sync = () => setCanScrollX(el.scrollWidth > el.clientWidth + 4);
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [bodyPx, pxPerSec, totalSec]);
+
+  const atFitZoom = !userZoomed || Math.abs(pxPerSec - fitPx) < 0.08;
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -207,37 +232,44 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
 
   const onTimelineWheel = (e: WheelEvent<HTMLDivElement>) => {
     const scroller = scrollRef.current;
-    if (e.shiftKey && scroller) {
+    if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
-      scroller.scrollLeft += e.deltaY || e.deltaX;
-      return;
-    }
-    if (!(e.ctrlKey || e.metaKey)) return;
-    e.preventDefault();
-    const prevPx = pxPerSec;
-    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-    const next = Math.min(maxMixerPx, Math.max(minMixerPx, prevPx * factor));
-    if (!scroller) {
+      const prevPx = pxPerSec;
+      const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+      const next = Math.min(maxMixerPx, Math.max(minMixerPx, prevPx * factor));
+      if (!scroller) {
+        commitZoom(next, true);
+        return;
+      }
+      const rect = scroller.getBoundingClientRect();
+      const xInView = e.clientX - rect.left;
+      const timeUnderCursor = (scroller.scrollLeft + xInView) / prevPx;
       commitZoom(next, true);
+      requestAnimationFrame(() => {
+        scroller.scrollLeft = Math.max(0, timeUnderCursor * next - xInView);
+      });
       return;
     }
-    const rect = scroller.getBoundingClientRect();
-    const xInView = e.clientX - rect.left;
-    const timeUnderCursor = (scroller.scrollLeft + xInView) / prevPx;
-    commitZoom(next, true);
-    requestAnimationFrame(() => {
-      scroller.scrollLeft = Math.max(0, timeUnderCursor * next - xInView);
-    });
+    // NLE-style: wheel pans the film when content overflows (Shift optional).
+    if (scroller && scroller.scrollWidth > scroller.clientWidth + 2) {
+      const dx = e.shiftKey ? (e.deltaY || e.deltaX) : (e.deltaX || e.deltaY);
+      if (dx !== 0) {
+        e.preventDefault();
+        scroller.scrollLeft += dx;
+      }
+    }
   };
 
   const selectClip = (id: string | null) => {
     if (!id) {
       setSelectedItem(null);
       d.setSelectedClip(null);
+      d.setSelectedCallout(null);
       return;
     }
     setSelectedItem({ type: 'clip', id });
     d.setSelectedClip(id);
+    d.setSelectedCallout(null);
   };
 
   // Pointer down on playhead thumb or ruler starts playhead dragging
@@ -393,14 +425,47 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
       }
 
       if (draggingItem.type === 'callout' && baselineCalloutsRef.current) {
+        const base = baselineCalloutsRef.current;
+        const target = base.find((c) => c.id === draggingItem.id);
+        if (!target) return;
+
+        if (draggingItem.mode === 'trim-out') {
+          const nextDur = Math.max(0.4, Math.round((draggingItem.durationSec + deltaSec) * 10) / 10);
+          const next = base.map((item) => (
+            item.id === draggingItem.id
+              ? { ...item, endSec: item.startSec + nextDur }
+              : item
+          ));
+          previewCalloutsRef.current = next;
+          setPreviewCallouts(next);
+          setDraggingItem((prev) => (
+            prev ? { ...prev, currentDurationSec: nextDur } : null
+          ));
+          return;
+        }
+
+        if (draggingItem.mode === 'trim-in') {
+          const maxShift = draggingItem.durationSec - 0.4;
+          const shift = Math.max(-draggingItem.origStartSec, Math.min(maxShift, deltaSec));
+          const nextStart = Math.round((draggingItem.origStartSec + shift) * 10) / 10;
+          const nextDur = Math.round((draggingItem.durationSec - shift) * 10) / 10;
+          const next = base.map((item) => (
+            item.id === draggingItem.id
+              ? { ...item, startSec: nextStart, endSec: nextStart + nextDur }
+              : item
+          ));
+          previewCalloutsRef.current = next;
+          setPreviewCallouts(next);
+          setDraggingItem((prev) => (
+            prev ? { ...prev, currentStartSec: nextStart, currentDurationSec: nextDur } : null
+          ));
+          return;
+        }
+
         const maxStart = Math.max(0, totalSec - draggingItem.durationSec);
         const newStart = Math.max(0, Math.min(maxStart, draggingItem.origStartSec + deltaSec));
         const rounded = Math.round(newStart * 10) / 10;
-        const next = moveTimedRangeWithRipple(
-          baselineCalloutsRef.current,
-          draggingItem.id,
-          rounded,
-        );
+        const next = moveTimedRangeWithRipple(base, draggingItem.id, rounded);
         previewCalloutsRef.current = next;
         setPreviewCallouts(next);
         setDraggingItem((prev) =>
@@ -527,7 +592,8 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
         : 'video';
     const mediaUrl = bin?.kind === 'video' && bin.path ? (d.blobs[bin.path] ?? null) : null;
     const origin = bin?.shotId ? 'ai' as const : bin ? 'original' as const : null;
-    const displayName = clipDisplayName(clip, bin, shot, index);
+    const seq = stillSeqById.get(clip.id);
+    const displayName = clipDisplayName(clip, bin, shot, seq, { compact: widthPx < 72 });
 
     return (
       <div
@@ -565,7 +631,7 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
           widthPx={widthPx}
           tone={faceTone}
           origin={origin}
-          sequenceIndex={index}
+          sequenceIndex={seq}
         />
 
         <span className={s.clipDurFloat}>
@@ -626,10 +692,21 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
           </div>
           <div className={s.zoomGroup} title="Масштаб шкалы">
             <button type="button" className={s.zoomBtn} onClick={() => zoomBy(1 / 1.25)} title="Отдалить">−</button>
-            <button type="button" className={s.zoomBtn} onClick={zoomFit} title="Show the full film">fit</button>
+            <button
+              type="button"
+              className={s.zoomBtn}
+              data-fit={!atFitZoom}
+              onClick={zoomFit}
+              title="Show the full film"
+            >
+              fit
+            </button>
             <button type="button" className={s.zoomBtn} onClick={zoomReadable} title="Zoom for short clips">100%</button>
             <button type="button" className={s.zoomBtn} onClick={() => zoomBy(1.25)} title="Zoom in">+</button>
-            <span className={s.zoomHint}>{formatTimecode(totalSec)} total · scroll →</span>
+            <span className={s.zoomHint} data-scroll={canScrollX}>
+              {formatTimecode(totalSec)} total
+              {canScrollX ? ' · scroll / wheel →' : ' · fit = whole film'}
+            </span>
           </div>
         </div>
 
@@ -652,15 +729,19 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
             onClick={() => {
               d.addCallout({
                 startSec: d.playhead,
-                endSec: Math.min(totalSec, d.playhead + 4),
+                endSec: d.playhead + 3,
                 targetX: 50,
-                targetY: 50,
-                text: 'Нажмите здесь для перехода',
+                targetY: 42,
+                text: 'Нажмите сюда',
+                type: 'accent',
+                size: 'm',
+                animationIn: 'fade',
+                animationOut: 'fade',
               });
             }}
-            title="Добавить графическую подсказку-стрелку на текущей секунде"
+            title="Добавить подсказку на playhead (3с)"
           >
-            💬 + Подсказка
+            + Подсказка
           </button>
         </div>
       </div>
@@ -719,6 +800,7 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
         <div
           ref={scrollRef}
           className={s.timelineArea}
+          data-can-scroll={canScrollX}
           onWheel={onTimelineWheel}
         >
           <div
@@ -774,11 +856,20 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
               ) : hasVideoSource ? (
                 <div
                   className={`${s.clipBlock} ${s.clipAudioOriginal}`}
-                  style={{ left: 0, width: bodyPx, opacity: 0.7 }}
-                  title="Оригинальная звуковая дорожка видеофайла"
+                  style={{
+                    left: 0,
+                    width: Math.max(
+                      8,
+                      Math.min(bodyPx, (d.voiceoverSource?.durationSec ?? totalSec) * pxPerSec),
+                    ),
+                    opacity: 0.7,
+                  }}
+                  title="Original video audio"
                 >
-                  <span className={s.clipTitle}>Оригинальный звук видео</span>
-                  <span className={s.clipDuration}>{formatTimecode(d.voiceoverSource?.durationSec ?? 0)}</span>
+                  <span className={s.clipTitle}>Narration</span>
+                  <span className={s.clipDuration}>
+                    {formatTimecode(Math.min(d.voiceoverSource?.durationSec ?? 0, totalSec))}
+                  </span>
                 </div>
               ) : null}
             </div>
@@ -790,37 +881,44 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
             <div className={s.trackBody}>
               {displayCallouts.map((callout) => {
                 const isDragging = draggingItem?.type === 'callout' && draggingItem.id === callout.id;
-                const isSelected = selectedItem?.id === callout.id;
-                const duration = Math.max(0.5, callout.endSec - callout.startSec);
-                const isActive = d.playhead >= callout.startSec && d.playhead <= callout.endSec;
+                const isSelected = selectedItem?.id === callout.id || d.selectedCallout === callout.id;
+                const duration = hintDuration(callout);
+                const tone = hintLaneTone(callout.type);
 
                 return (
                   <div
                     key={callout.id}
                     className={`${s.clipBlock} ${s.clipCallout} ${isDragging ? s.clipDragging : ''}`}
                     data-selected={isSelected}
+                    data-hint-tone={tone}
                     data-shoving={Boolean(previewCallouts) && !isDragging}
-                    style={{
-                      ...laneStyle(callout.startSec, duration, pxPerSec),
-                      outline: isSelected
-                        ? '2px solid var(--color-accent)'
-                        : isActive
-                          ? '2px solid #fff'
-                          : undefined,
-                    }}
+                    style={laneStyle(callout.startSec, duration, pxPerSec)}
                     onPointerDown={(e) =>
-                      handleItemPointerDown(e, 'callout', callout.id, callout.startSec, duration)
+                      handleItemPointerDown(e, 'callout', callout.id, callout.startSec, duration, 'move')
                     }
                     onClick={(e) => {
                       e.stopPropagation();
                       setSelectedItem({ type: 'callout', id: callout.id });
+                      d.setSelectedCallout(callout.id);
+                      d.setSelectedClip(null);
                       d.seekTo(callout.startSec);
                     }}
-                    title={`[${formatTimecode(callout.startSec)} - ${formatTimecode(callout.startSec + duration)}] ${callout.text} — перетащите для перемещения, ✕ или Del для удаления`}
+                    title={`${hintTypeLabel(callout.type)} · ${callout.text}`}
                   >
-                    <span className={s.clipTitle}>💬 {callout.text}</span>
+                    <span
+                      className={s.clipTrim}
+                      data-edge="in"
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        handleItemPointerDown(e, 'callout', callout.id, callout.startSec, duration, 'trim-in');
+                      }}
+                      title="Trim in"
+                    />
+                    <span className={s.clipTitle}>{callout.text || hintTypeLabel(callout.type)}</span>
                     <span className={s.clipDuration}>
-                      {isDragging ? formatTimecode(callout.startSec) : `${Math.round(duration * 10) / 10}s`}
+                      {isDragging && draggingItem?.mode === 'move'
+                        ? formatTimecode(callout.startSec)
+                        : `${Math.round(duration * 10) / 10}s`}
                     </span>
                     <button
                       type="button"
@@ -832,10 +930,19 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
                         d.removeCallout(callout.id);
                         if (selectedItem?.id === callout.id) setSelectedItem(null);
                       }}
-                      title="Удалить подсказку (Delete)"
+                      title="Удалить"
                     >
                       ✕
                     </button>
+                    <span
+                      className={s.clipTrim}
+                      data-edge="out"
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        handleItemPointerDown(e, 'callout', callout.id, callout.startSec, duration, 'trim-out');
+                      }}
+                      title="Trim out"
+                    />
                   </div>
                 );
               })}
