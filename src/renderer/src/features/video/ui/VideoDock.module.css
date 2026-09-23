@@ -9,6 +9,16 @@
   background: var(--color-bg-raised);
 }
 
+.menuBar[data-slim='true'] .menuBrand,
+.menuBar[data-slim='true'] .toolsLabel {
+  display: none;
+}
+
+.menuBar[data-slim='true'] .menuTop {
+  padding: 4px 12px;
+  border-bottom: none;
+}
+
 .menuTop {
   display: flex;
   align-items: center;

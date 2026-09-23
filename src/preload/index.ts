@@ -73,6 +73,7 @@ const api = {
       duration_sec: number;
       source_in_sec: number;
       muted?: boolean;
+      volume?: number;
       effect?: string | null;
     }>;
     width: number;
@@ -86,10 +87,26 @@ const api = {
       target_y: number;
       box_x: number;
       box_y: number;
+      box_w?: number;
+      box_h?: number;
       text: string;
+      title?: string;
+      type?: string;
+      size?: string;
+      anchor?: string;
+      color?: string;
       theme?: string;
+      arrow_style?: string;
+      sticker_path?: string;
+      sticker_scale?: number;
     }>;
+    audio_policy?: 'original' | 'duck' | 'replace';
+    overlay_positions?: Record<string, { x: number; y: number }>;
   }) => ipcRenderer.invoke('render-timeline', payload),
+  saveSubtitles: (payload: { content: string; defaultName?: string }) =>
+    ipcRenderer.invoke('save-subtitles', payload) as Promise<string | null>,
+  saveScreenRecording: (payload: { data: ArrayBuffer; name?: string }) =>
+    ipcRenderer.invoke('save-screen-recording', payload) as Promise<{ file_path: string }>,
   loadVideoHistory: (projectId?: string) => ipcRenderer.invoke('load-video-history', projectId),
   saveVideoHistory: (payload: unknown, projectId?: string) => ipcRenderer.invoke('save-video-history', payload, projectId),
   listGeneratedStills: () => ipcRenderer.invoke('list-generated-stills') as Promise<{
@@ -106,6 +123,8 @@ const api = {
   deleteGeneratedStill: (sourcePath: string) => ipcRenderer.invoke('delete-generated-still', sourcePath) as Promise<boolean>,
   pickVideo: () => ipcRenderer.invoke('pick-video'),
   probeMediaDuration: (filePath: string) => ipcRenderer.invoke('probe-media-duration', filePath) as Promise<number>,
+  matchProductFootage: (stillPath: string, videoPath: string) =>
+    ipcRenderer.invoke('match-product-footage', { stillPath, videoPath }) as Promise<{ match: boolean; reason?: string }>,
   rememberDroppedMedia: (filePath: string) =>
     ipcRenderer.invoke('remember-dropped-media', filePath) as Promise<string | null>,
   getPathForFile: (file: File) => {
@@ -155,6 +174,16 @@ const api = {
     total_sec?: number;
     output_name?: string;
   }) => ipcRenderer.invoke('mix-voiceover-track', payload),
+  enhanceAudio: (payload: {
+    input_path: string;
+    denoise?: boolean;
+    normalize?: boolean;
+    output_name?: string;
+  }) => ipcRenderer.invoke('enhance-audio', payload) as Promise<{
+    status: string;
+    file_path: string;
+    duration_sec: number;
+  }>,
   extractAudioFromVideo: (payload: {
     video_path: string;
     mode?: 'audio_only' | 'mute_video' | 'both';

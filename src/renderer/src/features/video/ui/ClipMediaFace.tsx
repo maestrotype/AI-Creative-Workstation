@@ -8,6 +8,7 @@ import { clipDisplayName } from '../model/clipDisplayName';
 import s from './ClipMediaFace.module.css';
 
 const filmstripCache = new Map<string, string[]>();
+const waveformCache = new Map<string, number[]>();
 
 function filmstripKey(path: string, sourceIn: number, durationSec: number, count: number): string {
   return `${path}|${sourceIn.toFixed(2)}|${durationSec.toFixed(2)}|${count}`;
@@ -110,6 +111,63 @@ function useFilmstrip(
   return frames;
 }
 
+function useWaveform(
+  url: string | null,
+  path: string | null,
+  sourceIn: number,
+  durationSec: number,
+  widthPx: number,
+): number[] {
+  const count = Math.max(12, Math.min(96, Math.floor(widthPx / 4)));
+  const key = path ? `${path}|${sourceIn.toFixed(2)}|${durationSec.toFixed(2)}|${count}` : '';
+  const [peaks, setPeaks] = useState<number[]>(() => (key ? waveformCache.get(key) ?? [] : []));
+
+  useEffect(() => {
+    if (!url || !path || !key) {
+      setPeaks([]);
+      return undefined;
+    }
+    const cached = waveformCache.get(key);
+    if (cached) {
+      setPeaks(cached);
+      return undefined;
+    }
+    let cancelled = false;
+    const context = new AudioContext();
+    void fetch(url)
+      .then((response) => response.arrayBuffer())
+      .then((buffer) => context.decodeAudioData(buffer))
+      .then((audio) => {
+        if (cancelled) return;
+        const channel = audio.getChannelData(0);
+        const from = Math.max(0, Math.floor(sourceIn * audio.sampleRate));
+        const to = Math.min(channel.length, Math.ceil((sourceIn + durationSec) * audio.sampleRate));
+        const span = Math.max(1, to - from);
+        const next = Array.from({ length: count }, (_, index) => {
+          const a = from + Math.floor((span * index) / count);
+          const b = from + Math.floor((span * (index + 1)) / count);
+          let peak = 0;
+          const stride = Math.max(1, Math.floor((b - a) / 96));
+          for (let i = a; i < b; i += stride) peak = Math.max(peak, Math.abs(channel[i] || 0));
+          return Math.max(0.06, Math.min(1, peak));
+        });
+        waveformCache.set(key, next);
+        setPeaks(next);
+      })
+      .catch(() => {
+        if (!cancelled) setPeaks([]);
+      })
+      .finally(() => {
+        void context.close();
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [url, path, key, sourceIn, durationSec, count]);
+
+  return peaks;
+}
+
 export function ClipMediaFace({
   clip,
   bin,
@@ -146,6 +204,13 @@ export function ClipMediaFace({
     clip.durationSec,
     widthPx,
   );
+  const waveform = useWaveform(
+    tone === 'audio' ? mediaUrl : null,
+    tone === 'audio' ? bin?.path ?? null : null,
+    clip.sourceInSec,
+    clip.durationSec,
+    widthPx,
+  );
 
   const badge = origin === 'ai' ? 'AI' : null;
 
@@ -166,9 +231,15 @@ export function ClipMediaFace({
     return (
       <div className={s.face} data-tone="audio" data-narrow={narrow || undefined}>
         <div className={s.audioBody} aria-hidden>
-          <span className={s.audioStripe} />
-          <span className={s.audioStripe} />
-          <span className={s.audioStripe} />
+          {waveform.length > 0 ? waveform.map((peak, index) => (
+            <span key={index} className={s.wavePeak} style={{ height: `${Math.round(peak * 100)}%` }} />
+          )) : (
+            <>
+              <span className={s.audioStripe} />
+              <span className={s.audioStripe} />
+              <span className={s.audioStripe} />
+            </>
+          )}
         </div>
         <div className={s.meta}>
           <span className={s.label}>{title}</span>

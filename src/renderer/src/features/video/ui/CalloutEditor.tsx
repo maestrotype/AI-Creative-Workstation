@@ -30,8 +30,8 @@ export function CalloutEditor({
   const d = useDirector();
   const [mode, setMode] = useState<'view' | 'add'>('view');
   const [calloutText, setCalloutText] = useState(QUICK_PRESETS[0]);
-  const [viewMode, setViewMode] = useState<'fit' | 'fill'>('fit');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const screenRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const activeHints = useMemo(() => {
@@ -63,9 +63,9 @@ export function CalloutEditor({
   const enterViewMode = () => setMode('view');
 
   const toggleFullscreen = async () => {
-    if (!containerRef.current) return;
+    if (!screenRef.current) return;
     if (!document.fullscreenElement) {
-      await containerRef.current.requestFullscreen?.().catch(() => {});
+      await screenRef.current.requestFullscreen?.().catch(() => {});
     } else {
       await document.exitFullscreen?.().catch(() => {});
     }
@@ -82,7 +82,8 @@ export function CalloutEditor({
       targetX: Math.round(x * 10) / 10,
       targetY: Math.round(y * 10) / 10,
       text: calloutText.trim() || QUICK_PRESETS[0],
-      type: 'accent',
+      type: 'pointer',
+      arrowStyle: 'straight',
       size: 'm',
       animationIn: 'fade',
       animationOut: 'fade',
@@ -98,108 +99,80 @@ export function CalloutEditor({
       data-compact={compactChrome || undefined}
       data-placing={mode === 'add' || undefined}
     >
-      <div className={s.toolbar}>
-        <div className={s.leftControls}>
-          <div className={s.modeToggleGroup}>
-            <button type="button" className={s.modeBtn} data-active={mode === 'view'} onClick={enterViewMode}>
-              Просмотр
-            </button>
-            <button
-              type="button"
-              className={s.modeBtn}
-              data-active={mode === 'add'}
-              onClick={enterAddMode}
-              title="Кликните по кадру, чтобы поставить подсказку"
-            >
-              + Указать на кадре
-            </button>
-          </div>
+      <div ref={screenRef} className={s.previewContainer}>
+        <div
+          ref={containerRef}
+          className={s.frame}
+          data-aspect={d.filmFormat === 'shorts' ? 'shorts' : 'wide'}
+        >
+          {children}
 
-          {mode === 'add' ? (
-            <div className={s.presetsRow}>
+          <div className={s.chrome}>
+            <div className={s.modeToggleGroup}>
+              <button type="button" className={s.modeBtn} data-active={mode === 'view'} onClick={enterViewMode}>
+                Кадр
+              </button>
+              <button
+                type="button"
+                className={s.modeBtn}
+                data-active={mode === 'add'}
+                onClick={enterAddMode}
+                title="Кликните по месту на кадре. Текст встанет рядом и укажет на эту точку."
+              >
+                Метка
+              </button>
+            </div>
+            {mode === 'add' ? (
               <input
                 type="text"
                 className={s.calloutInput}
                 value={calloutText}
                 onChange={(e) => setCalloutText(e.target.value)}
-                placeholder="Текст подсказки..."
+                placeholder="Текст"
                 maxLength={120}
               />
-              <div className={s.presetChips}>
-                {QUICK_PRESETS.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    className={s.presetBtn}
-                    data-active={calloutText === preset}
-                    onClick={() => setCalloutText(preset)}
-                  >
-                    {preset}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <span className={s.statsLabel}>
-              Hints: {(d.callouts ?? []).length}
-              {activeHints.length > 0 ? ` · now ${activeHints.length}` : ''}
-            </span>
-          )}
-        </div>
+            ) : (
+              <span className={s.statsLabel}>{(d.callouts ?? []).length}</span>
+            )}
+            <button
+              type="button"
+              className={s.viewCtrlBtn}
+              data-on={d.showHints}
+              onClick={() => d.setShowHints(!d.showHints)}
+              title="Показывать подсказки"
+            >
+              Подсказки
+            </button>
+            <button type="button" className={s.viewCtrlBtn} onClick={toggleFullscreen} title="На весь экран">
+              {isFullscreen ? 'Свернуть' : 'Экран'}
+            </button>
+          </div>
 
-        <div className={s.viewControls}>
-          <button
-            type="button"
-            className={s.viewCtrlBtn}
-            data-on={d.showHints}
-            onClick={() => d.setShowHints(!d.showHints)}
-            title="Показывать подсказки на превью"
+          <div
+            className={s.overlayCanvas}
+            data-mode={mode}
+            onClick={handleCanvasClick}
           >
-            {d.showHints ? 'Hints on' : 'Hints off'}
-          </button>
-          <button
-            type="button"
-            className={s.viewCtrlBtn}
-            onClick={() => setViewMode(viewMode === 'fit' ? 'fill' : 'fit')}
-          >
-            {viewMode === 'fit' ? 'Заполнить блок' : 'По размеру'}
-          </button>
-          <button type="button" className={s.viewCtrlBtn} onClick={toggleFullscreen}>
-            {isFullscreen ? 'Обычный вид' : 'Во весь экран'}
-          </button>
-        </div>
-      </div>
-
-      <div ref={containerRef} className={s.previewContainer} data-view-mode={viewMode}>
-        {children}
-
-        {isFullscreen ? (
-          <button type="button" className={s.fullscreenExitBtn} onClick={toggleFullscreen}>
-            ✕ Выйти
-          </button>
-        ) : null}
-
-        <div
-          className={s.overlayCanvas}
-          data-mode={mode}
-          onClick={handleCanvasClick}
-        >
-          {d.showHints ? (
-            <HintOverlay
-              hints={editHints}
-              playhead={d.playhead}
-              playing={d.playing}
-              selectedId={d.selectedCallout}
-              editable={!d.playing && mode === 'view'}
-              onSelect={(id) => {
-                d.setSelectedCallout(id);
-                d.setSelectedClip(null);
-              }}
-              onMove={(id, x, y) => {
-                d.updateCallout(id, { targetX: x, targetY: y, boxX: x, boxY: y });
-              }}
-            />
-          ) : null}
+            {d.showHints ? (
+              <HintOverlay
+                hints={editHints}
+                playhead={d.playhead}
+                playing={d.playing}
+                selectedId={d.selectedCallout}
+                editable={!d.playing && mode === 'view'}
+                onSelect={(id) => {
+                  d.setSelectedCallout(id);
+                  d.setSelectedClip(null);
+                }}
+                onMoveBox={(id, x, y) => {
+                  d.updateCallout(id, { boxX: x, boxY: y });
+                }}
+                onMoveTarget={(id, x, y) => {
+                  d.updateCallout(id, { targetX: x, targetY: y });
+                }}
+              />
+            ) : null}
+          </div>
         </div>
       </div>
     </div>

@@ -11,9 +11,12 @@ from __future__ import annotations
 import re
 
 LOCK = (
-    "Preserve the exact product shape, colors, materials and proportions. "
-    "Keep the product as the visual focus. No additional products or unrelated objects."
+    "This is the exact product shown in the reference image. "
+    "Preserve its shape, colors, materials, proportions and visible details. "
+    "Do not add another product or replace it."
 )
+
+_TEMPLATE = re.compile(r"exact (?:same )?product", re.I)
 
 _ORBIT = re.compile(
     r"вращ|оборот|поворот|orbit|spin|rotat|круж|круч",
@@ -64,7 +67,6 @@ def _shot_line(intent: str) -> str:
 def prepare_wan_prompt(user: str, *, translate: bool = True) -> dict:
     raw = (user or "").strip()
     intent = camera_intent(raw)
-    shot = _shot_line(intent)
     english = raw
     source = "en"
     if translate:
@@ -74,8 +76,18 @@ def prepare_wan_prompt(user: str, *, translate: bool = True) -> dict:
             prepared = to_english(raw, allow_ollama=True)
             english = (prepared.english or "").strip()
             source = prepared.source
+    # Shot templates already name the reference product and a reliable camera move.
+    # Rewriting them collapses Hero and Feature into the same generic line.
+    if _TEMPLATE.search(raw) and source == "en":
+        wan = raw
+    else:
+        wan = f"{_shot_line(intent)} {LOCK}"
+    lowered = wan.lower()
+    if "pull the camera back" in lowered or "pull back" in lowered:
+        wan = _shot_line("hero") + " " + LOCK
+        intent = "hero"
     return {
-        "wan": f"{shot} {LOCK}",
+        "wan": wan,
         "intent": intent,
         "english": english,
         "source": source,

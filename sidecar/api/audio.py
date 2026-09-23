@@ -134,6 +134,12 @@ class ConvertAudioRequest(BaseModel):
     format: str = "wav"
     output_name: str = "capture"
 
+class EnhanceAudioRequest(BaseModel):
+    input_path: str
+    denoise: bool = True
+    normalize: bool = True
+    output_name: str = "enhanced"
+
 
 class SaveVoiceRequest(BaseModel):
     input_path: str
@@ -275,6 +281,31 @@ def convert_audio(request: ConvertAudioRequest):
     dest = _audio_out(request.output_name, fmt)
     _convert(os.path.expanduser(request.input_path), dest, fmt)
     return {"status": "completed", "file_path": dest, "format": fmt}
+
+@router.post("/audio/enhance")
+def enhance_audio(request: EnhanceAudioRequest):
+    src = os.path.expanduser(request.input_path)
+    if not os.path.isfile(src):
+        raise HTTPException(status_code=400, detail=f"File not found: {request.input_path}")
+    dest = _audio_out(f"{request.output_name}-{int(time.time())}", "wav")
+    filters = ["highpass=f=70", "lowpass=f=14500"]
+    if request.denoise:
+        filters.append("afftdn=nf=-25:tn=1")
+    if request.normalize:
+        filters.append("loudnorm=I=-16:TP=-1.5:LRA=11")
+    cmd = [
+        _ffmpeg_bin(), "-y", "-i", src,
+        "-vn", "-af", ",".join(filters),
+        "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le", dest,
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=_ffmpeg_user_error(exc.stderr or exc.stdout, "ffmpeg audio enhancement failed"),
+        ) from exc
+    return {"status": "completed", "file_path": dest, "duration_sec": audio_duration_sec(dest)}
 
 
 def _clone_python(*, refresh: bool = False) -> Optional[str]:

@@ -14,8 +14,46 @@
   cursor: grabbing;
 }
 
+.leaders {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.leader {
+  stroke: #f2c14e;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.pin {
+  position: absolute;
+  z-index: 3;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: #ff4757;
+  box-shadow: 0 0 0 3px rgba(255, 71, 87, 0.28);
+  transform: translate(-0px, -0px);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.pin[data-selected='true'] {
+  box-shadow: 0 0 0 4px rgba(242, 193, 78, 0.55);
+  cursor: grab;
+}
+
 .hint {
   position: absolute;
+  z-index: 2;
   transform: translate(-50%, -50%);
   max-width: min(42%, 280px);
   pointer-events: none;
@@ -30,9 +68,11 @@
 
 .hint[data-selected='true'] {
   z-index: 2;
-  outline: 1px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
-  outline-offset: 4px;
-  border-radius: 8px;
+}
+
+.hint[data-selected='true'] .body {
+  outline: 1px solid rgba(242, 193, 78, 0.95);
+  outline-offset: 3px;
 }
 
 .body {
@@ -74,11 +114,11 @@
 }
 
 .typeAccent .body {
-  padding: 6px 10px;
-  border-radius: 8px;
-  color: #0b0f14;
-  background: color-mix(in srgb, var(--hint-color, var(--color-accent)) 92%, #fff);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: #14110a;
+  background: color-mix(in srgb, var(--hint-color, var(--color-accent)) 88%, #fff);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
 }
 
 .typeCard .body {
@@ -95,28 +135,12 @@
   max-width: min(36%, 220px);
 }
 
-.typePointer .pointerDot {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 10px;
-  height: 10px;
-  margin: -5px 0 0 -5px;
-  border-radius: 50%;
-  background: var(--hint-color, #ff4757);
-  border: 2px solid #fff;
-  box-shadow: 0 0 0 3px rgba(255, 71, 87, 0.25);
-}
-
 .typePointer .body {
-  position: absolute;
-  left: 14px;
-  top: -8px;
   padding: 5px 8px;
   border-radius: 6px;
   color: #f8fafc;
-  background: rgba(15, 23, 42, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(242, 193, 78, 0.55);
   white-space: nowrap;
   max-width: 180px;
 }
@@ -137,10 +161,10 @@
 
 .typeSticker .body {
   margin-top: 4px;
-  padding: 3px 6px;
-  border-radius: 5px;
-  background: rgba(15, 23, 42, 0.65);
-  color: #fff;
+  padding: 0;
+  color: #f8fafc;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  background: none;
 }
 
 /* ── Sizes ─────────────────────────────────────────────── */

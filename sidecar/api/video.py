@@ -6,6 +6,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import uuid
 from typing import Any, Dict, List, Optional
 from urllib.parse import unquote
@@ -18,6 +20,16 @@ if _SIDEcar_ROOT not in sys.path:
 from video_analyze import analyze_video, get_analyze_progress, load_cached_analysis
 
 router = APIRouter()
+
+_render_cancel = threading.Event()
+_render_state: Dict[str, Any] = {
+    "active": False,
+    "stage": "idle",
+    "percent": 0,
+    "detail": "",
+    "started_at": 0.0,
+    "error": None,
+}
 
 
 def _video_draft_dir() -> str:
@@ -166,6 +178,23 @@ def _concat_with_xfade(ffmpeg: str, clips: list, durations: list, output_path: s
 
 
 def _run_ffmpeg(cmd: list, fallback: str) -> None:
+    if _render_state["active"]:
+        _render_state.update(stage="rendering", detail=fallback)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        while proc.poll() is None:
+            if _render_cancel.is_set():
+                proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                raise HTTPException(status_code=409, detail="Render cancelled")
+            time.sleep(0.12)
+        stdout, stderr = proc.communicate()
+        if proc.returncode != 0:
+            raise HTTPException(status_code=500, detail=(stderr or stdout or fallback)[-600:])
+        _render_state["percent"] = min(94, int(_render_state["percent"]) + 8)
+        return
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
     except subprocess.CalledProcessError as exc:
@@ -349,6 +378,7 @@ class TimelineClipModel(BaseModel):
     source_in_sec: float = 0.0
     effect: Optional[str] = None
     muted: Optional[bool] = False
+    volume: float = 1.0
 
 
 class CalloutModel(BaseModel):
@@ -360,7 +390,17 @@ class CalloutModel(BaseModel):
     box_x: float
     box_y: float
     text: str
+    title: Optional[str] = None
+    type: str = "accent"
+    size: str = "m"
+    anchor: str = "center"
+    color: Optional[str] = None
     theme: Optional[str] = "accent"
+    arrow_style: str = "none"
+    sticker_path: Optional[str] = None
+    sticker_scale: float = 1.0
+    box_w: Optional[float] = None
+    box_h: Optional[float] = None
 
 
 class RenderTimelineRequest(BaseModel):
@@ -369,6 +409,8 @@ class RenderTimelineRequest(BaseModel):
     height: int = 1080
     fps: int = 30
     callouts: Optional[List[CalloutModel]] = None
+    audio_policy: str = "duck"
+    overlay_positions: Optional[Dict[str, Dict[str, float]]] = None
 
 
 _SEG_AUDIO = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"]
@@ -428,14 +470,31 @@ def _render_callout_overlay_png(callout: CalloutModel, video_w: int, video_h: in
     bx = int(video_w * (callout.box_x / 100.0))
     by = int(video_h * (callout.box_y / 100.0))
 
+    if callout.type == "sticker" and callout.sticker_path:
+        sticker_path = _disk_image_path(callout.sticker_path)
+        if os.path.isfile(sticker_path):
+            sticker = Image.open(sticker_path).convert("RGBA")
+            scale = max(0.2, min(3.0, float(callout.sticker_scale or 1.0)))
+            target_w = max(48, int(video_w * 0.12 * scale))
+            target_h = max(48, int(sticker.height * (target_w / max(1, sticker.width))))
+            sticker = sticker.resize((target_w, target_h), Image.Resampling.LANCZOS)
+            img.alpha_composite(sticker, (tx - target_w // 2, ty - target_h // 2))
+            img.save(out_path)
+            return
+
     font_path = _caption_font()
-    size = max(18, video_h // 38)
+    size_scale = {"s": 0.82, "m": 1.0, "l": 1.28}.get(callout.size, 1.0)
+    size = max(18, int((video_h // 38) * size_scale))
     font = ImageFont.truetype(font_path, size) if font_path else ImageFont.load_default()
+    title_font = ImageFont.truetype(font_path, max(16, int(size * 0.78))) if font_path else font
 
     probe = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
-    box = probe.textbbox((0, 0), callout.text, font=font)
-    tw = box[2] - box[0]
-    th = box[3] - box[1]
+    text = callout.text or ""
+    box = probe.multiline_textbbox((0, 0), text, font=font, spacing=4)
+    title_box = probe.textbbox((0, 0), callout.title or "", font=title_font)
+    tw = max(box[2] - box[0], title_box[2] - title_box[0])
+    title_h = (title_box[3] - title_box[1] + 6) if callout.title else 0
+    th = box[3] - box[1] + title_h
 
     card_pad_x = 18
     card_pad_y = 12
@@ -444,27 +503,34 @@ def _render_callout_overlay_png(callout: CalloutModel, video_w: int, video_h: in
 
     start_cx = bx + (card_w if bx < tx else 0)
     start_cy = by + card_h // 2
-    accent_color = (59, 130, 246, 255)
+    accent_color = (212, 168, 75, 255)
+    if callout.color and re.fullmatch(r"#[0-9a-fA-F]{6}", callout.color):
+        accent_color = tuple(int(callout.color[i:i + 2], 16) for i in (1, 3, 5)) + (255,)
     if callout.theme == "success":
         accent_color = (16, 185, 129, 255)
     elif callout.theme == "warning":
         accent_color = (245, 158, 11, 255)
 
-    # Shadow and connector line
-    draw.line([(start_cx, start_cy), (tx, ty)], fill=(0, 0, 0, 180), width=5)
-    draw.line([(start_cx, start_cy), (tx, ty)], fill=accent_color, width=3)
+    if callout.type == "pointer" or callout.arrow_style != "none":
+        draw.line([(start_cx, start_cy), (tx, ty)], fill=(0, 0, 0, 180), width=5)
+        draw.line([(start_cx, start_cy), (tx, ty)], fill=accent_color, width=3)
+        draw.ellipse([(tx - 9, ty - 9), (tx + 9, ty + 9)], fill=accent_color[:-1] + (70,), outline=accent_color, width=2)
+        draw.ellipse([(tx - 4, ty - 4), (tx + 4, ty + 4)], fill=accent_color)
 
-    # Target pin dot with outer ring
-    draw.ellipse([(tx - 9, ty - 9), (tx + 9, ty + 9)], fill=(255, 71, 87, 80), outline=(255, 71, 87, 200), width=2)
-    draw.ellipse([(tx - 5, ty - 5), (tx + 5, ty + 5)], fill=(255, 71, 87, 255), outline=(255, 255, 255, 255), width=2)
-
-    # Card background (rounded rectangle)
     r = 10
-    draw.rounded_rectangle([(bx - 2, by - 2), (bx + card_w + 2, by + card_h + 2)], radius=r, fill=(0, 0, 0, 80))
-    draw.rounded_rectangle([(bx, by), (bx + card_w, by + card_h)], radius=r, fill=(24, 24, 27, 235), outline=accent_color, width=2)
-    draw.rounded_rectangle([(bx, by), (bx + 6, by + card_h)], radius=r, fill=accent_color)
+    if callout.type == "minimal":
+        draw.rounded_rectangle([(bx, by), (bx + card_w, by + card_h)], radius=r, fill=(8, 10, 14, 185))
+    else:
+        draw.rounded_rectangle([(bx - 2, by - 2), (bx + card_w + 2, by + card_h + 2)], radius=r, fill=(0, 0, 0, 80))
+        draw.rounded_rectangle([(bx, by), (bx + card_w, by + card_h)], radius=r, fill=(24, 24, 27, 235), outline=accent_color, width=2)
+        if callout.type in ("accent", "card", "pointer"):
+            draw.rounded_rectangle([(bx, by), (bx + 6, by + card_h)], radius=r, fill=accent_color)
 
-    draw.text((bx + card_pad_x, by + card_pad_y - box[1]), callout.text, font=font, fill=(255, 255, 255, 255))
+    text_y = by + card_pad_y
+    if callout.title:
+        draw.text((bx + card_pad_x, text_y - title_box[1]), callout.title, font=title_font, fill=accent_color)
+        text_y += title_h
+    draw.multiline_text((bx + card_pad_x, text_y - box[1]), text, font=font, fill=(255, 255, 255, 255), spacing=4)
 
     img.save(out_path)
 
@@ -528,6 +594,11 @@ def _encode_segment(ffmpeg: str, clip: TimelineClipModel, dur: float, index: int
             audio_map = ["-map", "1:a"]
         else:
             audio_map = ["-map", "0:a"] if _has_audio(src) else ["-map", "1:a"]
+        audio_filter = (
+            ["-af", f"volume={max(0.0, min(2.0, clip.volume)):.3f}"]
+            if not clip.muted and abs(clip.volume - 1.0) > 0.001
+            else []
+        )
         cmd = [
             ffmpeg, "-y",
             "-ss", f"{max(0.0, clip.source_in_sec):.3f}", "-t", f"{dur:.3f}", "-i", src,
@@ -535,6 +606,7 @@ def _encode_segment(ffmpeg: str, clip: TimelineClipModel, dur: float, index: int
             "-vf", _with_effect(_fit_filter(w, h, fps), clip),
             "-map", "0:v", *audio_map,
             "-t", f"{dur:.3f}",
+            *audio_filter,
             "-c:v", "libx264", "-pix_fmt", "yuv420p", *_SEG_AUDIO,
             out,
         ]
@@ -575,7 +647,7 @@ def render_timeline(request: RenderTimelineRequest):
         first = min(overlays, key=lambda c: int(c.track[1:]) if c.track[1:].isdigit() else 99).track
         v1 = sorted([c for c in overlays if c.track == first], key=lambda c: c.start_sec)
         overlays = [c for c in overlays if c.track != first]
-    audio_clips = [c for c in request.clips if c.track.startswith("a") and c.path]
+    audio_clips = [c for c in request.clips if c.track.startswith("a") and c.path and not c.muted]
     title_clips = [c for c in request.clips if c.track.startswith("t") and (c.text or "").strip()]
 
     OVERLAY_POSITIONS = [
@@ -586,6 +658,11 @@ def render_timeline(request: RenderTimelineRequest):
     ]
 
     def overlay_xy(track: str) -> tuple[str, str]:
+        custom = (request.overlay_positions or {}).get(track)
+        if custom:
+            x = max(0.0, min(100.0, float(custom.get("x", 68))))
+            y = max(0.0, min(100.0, float(custom.get("y", 58))))
+            return (f"(W-w)*{x / 100.0:.4f}", f"(H-h)*{y / 100.0:.4f}")
         try:
             idx = max(0, int(track[1:]) - 2)
         except ValueError:
@@ -609,7 +686,7 @@ def render_timeline(request: RenderTimelineRequest):
                 segments.append(gap)
             seg = os.path.join(tmp, f"seg_{idx:03d}.mp4")
             shifted = TimelineClipModel(
-                **{**clip.dict(), "source_in_sec": clip.source_in_sec + (start - clip.start_sec)}
+                **{**clip.model_dump(), "source_in_sec": clip.source_in_sec + (start - clip.start_sec)}
             )
             _encode_segment(ffmpeg, shifted, dur, idx, w, h, fps, seg)
             segments.append(seg)
@@ -635,7 +712,7 @@ def render_timeline(request: RenderTimelineRequest):
             )
 
         # Pass 2: overlays (V2), captions (T1), extra audio (A1) on top of the base.
-        if not overlays and not audio_clips and not title_clips:
+        if not overlays and not audio_clips and not title_clips and not request.callouts:
             _run_ffmpeg(
                 [ffmpeg, "-y", "-i", base, "-c", "copy", "-movflags", "+faststart", output_path],
                 "ffmpeg finalize failed",
@@ -703,7 +780,13 @@ def render_timeline(request: RenderTimelineRequest):
                 vcur = f"[vo_cal{idx}]"
                 input_idx += 1
 
-        audio_labels = ["[0:a]"]
+        policy = request.audio_policy if request.audio_policy in ("original", "duck", "replace") else "duck"
+        base_gain = 0.0 if policy == "replace" and audio_clips else (0.25 if policy == "duck" and audio_clips else 1.0)
+        if base_gain != 1.0:
+            parts.append(f"[0:a]volume={base_gain:.3f}[basea]")
+            audio_labels = ["[basea]"]
+        else:
+            audio_labels = ["[0:a]"]
         for k, clip in enumerate(audio_clips):
             src = _disk_image_path(clip.path or "")
             if not os.path.isfile(src):
@@ -714,7 +797,8 @@ def render_timeline(request: RenderTimelineRequest):
             ]
             ms = int(round(clip.start_sec * 1000))
             parts.append(
-                f"[{input_idx}:a]aresample=48000,adelay={ms}:all=1[au{k}]"
+                f"[{input_idx}:a]aresample=48000,volume={max(0.0, min(2.0, clip.volume)):.3f},"
+                f"adelay={ms}:all=1[au{k}]"
             )
             audio_labels.append(f"[au{k}]")
             input_idx += 1
@@ -843,3 +927,18 @@ def grade_video(request: GradeRequest):
         ]
     _run_ffmpeg(cmd, "ffmpeg grade failed")
     return {"file_path": dest}
+
+
+class ProductMatchRequest(BaseModel):
+    still_path: str
+    video_path: str
+
+
+@router.post("/video/product-match")
+def product_match(request: ProductMatchRequest):
+    """Whether an uploaded clip is the same product as the Film still."""
+    from api.motion import footage_matches_product
+
+    still = _disk_image_path(request.still_path)
+    video = _disk_image_path(request.video_path)
+    return footage_matches_product(still, video)

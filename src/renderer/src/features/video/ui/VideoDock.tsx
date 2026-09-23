@@ -70,7 +70,7 @@ export function VideoMenuBar({
   };
 
   return (
-    <header className={styles.menuBar}>
+    <header className={styles.menuBar} data-slim={state.mode === 'editor' || undefined}>
       <div className={styles.menuTop}>
         <div className={styles.menuBrand}>
           <span className={styles.brand}>

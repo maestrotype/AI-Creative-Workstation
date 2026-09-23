@@ -1409,6 +1409,27 @@ function setupIpc() {
     return { file_path: body.file_path as string };
   });
 
+  ipcMain.handle('match-product-footage', async (_, payload: { stillPath: string; videoPath: string }) => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) {
+      return { match: false, reason: 'sidecar' };
+    }
+    const res = await net.fetch(`${SIDECAR_URL}/api/video/product-match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        still_path: payload.stillPath,
+        video_path: payload.videoPath,
+      }),
+      signal: AbortSignal.timeout(60 * 1000),
+    });
+    const body = (await res.json().catch(() => ({}))) as { match?: boolean; reason?: string; detail?: unknown };
+    if (!res.ok) {
+      return { match: false, reason: body.detail != null ? String(body.detail).slice(0, 200) : 'error' };
+    }
+    return { match: Boolean(body.match), reason: body.reason || '' };
+  });
+
   ipcMain.handle('list-projects', async () => listProjects());
 
   ipcMain.handle('create-project', async (_, payload: {
@@ -1464,10 +1485,15 @@ function setupIpc() {
       duration_sec: number;
       source_in_sec: number;
       effect?: string | null;
+      muted?: boolean;
+      volume?: number;
     }>;
     width: number;
     height: number;
     fps: number;
+    audio_policy?: 'original' | 'duck' | 'replace';
+    overlay_positions?: Record<string, { x: number; y: number }>;
+    callouts?: unknown[];
   }) => {
     const ready = await ensureSidecarReady();
     if (!ready.ok) {
@@ -1484,6 +1510,29 @@ function setupIpc() {
       throw new Error(body.detail != null ? String(body.detail).slice(0, 400) : `HTTP ${res.status}`);
     }
     return { file_path: body.file_path as string };
+  });
+
+  ipcMain.handle('save-subtitles', async (_, payload: { content: string; defaultName?: string }) => {
+    const result = await dialog.showSaveDialog({
+      title: 'Save subtitles',
+      defaultPath: payload.defaultName || 'subtitles.srt',
+      filters: [{ name: 'SubRip subtitles', extensions: ['srt'] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    writeFileSync(result.filePath, payload.content || '', 'utf8');
+    return result.filePath;
+  });
+
+  ipcMain.handle('save-screen-recording', async (_, payload: { data: ArrayBuffer; name?: string }) => {
+    const dir = join(homedir(), 'Documents/Canvas/Generated/Video/drafts');
+    mkdirSync(dir, { recursive: true });
+    const safe = (payload.name || `screen-${Date.now()}`)
+      .replace(/[^a-zA-Z0-9._-]+/g, '-')
+      .replace(/\.webm$/i, '');
+    const file = join(dir, `${safe}.webm`);
+    writeFileSync(file, Buffer.from(payload.data));
+    rememberPickedMedia(file);
+    return { file_path: file };
   });
 
   const videoHistoryPath = () => join(homedir(), 'Documents/Canvas/Generated/Video/idea-history.json');
@@ -2066,6 +2115,13 @@ function setupIpc() {
     total_sec?: number;
     output_name?: string;
   }) => sidecarJson('/api/audio/voiceover-track', payload, 5 * 60 * 1000));
+
+  ipcMain.handle('enhance-audio', async (_, payload: {
+    input_path: string;
+    denoise?: boolean;
+    normalize?: boolean;
+    output_name?: string;
+  }) => sidecarJson('/api/audio/enhance', payload, 10 * 60 * 1000));
 
   ipcMain.handle('extract-audio-from-video', async (_, payload: {
     video_path: string;

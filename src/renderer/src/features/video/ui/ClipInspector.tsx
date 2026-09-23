@@ -88,6 +88,18 @@ export function ClipInspector({
   const filmActions = (
     <div className={s.block}>
       <div className={s.sectionLabel}>Film actions</div>
+      <label className={s.row}>
+        <span className={s.key}>Original audio</span>
+        <select
+          className={s.durInput}
+          value={d.exportSettings.audioPolicy}
+          onChange={(event) => d.setAudioPolicy(event.target.value as 'original' | 'duck' | 'replace')}
+        >
+          <option value="original">Keep</option>
+          <option value="duck">Duck under narration</option>
+          <option value="replace">Replace with narration</option>
+        </select>
+      </label>
       <div className={s.presets}>
         {ASSEMBLE_TARGETS.map((sec) => (
           <button
@@ -179,6 +191,9 @@ export function ClipInspector({
             </span>
             {productThumb && d.filmBrief?.trim() ? (
               <span className={s.productBrief}>{d.filmBrief.trim().slice(0, 140)}</span>
+            ) : null}
+            {productThumb ? (
+              <span className={s.hint}>Generate, insert, and regenerate use this still.</span>
             ) : null}
             {!productThumb ? (
               <>
@@ -363,6 +378,37 @@ export function ClipInspector({
         <div className={s.block}>
           <div className={s.sectionLabel}>Narration</div>
           <p className={s.prompt}>{clip.text}</p>
+        </div>
+      ) : null}
+
+      {(clip.track.startsWith('a') || kind === 'video') ? (
+        <div className={s.block}>
+          <div className={s.sectionLabel}>Audio</div>
+          <label className={s.row}>
+            <span className={s.key}>Volume</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={clip.volume ?? 1}
+              onChange={(event) => {
+                const volume = Number(event.target.value);
+                d.replaceClips(d.clips.map((item) => (
+                  item.id === clip.id ? { ...item, volume } : item
+                )));
+              }}
+            />
+            <span className={s.val}>{Math.round((clip.volume ?? 1) * 100)}%</span>
+          </label>
+          <button type="button" className={s.btn} onClick={d.toggleSelectedMute}>
+            {clip.muted ? 'Unmute clip' : 'Mute clip'}
+          </button>
+          {bin?.kind === 'audio' ? (
+            <button type="button" className={s.btn} onClick={d.enhanceSelectedAudio} disabled={d.voiceBusy}>
+              {d.voiceBusy ? 'Enhancing…' : 'Denoise + normalize'}
+            </button>
+          ) : null}
         </div>
       ) : null}
 

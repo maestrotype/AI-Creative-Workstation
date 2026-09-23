@@ -3,85 +3,16 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { DirectorProvider, useDirector } from './DirectorBoard';
-import {
-  DirectorResultPane,
-  DirectorSourcesPane,
-  DirectorTimelinePane,
-} from './DirectorPanes';
-import { FromIdeaPanel } from './FromIdeaPanel';
-import { FromRecordingPanel } from './FromRecordingPanel';
 import { FilmWorkspace } from './FilmWorkspace';
-import { VideoDock, VideoMenuBar, useDockLayout } from './VideoDock';
-import { VideoPipelineShell } from './VideoPipelineShell';
-import type { DockState } from '../model/videoDockLayout';
 import { useWorkspaceBridgeStore } from '../../studio/store/workspaceBridgeStore';
 import styles from './VideoPage.module.css';
 
-function maxZ(state: DockState): number {
-  return Math.max(...Object.values(state.panels).map((p) => p.z), 1);
-}
-
-function StoryboardPane({ projectId }: { projectId: string | null }): ReactNode {
-  const d = useDirector();
-  return (
-    <div className={styles.densePane}>
-      <FromIdeaPanel
-        embedded
-        projectId={projectId}
-        onSendToTimeline={(items) => {
-          d.addSources(
-            items.map((it) => ({ kind: 'image' as const, path: it.path, name: it.name, durationSec: it.durationSec })),
-            true,
-          );
-        }}
-      />
-    </div>
-  );
-}
-
-function RecordingPane(): ReactNode {
-  const d = useDirector();
-  return (
-    <div className={styles.densePane}>
-      <FromRecordingPanel
-        embedded
-        onProduced={(path) => { d.addSources([{ kind: 'video', path }], true); }}
-      />
-    </div>
-  );
-}
-
-function VideoStudioShell({ projectId }: { projectId: string | null }): ReactNode {
+function VideoStudioShell(): ReactNode {
   const { t } = useTranslation();
   const [params] = useSearchParams();
   const openVoice = params.get('voice') === '1';
-  const [dock, setDock] = useDockLayout();
   const d = useDirector();
   const takePendingTitleCard = useWorkspaceBridgeStore((s) => s.takePendingTitleCard);
-  const titleCardOnTimeline = d.bins.some((bin) => bin.kind === 'image');
-
-  const openMontage = () => {
-    setDock({
-      ...dock,
-      mode: 'editor',
-    });
-  };
-
-  const openVoiceover = () => {
-    void d.openVoiceover();
-    setDock({
-      ...dock,
-      mode: 'pipeline',
-      panels: {
-        ...dock.panels,
-        sources: {
-          ...dock.panels.sources,
-          visible: true,
-          z: maxZ(dock) + 1,
-        },
-      },
-    });
-  };
 
   useEffect(() => {
     const path = takePendingTitleCard();
@@ -89,13 +20,6 @@ function VideoStudioShell({ projectId }: { projectId: string | null }): ReactNod
     d.addSources([{ kind: 'image', path, name: t('video.title_card_name'), durationSec: 5 }], true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    if (!openVoice) return;
-    if (!d.projectScope || !d.projectHydrated || d.filmLoadError) return;
-    openVoiceover();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openVoice, d.projectScope?.id, d.projectHydrated, d.filmLoadError]);
 
   return (
     <>
@@ -111,36 +35,7 @@ function VideoStudioShell({ projectId }: { projectId: string | null }): ReactNod
           <Link className={styles.projectBannerBack} to={`/projects/${d.projectScope.id}`}>
             {t('video.back_to_project')}
           </Link>
-          <span>
-            {t('video.finishing_project', { name: d.projectScope.name || t('projects.untitled') })}
-          </span>
-          <nav className={styles.filmBannerSteps} aria-label="Этапы фильма">
-            <Link
-              to={`/projects/${d.projectScope.id}`}
-              className={styles.bannerStepBtn}
-              title={t('projects.step_shots')}
-            >
-              {t('projects.step_shots')}
-            </Link>
-            <button
-              type="button"
-              className={styles.bannerStepBtn}
-              data-active={dock.mode !== 'pipeline'}
-              onClick={openMontage}
-              title={t('projects.step_picture')}
-            >
-              {t('projects.step_picture')}
-            </button>
-            <button
-              type="button"
-              className={styles.bannerStepBtn}
-              data-active={dock.mode === 'pipeline'}
-              onClick={openVoiceover}
-              title={t('projects.step_voice')}
-            >
-              {t('projects.step_voice')}
-            </button>
-          </nav>
+          <span>{t('video.finishing_project', { name: d.projectScope.name || t('projects.untitled') })}</span>
         </div>
       ) : (
         <div className={styles.projectBanner}>
@@ -150,31 +45,9 @@ function VideoStudioShell({ projectId }: { projectId: string | null }): ReactNod
           <span>{t('video.dub_existing_lead')}</span>
         </div>
       )}
-      {titleCardOnTimeline ? (
-        <div className={styles.projectBanner}>
-          <span>{t(`video.still_compose_banner_${d.stillCompose}`)}</span>
-        </div>
-      ) : null}
-      <VideoMenuBar state={dock} onState={setDock} onOpenVoiceover={openVoiceover} />
       <div className={styles.studioBody}>
-        <div className={styles.studioLayer} hidden={dock.mode !== 'pipeline'}>
-          <VideoPipelineShell active={dock.mode === 'pipeline'} />
-        </div>
-        <div className={styles.studioLayer} hidden={dock.mode !== 'editor'}>
-          <FilmWorkspace onOpenVoiceover={openVoiceover} />
-        </div>
-        <div className={styles.studioLayer} hidden={dock.mode === 'pipeline' || dock.mode === 'editor'}>
-          <VideoDock
-            state={dock}
-            onState={setDock}
-            panels={{
-              timeline: <DirectorTimelinePane />,
-              preview: <DirectorResultPane previewActive={dock.mode !== 'pipeline'} />,
-              sources: <DirectorSourcesPane onOpenVoiceover={openVoiceover} />,
-              storyboard: <StoryboardPane projectId={projectId} />,
-              recording: <RecordingPane />,
-            }}
-          />
+        <div className={styles.studioLayer}>
+          <FilmWorkspace openNarration={openVoice} />
         </div>
       </div>
     </>
@@ -188,7 +61,7 @@ export function VideoPage(): ReactNode {
   return (
     <div className={styles.container} data-mode="studio">
       <DirectorProvider key={scopeKey} projectId={projectId}>
-        <VideoStudioShell projectId={projectId} />
+        <VideoStudioShell />
       </DirectorProvider>
     </div>
   );

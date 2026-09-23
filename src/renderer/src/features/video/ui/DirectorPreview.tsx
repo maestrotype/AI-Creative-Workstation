@@ -26,6 +26,7 @@ interface DirectorPreviewProps {
   overlayPos?: Record<string, OverlayPos>;
   onOverlayMove?: (track: string, pos: OverlayPos) => void;
   onDecodeFail: (binId: string) => void;
+  audioPolicy?: 'original' | 'duck' | 'replace';
   /** When false the element stays mounted but does not play (hidden pipeline stages). */
   active?: boolean;
   fallbackSource?: { path: string; name?: string; durationSec?: number } | null;
@@ -53,6 +54,7 @@ export function DirectorPreview({
   overlayPos = {},
   onOverlayMove,
   onDecodeFail,
+  audioPolicy = 'duck',
   active = true,
   fallbackSource,
 }: DirectorPreviewProps): ReactNode {
@@ -131,9 +133,11 @@ export function DirectorPreview({
       clip: TimelineClip | null,
       shouldPlay: boolean,
       muted: boolean,
+      volume = 1,
     ) => {
       if (!el) return;
       el.muted = muted;
+      el.volume = Math.max(0, Math.min(1, volume));
       if (!url || !clip) {
         el.pause();
         return;
@@ -150,7 +154,12 @@ export function DirectorPreview({
       else el.addEventListener('loadeddata', apply, { once: true });
     };
 
-    attach(v1Ref.current, v1IsVideo ? v1Url : null, v1IsVideo ? effectiveMainClip : null, playing && active, Boolean(effectiveMainClip?.muted));
+    const narrationActive = audioClips.some((item) => item.clip && !item.clip.muted);
+    const sourceMuted = Boolean(effectiveMainClip?.muted)
+      || (narrationActive && audioPolicy === 'replace');
+    const sourceGain = (effectiveMainClip?.volume ?? 1)
+      * (narrationActive && audioPolicy === 'duck' ? 0.25 : 1);
+    attach(v1Ref.current, v1IsVideo ? v1Url : null, v1IsVideo ? effectiveMainClip : null, playing && active, sourceMuted, sourceGain);
 
     for (const { id, clip } of pipOverlays) {
       const bin = binFor(clip, bins);
@@ -161,11 +170,13 @@ export function DirectorPreview({
 
     for (const { id, clip } of audioClips) {
       const bin = binFor(clip, bins);
-      attach(audioRefs.current[id], playbackUrl(bin, blobs), clip, playing && active, false);
+      attach(audioRefs.current[id], playbackUrl(bin, blobs), clip, playing && active, Boolean(clip?.muted), clip?.volume ?? 1);
     }
   }, [
     effectiveMainClip?.id,
     effectiveMainClip?.muted,
+    effectiveMainClip?.volume,
+    audioPolicy,
     v1Url,
     v1IsVideo,
     playing,
@@ -174,7 +185,7 @@ export function DirectorPreview({
     bins,
     blobs,
     pipOverlays.map((o) => o.clip.id).join('|'),
-    audioClips.map((a) => a.clip?.id).join('|'),
+    audioClips.map((a) => `${a.clip?.id}:${a.clip?.muted ? 1 : 0}:${a.clip?.volume ?? 1}`).join('|'),
   ]);
 
   const hasAny = Boolean(effectiveMainClip || overlayClips.some((o) => o.clip) || titleClips.length || audioClips.some((a) => a.clip));

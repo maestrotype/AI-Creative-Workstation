@@ -10,8 +10,8 @@ export const PURPOSE_ORDER: readonly ShotPurpose[] = [
   'HOOK',
   'PRODUCT_HERO',
   'DETAIL',
-  'FEATURE',
   'ANGLE',
+  'FEATURE',
   'LIFESTYLE',
   'TRANSITION',
   'CTA',
@@ -31,6 +31,8 @@ export interface AssembleFootage {
   durationSec: number;
   label: string;
   kind: 'video' | 'image';
+  /** Set by a still-vs-frame check. Product films ignore anything that is not `same`. */
+  productMatch?: 'same' | 'other' | 'unknown';
 }
 
 export interface AssembleInput {
@@ -38,6 +40,7 @@ export interface AssembleInput {
   targetSec: number;
   style?: AssemblyStyle;
   productStillPath?: string | null;
+  projectId?: string | null;
   footage?: AssembleFootage[];
 }
 
@@ -156,10 +159,15 @@ export function assembleShots(input: AssembleInput): AssemblePlan {
       skipped.push({ shotId: shot.id, reason: check.reason || 'skipped' });
       continue;
     }
-    // Prefer shots tied to the current Film product still.
+    if (input.projectId && shot.projectId && shot.projectId !== input.projectId) {
+      skipped.push({ shotId: shot.id, reason: 'other_film' });
+      continue;
+    }
+    // A product film only uses shots generated from its still. Unscoped rows
+    // (no source) are how another asset slips into the cut.
     if (product) {
-      if (shot.sourceAsset && !sameProductAsset(shot.sourceAsset, product)) {
-        skipped.push({ shotId: shot.id, reason: 'other_product' });
+      if (!shot.sourceAsset || !sameProductAsset(shot.sourceAsset, product)) {
+        skipped.push({ shotId: shot.id, reason: shot.sourceAsset ? 'other_product' : 'unscoped' });
         continue;
       }
     }
@@ -169,9 +177,18 @@ export function assembleShots(input: AssembleInput): AssemblePlan {
   const cta = unique.find((s) => s.shotPurpose === 'CTA');
   const body = unique.filter((s) => s.shotPurpose !== 'CTA');
   const shotPaths = new Set(usable.map((s) => s.artifactPath));
-  const uploads = (input.footage || []).filter(
-    (row) => row.kind === 'video' && row.durationSec >= MIN_CLIP && !shotPaths.has(row.path),
-  );
+  const uploads = (input.footage || []).filter((row) => {
+    if (row.kind !== 'video' || row.durationSec < MIN_CLIP || shotPaths.has(row.path)) return false;
+    if (product && row.productMatch !== 'same') {
+      skipped.push({ shotId: `upload:${row.path}`, reason: 'unrelated_footage' });
+      return false;
+    }
+    if (row.productMatch === 'other') {
+      skipped.push({ shotId: `upload:${row.path}`, reason: 'unrelated_footage' });
+      return false;
+    }
+    return true;
+  });
 
   const placements: AssemblePlacement[] = [];
   let cursor = 0;
@@ -215,24 +232,6 @@ export function assembleShots(input: AssembleInput): AssemblePlan {
       purpose: 'CTA',
       path: cta.artifactPath,
       label: shotLabel(cta),
-    });
-  }
-
-  if (placements.length === 0 && input.productStillPath) {
-    cursor = pushPlacement(placements, skipped, 0, target, {
-      shotId: 'still',
-      duration: Math.min(4, target),
-      purpose: 'PRODUCT_HERO',
-      path: input.productStillPath,
-      label: 'Product still',
-    });
-  } else if (cursor < target - 0.8 && input.productStillPath) {
-    cursor = pushPlacement(placements, skipped, cursor, target - cursor, {
-      shotId: 'still',
-      duration: Math.min(4, target - cursor),
-      purpose: 'CTA',
-      path: input.productStillPath,
-      label: 'Product still',
     });
   }
 
@@ -296,14 +295,11 @@ function roundTenths(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
-function sameProductAsset(sourceAsset: string, productStillPath: string): boolean {
+export function sameProductAsset(sourceAsset: string, productStillPath: string): boolean {
   const norm = (p: string) => p.replace(/^file:\/\//, '').replace(/\\/g, '/').toLowerCase();
   const a = norm(sourceAsset);
   const b = norm(productStillPath);
-  if (a === b) return true;
-  const ta = a.split('/').pop() || a;
-  const tb = b.split('/').pop() || b;
-  return Boolean(ta && tb && ta === tb);
+  return Boolean(a) && a === b;
 }
 
 function shotLabel(shot: FilmShot): string {
@@ -326,38 +322,41 @@ export function purposeWord(purpose: ShotPurpose): string {
 
 export function promptForPurpose(purpose: ShotPurpose, brief = ''): string {
   const context = brief.trim();
-  const prefix = context
-    ? `Ecommerce product film. Brief: ${context}\n`
-    : 'Ecommerce product film.\n';
-  const lock = 'Preserve the exact product shape, colors, materials and proportions. Keep the product as the visual focus. No additional products or unrelated objects.';
+  const prefix = context ? `Ecommerce product film. Brief: ${context} ` : '';
+  const lock = 'This is the exact product shown in the reference image. Preserve its shape, colors, materials, proportions and visible details. Do not add another product or replace it.';
   switch (purpose) {
     case 'HOOK':
-      return `${prefix}Opening look at the product. Slow cinematic push-in. ${lock}`;
+      return `${prefix}Opening look at the exact product shown in the reference image. Slow cinematic push-in. ${lock}`;
     case 'DETAIL':
-      return `${prefix}Close-up of the product material and construction. Subtle cinematic push-in. Visible camera motion, not a still photo. ${lock}`;
+      return `${prefix}Close-up ecommerce shot of the exact same product from the reference image. Reveal material and construction with a slow cinematic push-in. ${lock}`;
     case 'ANGLE':
-      return `${prefix}Subtle cinematic orbit showing the side profile of the product. ${lock}`;
+      return `${prefix}Show the exact same product from the reference image with a subtle cinematic orbit. ${lock}`;
     case 'FEATURE':
-      return `${prefix}Show a visible product feature from the brief (logo, stitching, or construction). Slow cinematic push-in. ${lock}`;
+      return `${prefix}Feature detail of the exact product shown in the reference image. Slow cinematic push-in on a visible construction detail. ${lock}`;
     case 'LIFESTYLE':
-      return `${prefix}Product as the visual focus with a slow cinematic push-in. ${lock}`;
+      return `${prefix}The exact product from the reference image stays the visual focus. Slow cinematic push-in. ${lock}`;
     case 'CTA':
-      return `${prefix}Clean premium ecommerce presentation. Slight slow push-in, product centered. Do not pull the camera back. ${lock}`;
+      return `${prefix}Clean premium presentation of the exact product shown in the reference image. Slight slow push-in, product centered. ${lock}`;
     case 'TRANSITION':
-      return `${prefix}Short connecting push-in on the product. ${lock}`;
+      return `${prefix}Short connecting push-in on the exact product shown in the reference image. ${lock}`;
     case 'PRODUCT_HERO':
     default:
-      return `${prefix}Premium ecommerce hero shot. Slow cinematic push-in toward the product. ${lock}`;
+      return `${prefix}Premium ecommerce hero shot of the exact product shown in the reference image. Slow cinematic push-in. ${lock}`;
   }
 }
 
+/** Keep the product lock even when the user adds a short insert line. */
+export function promptForShot(purpose: ShotPurpose, brief = '', userText = ''): string {
+  const base = promptForPurpose(purpose, brief);
+  const extra = userText.trim();
+  if (!extra || extra === base) return base;
+  if (/exact product/i.test(extra) && /preserve its shape/i.test(extra)) return extra;
+  return `${base}\n${extra}`;
+}
+
 export function productShotPresets(brief = ''): Array<{ purpose: ShotPurpose; prompt: string }> {
-  return [
-    { purpose: 'PRODUCT_HERO', prompt: promptForPurpose('PRODUCT_HERO', brief) },
-    { purpose: 'ANGLE', prompt: promptForPurpose('ANGLE', brief) },
-    { purpose: 'DETAIL', prompt: promptForPurpose('DETAIL', brief) },
-    { purpose: 'CTA', prompt: promptForPurpose('CTA', brief) },
-  ];
+  const purposes: ShotPurpose[] = ['PRODUCT_HERO', 'DETAIL', 'ANGLE', 'FEATURE'];
+  return purposes.map((purpose) => ({ purpose, prompt: promptForPurpose(purpose, brief) }));
 }
 
 export const PRODUCT_SHOT_PRESETS = productShotPresets();

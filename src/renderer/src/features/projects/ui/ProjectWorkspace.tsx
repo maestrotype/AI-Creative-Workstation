@@ -539,6 +539,7 @@ export function ProjectWorkspace(): ReactNode {
       shots: latest.shots ?? [],
       targetSec: assembleTarget,
       productStillPath: latest.productStillPath,
+      projectId: latest.id,
     });
     const built = planToTimeline(plan);
     const next: ProjectDoc = {

@@ -92,6 +92,31 @@ class AssembleTests(unittest.TestCase):
         self.assertEqual([p["shotId"] for p in plan["placements"]], ["ok"])
         self.assertTrue(plan["needMoreMaterial"])
 
+    def test_product_film_keeps_one_product(self):
+        plan = assemble([
+            shot("hero", "PRODUCT_HERO", 3.4, sourceAsset="/p/jacket.png", projectId="film"),
+            shot("other", "DETAIL", 3.4, sourceAsset="/p/shoe.png", projectId="film"),
+            shot("detail", "DETAIL", 3.4, sourceAsset="/p/jacket.png", projectId="film"),
+            shot("loose", "ANGLE", 3.4, projectId="film"),
+            shot("foreign", "FEATURE", 3.4, sourceAsset="/p/jacket.png", projectId="other"),
+        ], 20, footage=[
+            {"path": "/random.mp4", "duration": 12, "kind": "video"},
+            {"path": "/jacket-wear.mp4", "duration": 4, "kind": "video", "productMatch": "same"},
+        ], still_path="/p/jacket.png", project_id="film")
+        ids = [p["shotId"] for p in plan["placements"]]
+        self.assertEqual(ids[0], "upload:/jacket-wear.mp4")
+        self.assertIn("hero", ids)
+        self.assertIn("detail", ids)
+        self.assertNotIn("other", ids)
+        self.assertNotIn("loose", ids)
+        self.assertNotIn("foreign", ids)
+        self.assertNotIn("upload:/random.mp4", ids)
+        reasons = {row["reason"] for row in plan["skipped"]}
+        self.assertIn("other_product", reasons)
+        self.assertIn("unscoped", reasons)
+        self.assertIn("unrelated_footage", reasons)
+        self.assertIn("other_film", reasons)
+
 
 if __name__ == "__main__":
     unittest.main()

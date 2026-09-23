@@ -108,6 +108,16 @@ export function VoiceoverScriptEditor(): ReactNode {
                         onChange={(e) => d.updateScriptSegment(index, { text: e.target.value })}
                         disabled={busy}
                       />
+                      {seg.audio_path ? (
+                        <button
+                          type="button"
+                          className={styles.toolBtn}
+                          onClick={() => d.regenerateVoiceSegment(index)}
+                          disabled={busy || !d.ttsReady}
+                        >
+                          Regenerate voice
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                 ))}
@@ -115,6 +125,14 @@ export function VoiceoverScriptEditor(): ReactNode {
             </table>
           </div>
           <div className={styles.voNextStep}>
+            <div className={styles.toolRow}>
+              <button type="button" className={styles.toolBtn} onClick={d.createCaptionsFromScript} disabled={busy}>
+                Add captions to timeline
+              </button>
+              <button type="button" className={styles.toolBtn} onClick={d.exportSubtitles} disabled={busy}>
+                Export SRT
+              </button>
+            </div>
             <VoiceSampleSetup />
             {(() => {
               const hasValidSample = Boolean(d.voiceHasSample && (d.voiceSampleSec ?? 0) >= 0.5);

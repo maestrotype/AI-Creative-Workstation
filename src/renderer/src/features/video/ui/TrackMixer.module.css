@@ -19,19 +19,36 @@
 .embedded {
   border: none;
   border-radius: 0;
-  padding: 8px 10px 10px;
+  padding: 6px 10px 8px;
   background: transparent;
-  gap: 8px;
+  gap: 6px;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.embedded .topBar {
-  flex-shrink: 0;
-  padding-bottom: 6px;
+.embedded .actionBtn,
+.embedded .zoomBtn {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.embedded .actionBtn:hover:not(:disabled) {
+  transform: none;
+  box-shadow: none;
 }
 
 .embedded .timelineShell {
   flex: 1;
+  height: auto;
   min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .topBar {
@@ -80,6 +97,12 @@
   background: var(--color-bg-hover);
 }
 
+.zoomBtn[data-on='true'] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+
 .zoomBtn[data-fit='true'] {
   border-color: var(--color-accent);
   color: var(--color-bg-base);
@@ -92,6 +115,42 @@
   color: var(--color-text-tertiary);
   margin-left: 4px;
   white-space: nowrap;
+}
+
+.minimap {
+  position: relative;
+  flex-shrink: 0;
+  height: 14px;
+  margin: 0 2px 6px;
+  border-radius: 4px;
+  background: #12151c;
+  border: 1px solid var(--color-border-subtle);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.minimapClip {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 2px;
+  background: #3f4a5c;
+  pointer-events: none;
+}
+
+.minimapClip[data-short='true'] {
+  background: var(--color-accent);
+}
+
+.minimapWindow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--color-text-primary) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-primary) 45%, transparent);
+  border-radius: 3px;
+  pointer-events: none;
+  box-sizing: border-box;
 }
 
 .zoomHint[data-scroll='true'] {
@@ -448,6 +507,23 @@
 
 .trackBodyVideo {
   height: 72px;
+}
+
+.embedded .trackHeader {
+  height: 40px;
+}
+
+.embedded .trackHeader[data-lane='overlay'],
+.embedded .trackHeader[data-lane='video'] {
+  height: 56px;
+}
+
+.embedded .trackBody {
+  height: 40px;
+}
+
+.embedded .trackBodyVideo {
+  height: 56px;
 }
 
 .trackBody:last-child {
