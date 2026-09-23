@@ -10,13 +10,12 @@ import {
   videoTracksForBin,
   type TrackId,
 } from '../model/directorTimeline';
-import { promptForPurpose, SHOT_DURATION_PROFILES } from '../model/autoAssemble';
+import { promptForPurpose, SHOT_DURATION_PROFILES, sameProductAsset } from '../model/autoAssemble';
 import { shotCardTitle, shotProviderShort, mediaBinDisplayName } from '../model/clipDisplayName';
 import type { ShotPurpose } from '../../projects/model/project';
 import { toAssetUrl } from '../model/directorMedia';
 import { DirectorPreview } from './DirectorPreview';
 import { useDirector } from './DirectorBoard';
-import { VoiceoverSection } from './VoiceoverSection';
 import { TrackMixer } from './TrackMixer';
 import { CalloutEditor } from './CalloutEditor';
 import styles from './VideoPage.module.css';
@@ -344,6 +343,7 @@ export function DirectorResultPane({
           trackLayout={d.visibleLayout}
           overlayPos={d.overlayPos}
           onOverlayMove={d.setOverlayPos}
+          audioPolicy={d.exportSettings.audioPolicy}
           active={previewActive}
           onDecodeFail={(binId) => {
             const bin = d.bins.find((item) => item.id === binId);
@@ -394,6 +394,123 @@ export function DirectorResultPane({
   );
 }
 
+/** Local AI for montage: insert / replace on timeline (Generate → AI tab). */
+export function DirectorGeneratePane(): ReactNode {
+  const d = useDirector();
+  const [aiMode, setAiMode] = useState<'shot' | 'insert' | 'replace' | null>(null);
+  const [aiPurpose, setAiPurpose] = useState<ShotPurpose>('DETAIL');
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiDur, setAiDur] = useState(3.4);
+
+  useEffect(() => {
+    if (!aiMode) return;
+    setAiPrompt(promptForPurpose(aiPurpose, d.filmBrief));
+  }, [aiMode, aiPurpose, d.filmBrief]);
+
+  const openAi = (mode: 'shot' | 'insert' | 'replace') => {
+    if (mode === 'replace') {
+      const clip = d.activeClip;
+      const bin = clip?.binId ? d.bins.find((item) => item.id === clip.binId) : null;
+      const shot = d.shots.find((item) => item.id === bin?.shotId);
+      setAiPurpose(shot?.shotPurpose ?? 'DETAIL');
+    } else {
+      setAiPurpose(mode === 'insert' ? 'DETAIL' : 'PRODUCT_HERO');
+    }
+    setAiMode(mode);
+  };
+
+  const canReplace = Boolean(d.activeClip?.track.startsWith('v'));
+  const refHint = 'Для TI2V: Assets → + Картинка (референс кадра). Озвучка — вкладка Narration справа.';
+
+  return (
+    <div className={`${styles.paneFill} ${styles.generatePane}`}>
+      <p className={styles.hintTight}>
+        Локальные модели: вставка на плейхед, замена выбранного клипа, раскадровка во вкладке «Идея».
+      </p>
+      <div className={styles.toolRow}>
+        <button
+          type="button"
+          className={styles.toolBtn}
+          disabled={d.aiBusy || !d.productStillPath}
+          onClick={() => openAi('insert')}
+        >
+          {d.t('video.ai_generate_insert')}
+        </button>
+        <button
+          type="button"
+          className={styles.toolBtn}
+          disabled={d.aiBusy || !d.productStillPath || !canReplace}
+          onClick={() => openAi('replace')}
+        >
+          {d.t('video.ai_regenerate')}
+        </button>
+        <button
+          type="button"
+          className={styles.toolBtn}
+          disabled={d.aiBusy || !d.productStillPath}
+          onClick={() => openAi('shot')}
+        >
+          {d.t('video.ai_generate_shot')}
+        </button>
+      </div>
+      {!d.productStillPath ? <p className={styles.hintTight}>{refHint}</p> : null}
+      {aiMode ? (
+        <div className={styles.aiForm}>
+          <label>
+            {d.t('video.ai_purpose')}
+            <select
+              className={styles.num}
+              value={aiPurpose}
+              onChange={(e) => setAiPurpose(e.target.value as ShotPurpose)}
+            >
+              {(['DETAIL', 'FEATURE', 'HOOK', 'PRODUCT_HERO', 'ANGLE', 'CTA'] as const).map((purpose) => (
+                <option key={purpose} value={purpose}>{purpose.replaceAll('_', ' ')}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {d.t('video.ai_duration')}
+            <select className={styles.num} value={aiDur} onChange={(e) => setAiDur(Number(e.target.value))}>
+              {SHOT_DURATION_PROFILES.map((row) => (
+                <option key={row.sec} value={row.sec}>{row.sec.toFixed(1)}s</option>
+              ))}
+            </select>
+          </label>
+          <textarea
+            className={styles.aiPrompt}
+            rows={4}
+            value={aiPrompt}
+            onChange={(e) => setAiPrompt(e.target.value)}
+          />
+          <div className={styles.toolRow}>
+            <button
+              type="button"
+              className={styles.toolPrimary}
+              disabled={d.aiBusy || !d.productStillPath}
+              onClick={() => {
+                d.generateAiClip({
+                  mode: aiMode,
+                  purpose: aiPurpose,
+                  prompt: aiPrompt,
+                  durationSec: aiDur,
+                });
+                setAiMode(null);
+              }}
+            >
+              {d.t('video.ai_run')}
+            </button>
+            <button type="button" className={styles.toolBtn} onClick={() => setAiMode(null)}>
+              {d.t('video.ai_cancel')}
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {d.aiBusy ? <p className={styles.hintTight}>{d.aiStatus || d.t('video.ai_generating')}</p> : null}
+      {d.aiError ? <p className={styles.voiceError}>{d.aiError}</p> : null}
+    </div>
+  );
+}
+
 export function DirectorSourcesPane({
   onOpenVoiceover,
   compact = false,
@@ -415,7 +532,14 @@ export function DirectorSourcesPane({
   }, [aiMode, aiPurpose, d.filmBrief]);
 
   const openAi = (mode: 'shot' | 'insert' | 'replace') => {
-    setAiPurpose(mode === 'insert' ? 'DETAIL' : 'PRODUCT_HERO');
+    if (mode === 'replace') {
+      const clip = d.activeClip;
+      const bin = clip?.binId ? d.bins.find((item) => item.id === clip.binId) : null;
+      const shot = d.shots.find((item) => item.id === bin?.shotId);
+      setAiPurpose(shot?.shotPurpose ?? 'PRODUCT_HERO');
+    } else {
+      setAiPurpose(mode === 'insert' ? 'DETAIL' : 'PRODUCT_HERO');
+    }
     setAiMode(mode);
   };
 
@@ -461,10 +585,13 @@ export function DirectorSourcesPane({
       }}
       onDrop={onSourcesDrop}
     >
-      <div className={styles.toolRow}>
-        <button type="button" className={styles.toolPrimary} onClick={d.pickVideo}>{d.t('video.dir_add_video')}</button>
-        <button type="button" className={styles.toolBtn} onClick={d.pickImage}>{d.t('video.dir_add_image')}</button>
-        <button type="button" className={styles.toolBtn} onClick={d.pickAudio}>{d.t('video.dir_add_audio')}</button>
+      <div className={styles.importGrid}>
+        <button type="button" className={styles.toolPrimary} onClick={d.pickVideo} title={d.t('video.dir_add_video')}>Видео</button>
+        <button type="button" className={styles.toolBtn} onClick={d.pickImage} title={d.t('video.dir_add_image')}>Фото</button>
+        <button type="button" className={styles.toolBtn} onClick={d.pickAudio} title={d.t('video.dir_add_audio')}>Звук</button>
+        {compact && d.voiceoverSource ? (
+          <button type="button" className={styles.toolBtn} onClick={openVoiceover} title={d.t('video.vo_open')}>Озвучка</button>
+        ) : null}
       </div>
 
       {compact ? null : (
@@ -609,8 +736,9 @@ export function DirectorSourcesPane({
                   <span>
                     {`AI · ${shotProviderShort(shot)}`}
                     {shot.duration ? ` · ${shot.duration.toFixed(1)}s` : ''}
-                    {shot.validationStatus === 'ok' ? ' · Good' : shot.validationStatus ? ` · ${shot.validationStatus}` : ''}
+                    {shot.validationStatus === 'ok' ? '' : shot.validationStatus ? ` · ${shot.validationStatus}` : ''}
                     {shot.productIdentityWarning ? ' · identity' : ''}
+                    {d.productStillPath && (!shot.sourceAsset || !sameProductAsset(shot.sourceAsset, d.productStillPath)) ? ' · other product' : ''}
                   </span>
                 </div>
                 <div className={styles.shotActions}>
@@ -645,21 +773,6 @@ export function DirectorSourcesPane({
               {d.t('video.assemble_draft')}
             </button>
           </div>
-        </div>
-      ) : null}
-
-      {d.voiceoverSource && !compact ? (
-        <div className={styles.voEntryRow}>
-          {!d.voiceover.expanded ? (
-            <button
-              type="button"
-              className={styles.toolPrimary}
-              onClick={openVoiceover}
-            >
-              {d.t('video.vo_open')}
-            </button>
-          ) : null}
-          <VoiceoverSection />
         </div>
       ) : null}
 
@@ -728,7 +841,7 @@ export function DirectorSourcesPane({
         {d.voiceError ? <p className={styles.voiceError}>{d.voiceError}</p> : null}
       </div>
       ) : null}
-      {!d.voiceover.expanded ? (
+      {!compact && !d.voiceover.expanded ? (
       <p className={styles.hintTight}>{d.t('video.dir_voice_help')}</p>
       ) : null}
       {d.bins.length === 0 ? <p className={styles.hintTight}>{d.t('video.dir_bin_empty')}</p> : (

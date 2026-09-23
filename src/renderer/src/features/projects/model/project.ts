@@ -1,3 +1,6 @@
+import type { Callout } from '../../video/model/callout';
+import type { VoiceoverSession } from '../../video/model/voiceoverSession';
+
 export type ProjectFormat = 'landscape' | 'shorts';
 export type FilmPreset = 'marketplace' | 'hero' | 'youtube' | 'shorts';
 export type ShotMotion = 'still_motion' | 'import' | 'i2v';
@@ -76,6 +79,28 @@ export interface FilmTimeline {
   };
 }
 
+export const PROJECT_SCHEMA_VERSION = 2;
+
+export type ProjectAudioPolicy = 'original' | 'duck' | 'replace';
+export type ProjectExportPreset = 'draft' | 'youtube-1080p' | 'shorts-1080p';
+
+export interface ProjectExportSettings {
+  preset: ProjectExportPreset;
+  width: number;
+  height: number;
+  fps: number;
+  audioPolicy: ProjectAudioPolicy;
+  burnInHints: boolean;
+  burnInCaptions: boolean;
+}
+
+export interface ProjectAnalysisRef {
+  sourcePath: string;
+  cachePath?: string | null;
+  fingerprint?: string | null;
+  updatedAt: number;
+}
+
 export interface ProjectScene {
   id: string;
   title: string;
@@ -96,6 +121,7 @@ export interface ProjectScene {
  * localStorage may cache director UI; it is not the source of truth.
  */
 export interface ProjectDoc {
+  schemaVersion: number;
   id: string;
   name: string;
   kind: string;
@@ -105,6 +131,11 @@ export interface ProjectDoc {
   scenes: ProjectScene[];
   shots: FilmShot[];
   timeline: FilmTimeline | null;
+  /** Durable editor data. localStorage is only a disposable UI cache. */
+  voiceover: VoiceoverSession | null;
+  callouts: Callout[];
+  analysisRef: ProjectAnalysisRef | null;
+  exportSettings: ProjectExportSettings;
   productStillPath: string | null;
   /** Last rendered V1 preview used for narration/analysis. */
   assembledPath: string | null;
@@ -217,6 +248,22 @@ export function templateChapters(label: (key: string) => string): ProjectScene[]
 
 export function formatForPreset(preset: FilmPreset): ProjectFormat {
   return preset === 'shorts' ? 'shorts' : 'landscape';
+}
+
+export function defaultExportSettings(
+  format: ProjectFormat,
+  preset?: FilmPreset,
+): ProjectExportSettings {
+  const vertical = format === 'shorts' || preset === 'shorts';
+  return {
+    preset: vertical ? 'shorts-1080p' : 'youtube-1080p',
+    width: vertical ? 1080 : 1920,
+    height: vertical ? 1920 : 1080,
+    fps: 30,
+    audioPolicy: 'duck',
+    burnInHints: true,
+    burnInCaptions: true,
+  };
 }
 
 export function normalizeShotMotion(value: unknown): ShotMotion {

@@ -7,8 +7,8 @@ PURPOSE_ORDER = (
     "HOOK",
     "PRODUCT_HERO",
     "DETAIL",
-    "FEATURE",
     "ANGLE",
+    "FEATURE",
     "LIFESTYLE",
     "TRANSITION",
     "CTA",
@@ -37,7 +37,17 @@ def _push(placements: list, skipped: list, cursor: float, remaining: float, item
     return _round(cursor + duration)
 
 
-def assemble(shots: list[dict], target_sec: float = 10.0, footage: list[dict] | None = None, still_path: str | None = None) -> dict:
+def _norm_path(path: str | None) -> str:
+    return (path or "").replace("\\", "/").lower().removeprefix("file://")
+
+
+def _same_product(source: str | None, still: str | None) -> bool:
+    left = _norm_path(source)
+    right = _norm_path(still)
+    return bool(left) and left == right
+
+
+def assemble(shots: list[dict], target_sec: float = 10.0, footage: list[dict] | None = None, still_path: str | None = None, project_id: str | None = None) -> dict:
     skipped = []
     usable = []
     for shot in shots:
@@ -53,6 +63,16 @@ def assemble(shots: list[dict], target_sec: float = 10.0, footage: list[dict] | 
         if not shot.get("artifactPath") or float(shot.get("duration") or 0) < MIN_CLIP:
             skipped.append({"id": shot["id"], "reason": "invalid"})
             continue
+        if project_id and shot.get("projectId") and shot.get("projectId") != project_id:
+            skipped.append({"id": shot["id"], "reason": "other_film"})
+            continue
+        if still_path:
+            if not shot.get("sourceAsset"):
+                skipped.append({"id": shot["id"], "reason": "unscoped"})
+                continue
+            if not _same_product(shot.get("sourceAsset"), still_path):
+                skipped.append({"id": shot["id"], "reason": "other_product"})
+                continue
         usable.append(shot)
     seen = set()
     unique = []
@@ -66,10 +86,20 @@ def assemble(shots: list[dict], target_sec: float = 10.0, footage: list[dict] | 
     cta = next((s for s in unique if s["shotPurpose"] == "CTA"), None)
     body = [s for s in unique if s["shotPurpose"] != "CTA"]
     shot_paths = {s.get("artifactPath") for s in usable}
-    uploads = [
-        row for row in (footage or [])
-        if row.get("kind") == "video" and float(row.get("duration") or 0) >= MIN_CLIP and row.get("path") not in shot_paths
-    ]
+    uploads = []
+    for row in (footage or []):
+        if row.get("kind") != "video" or float(row.get("duration") or 0) < MIN_CLIP:
+            continue
+        if row.get("path") in shot_paths:
+            continue
+        # A product film only keeps uploads that were checked against the still.
+        if still_path and row.get("productMatch") != "same":
+            skipped.append({"id": f"upload:{row.get('path')}", "reason": "unrelated_footage"})
+            continue
+        if row.get("productMatch") == "other":
+            skipped.append({"id": f"upload:{row.get('path')}", "reason": "unrelated_footage"})
+            continue
+        uploads.append(row)
     placements = []
     cursor = 0.0
     reserve = min(CTA_RESERVE, float(cta["duration"]), max(0.0, target_sec * 0.2)) if cta else 0.0
@@ -101,13 +131,6 @@ def assemble(shots: list[dict], target_sec: float = 10.0, footage: list[dict] | 
             "duration": float(cta["duration"]),
             "purpose": "CTA",
             "path": cta["artifactPath"],
-        })
-    if not placements and still_path:
-        cursor = _push(placements, skipped, 0.0, target_sec, {
-            "shotId": "still",
-            "duration": min(4.0, target_sec),
-            "purpose": "PRODUCT_HERO",
-            "path": still_path,
         })
     actual = _round(cursor)
     need = _round(max(0.0, target_sec - actual))

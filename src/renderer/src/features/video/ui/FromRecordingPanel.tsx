@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -20,6 +20,62 @@ export function FromRecordingPanel({
   const [cleanError, setCleanError] = useState<string | null>(null);
   const [cleanNotes, setCleanNotes] = useState<string[]>([]);
   const [sentName, setSentName] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  const stopScreenRecording = () => {
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+  };
+
+  const toggleScreenRecording = async () => {
+    if (recording) {
+      stopScreenRecording();
+      return;
+    }
+    if (!navigator.mediaDevices?.getDisplayMedia || !window.api?.saveScreenRecording) {
+      setCleanError('Screen capture is unavailable on this system.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+        ? 'video/webm;codecs=vp9,opus'
+        : 'video/webm';
+      const recorder = new MediaRecorder(stream, { mimeType: mime });
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const chunks = chunksRef.current;
+        chunksRef.current = [];
+        stream.getTracks().forEach((track) => track.stop());
+        recorderRef.current = null;
+        setRecording(false);
+        void new Blob(chunks, { type: mime }).arrayBuffer()
+          .then((data) => window.api.saveScreenRecording({
+            data,
+            name: `screen-${Date.now()}`,
+          }))
+          .then((saved) => {
+            setScreencastPath(saved.file_path);
+            setSentName(fileName(saved.file_path));
+            onProduced?.(saved.file_path);
+          })
+          .catch((err) => setCleanError(err instanceof Error ? err.message : String(err)));
+      };
+      stream.getVideoTracks()[0]?.addEventListener('ended', stopScreenRecording, { once: true });
+      recorderRef.current = recorder;
+      recorder.start(1000);
+      setRecording(true);
+      setCleanError(null);
+    } catch (err) {
+      setCleanError(err instanceof Error ? err.message : String(err));
+      setRecording(false);
+    }
+  };
 
   const handlePickScreencast = async () => {
     if (!window.api?.pickVideo) return;
@@ -75,6 +131,9 @@ export function FromRecordingPanel({
         <h2 className={styles.subtitle}>{t('video.clean_title')}</h2>
         <p className={styles.lead}>{t('video.clean_lead')}</p>
         <div className={styles.actions}>
+          <button type="button" className={recording ? styles.primary : styles.secondary} onClick={() => { void toggleScreenRecording(); }} disabled={cleanBusy}>
+            {recording ? 'Stop screen recording' : 'Record screen'}
+          </button>
           <button type="button" className={styles.secondary} onClick={() => { void handlePickScreencast(); }} disabled={cleanBusy}>
             {t('video.clean_choose')}
           </button>

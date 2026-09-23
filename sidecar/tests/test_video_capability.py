@@ -315,6 +315,31 @@ class MotionQualityTests(unittest.TestCase):
         self.assertTrue(identity["identity_warning"])
         self.assertGreaterEqual(identity["identity_mae_last"], 32.0)
 
+    def test_push_in_does_not_warn(self):
+        from PIL import Image, ImageDraw
+        from api.motion import _identity_vs_source
+
+        source = Image.new("RGB", (80, 80), (20, 40, 180))
+        draw = ImageDraw.Draw(source)
+        draw.rectangle((18, 18, 62, 62), fill=(200, 30, 40))
+        zoom = source.crop((20, 20, 60, 60)).resize((80, 80))
+        identity = _identity_vs_source(source, [zoom, zoom, zoom])
+        self.assertFalse(identity["identity_warning"])
+        self.assertGreater(identity["identity_mae"], 32.0)
+
+    def test_center_product_swap_warns(self):
+        from PIL import Image, ImageDraw
+        from api.motion import _identity_vs_source
+
+        source = Image.new("RGB", (80, 80), (20, 40, 180))
+        draw = ImageDraw.Draw(source)
+        draw.rectangle((18, 18, 62, 62), fill=(200, 30, 40))
+        swapped = Image.new("RGB", (80, 80), (20, 40, 180))
+        draw2 = ImageDraw.Draw(swapped)
+        draw2.rectangle((18, 18, 62, 62), fill=(30, 180, 40))
+        identity = _identity_vs_source(source, [swapped, swapped, swapped])
+        self.assertTrue(identity["identity_warning"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -67,13 +67,23 @@ export function normalizeCallout(raw: Partial<Callout> & { id?: string }): Callo
   const targetX = clampPct(raw.targetX ?? 50);
   const targetY = clampPct(raw.targetY ?? 50);
   const theme = raw.theme ?? 'accent';
-  const arrowStyle = raw.arrowStyle ?? 'none';
-  const type = raw.type ?? themeToType(theme, arrowStyle);
+  const incomingArrow = raw.arrowStyle ?? 'none';
+  const type = raw.type ?? themeToType(theme, incomingArrow);
 
-  const isRight = targetX > 50;
-  const isBottom = targetY > 50;
-  const defaultBoxX = isRight ? Math.max(4, targetX - 28) : Math.min(72, targetX + 6);
-  const defaultBoxY = isBottom ? Math.max(4, targetY - 16) : Math.min(78, targetY + 4);
+  const isRight = targetX > 58;
+  const isBottom = targetY > 68;
+  const defaultBoxX = isRight ? Math.max(4, targetX - 26) : Math.min(74, targetX + 18);
+  const defaultBoxY = isBottom ? Math.max(6, targetY - 18) : Math.min(80, targetY + 12);
+  let boxX = clampPct(raw.boxX ?? defaultBoxX);
+  let boxY = clampPct(raw.boxY ?? defaultBoxY);
+  if (Math.hypot(boxX - targetX, boxY - targetY) < 8) {
+    boxX = clampPct(defaultBoxX);
+    boxY = clampPct(defaultBoxY);
+  }
+  const wantsArrow = type !== 'sticker' && type !== 'minimal';
+  const arrowStyle = raw.arrowStyle === 'curved' || raw.arrowStyle === 'straight'
+    ? raw.arrowStyle
+    : wantsArrow ? 'straight' : 'none';
 
   return {
     id: raw.id ?? `hint-${Date.now()}-${nextCalloutId++}`,
@@ -81,8 +91,8 @@ export function normalizeCallout(raw: Partial<Callout> & { id?: string }): Callo
     endSec,
     targetX,
     targetY,
-    boxX: clampPct(raw.boxX ?? defaultBoxX),
-    boxY: clampPct(raw.boxY ?? defaultBoxY),
+    boxX,
+    boxY,
     boxW: raw.boxW,
     boxH: raw.boxH,
     text: (raw.text || DEFAULT_TEXT).trim() || DEFAULT_TEXT,
@@ -98,7 +108,7 @@ export function normalizeCallout(raw: Partial<Callout> & { id?: string }): Callo
     theme,
     shape: raw.shape ?? 'rounded',
     fontStyle: raw.fontStyle ?? 'sans',
-    arrowStyle: type === 'pointer' ? (arrowStyle === 'none' ? 'straight' : arrowStyle) : 'none',
+    arrowStyle,
     pulse: raw.pulse ?? type === 'pointer',
   };
 }

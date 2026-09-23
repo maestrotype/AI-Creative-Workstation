@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import type { MouseEvent, PointerEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { probeMediaDuration, useFileBlobs } from '../model/directorMedia';
+import { useFileBlobs } from '../model/directorMedia';
 import {
   allowedTracksForClip,
   buildTrackList,
@@ -41,10 +41,20 @@ import {
   type TrackId,
   type TrackLayout,
 } from '../model/directorTimeline';
-import { assembleShots, planToTimeline, promptForPurpose, purposeWord, type AssembleFootage } from '../model/autoAssemble';
+import { assembleShots, planToTimeline, promptForShot, purposeWord, type AssembleFootage } from '../model/autoAssemble';
 import { createDirectorHistory, type DirectorHistorySnap } from '../model/directorHistory';
 import { humanizeFileStem, isTechnicalMediaName } from '../model/clipDisplayName';
-import { sceneHasMedia, shotFromGeneration, type FilmShot, type FilmTimeline, type ProjectDoc, type ShotPurpose } from '../../projects/model/project';
+import {
+  PROJECT_SCHEMA_VERSION,
+  defaultExportSettings,
+  sceneHasMedia,
+  shotFromGeneration,
+  type FilmShot,
+  type FilmTimeline,
+  type ProjectDoc,
+  type ProjectExportSettings,
+  type ShotPurpose,
+} from '../../projects/model/project';
 import { DEFAULT_TRACK_LAYOUT } from '../model/directorTimeline';
 import { sourcesFromScenes, takeProjectHandoff } from '../../projects/model/handoff';
 import { loadDirectorSession, saveDirectorSession, type DirectorSession } from '../model/directorSessionStore';
@@ -66,6 +76,8 @@ import type { VideoAnalysisContext } from '../model/videoAnalysis';
 import type { VoiceoverScript } from '../model/voiceoverScript';
 import { newCallout, normalizeCalloutList, type Callout } from '../model/callout';
 import { MARKETPLACE_V0_BLOCKS, MARKETPLACE_PROJECT_BRIEF } from '../model/marketplaceVoiceoverPack';
+import { buildRenderPlan } from '../model/renderPlan';
+import { captionClipsFromScript, scriptToSrt } from '../model/captions';
 
 const LABEL_W = 118;
 
@@ -198,6 +210,9 @@ type DirectorSnap = {
   exportVideo: () => void;
   saveExportAs: () => void;
   discardExport: () => void;
+  exportSettings: ProjectExportSettings;
+  setAudioPolicy: (policy: ProjectExportSettings['audioPolicy']) => void;
+  enhanceSelectedAudio: () => void;
   voiceover: VoiceoverSession;
   voiceoverSource: VoiceoverSource | null;
   voiceoverBusy: boolean;
@@ -228,6 +243,9 @@ type DirectorSnap = {
   voiceoverApplyError: string | null;
   voiceoverApplyProgress: { current: number; total: number; detail: string };
   applyScriptVoiceover: () => void;
+  regenerateVoiceSegment: (index: number) => void;
+  createCaptionsFromScript: () => void;
+  exportSubtitles: () => void;
   callouts: Callout[];
   addCallout: (params: Partial<Callout> & { targetX: number; targetY: number }) => Callout;
   updateCallout: (id: string, patch: Partial<Callout>) => void;
@@ -246,9 +264,10 @@ type DirectorSnap = {
   extractAudioBusy: boolean;
   extractAudioError: string | null;
   projectScope: { id: string; name: string } | null;
+  filmFormat: 'landscape' | 'shorts';
   shots: FilmShot[];
   assemblyRationale: string | null;
-  applyAutoAssemble: (targetSec: number) => void;
+  applyAutoAssemble: (targetSec: number) => Promise<void>;
   addShotToTimeline: (shotId: string) => void;
   removeShot: (shotId: string) => void;
   filmLoadError: string | null;
@@ -368,6 +387,9 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const applyingHistoryRef = useRef(false);
   const [filmBrief, setFilmBrief] = useState('');
   const [filmFormat, setFilmFormat] = useState<'landscape' | 'shorts'>('landscape');
+  const [exportSettings, setExportSettings] = useState<ProjectExportSettings>(
+    () => defaultExportSettings('landscape'),
+  );
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiStatus, setAiStatus] = useState<string | null>(null);
@@ -394,6 +416,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   trackLayoutRef.current = trackLayout;
   const proxyBusy = useRef(new Set<string>());
   const proxyChecked = useRef(new Set<string>());
+  const durationProbed = useRef(new Set<string>());
   const [proxyError, setProxyError] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportPath, setExportPath] = useState<string | null>(null);
@@ -592,10 +615,16 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       }
       // If analysis was done for an existing source, keep it if paths match
       const analysisPath = prev.analysis?.source_path;
-      const keep = Boolean(analysisPath && (analysisPath === path || analysisPath === prev.sourcePath));
-      // If analysis already exists, do not discard it on passive clip/bin selection change
-      if (prev.analysis && !keep) {
-        return prev;
+      const keep = Boolean(analysisPath && analysisPath === path);
+      if ((prev.analysis || prev.script) && !keep) {
+        return {
+          ...prev,
+          sourcePath: path,
+          sourceBinId: voiceoverSource.binId,
+          analysis: null,
+          script: null,
+          status: 'idle',
+        };
       }
       return {
         ...prev,
@@ -614,7 +643,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   }, [clips, bins]);
 
   useEffect(() => {
-    if (!voiceoverSource?.path) return;
+    if (!voiceoverSource?.path || productStillPathRef.current) return;
     const path = voiceoverSource.path;
     const dur = Math.max(0.5, voiceoverSource.durationSec || 10);
     setClips((prev) => {
@@ -655,6 +684,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   }, [voiceoverSource?.path, voiceoverSource?.durationSec]);
 
   useEffect(() => {
+    if (productStillPathRef.current) return;
     const longest = pickLongestVideoBin(bins);
     if (!longest || binMediaDuration(longest) < 8) return;
     setClips((prev) => {
@@ -670,11 +700,11 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       ));
       return same ? prev : next;
     });
-  }, [bins]);
+  }, [bins, productStillPath]);
 
   useEffect(() => {
     const path = voiceoverSource?.path ?? voiceover.sourcePath;
-    if (!path || voiceover.analysis || !window.api?.getVideoAnalyzeCache) return;
+    if (!path || voiceover.analysis || productStillPath || !window.api?.getVideoAnalyzeCache) return;
     void window.api.getVideoAnalyzeCache(path).then((cached) => {
       if (cached.status !== 'hit' || !cached.context) return;
       const cachedDur = Number(cached.context.duration_sec) || 0;
@@ -717,17 +747,9 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   useEffect(() => {
     if (productStillPathRef.current || applyingHistoryRef.current) return;
     const images = binsRef.current.filter((b) => b.kind === 'image');
-    if (images.length === 0) return;
-    let pick = images.length === 1 ? images[0] : null;
-    if (!pick) {
-      const onTimeline = clipsRef.current
-        .filter((c) => c.track.startsWith('v') && c.binId)
-        .sort((a, b) => a.startSec - b.startSec)
-        .map((c) => images.find((b) => b.id === c.binId))
-        .find(Boolean);
-      pick = onTimeline ?? null;
-    }
-    if (!pick) return;
+    if (images.length !== 1) return;
+    const pick = images[0];
+    if (/title/i.test(pick.name)) return;
     setProductStillPath(pick.path);
     const id = scopeIdRef.current;
     if (id && window.api?.loadProject && window.api.saveProject) {
@@ -809,8 +831,19 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         };
         return window.api.saveProject({
           ...doc,
+          schemaVersion: PROJECT_SCHEMA_VERSION,
           productStillPath: productStillPathRef.current ?? (doc as ProjectDoc).productStillPath ?? null,
           timeline,
+          voiceover: sessionSnapRef.current.voiceover,
+          callouts: normalizeCalloutList(sessionSnapRef.current.voiceover.callouts),
+          analysisRef: sessionSnapRef.current.voiceover.analysis?.source_path
+            ? {
+                sourcePath: sessionSnapRef.current.voiceover.analysis.source_path,
+                fingerprint: assembledPreviewRef.current?.fingerprint ?? null,
+                updatedAt: Date.now(),
+              }
+            : (doc as ProjectDoc).analysisRef ?? null,
+          exportSettings,
           shots: shotsRef.current.length ? shotsRef.current : (doc as ProjectDoc).shots ?? [],
           assembledPath: assembledPreviewRef.current?.path ?? (doc as ProjectDoc).assembledPath,
           assembledFingerprint: assembledPreviewRef.current?.fingerprint
@@ -820,7 +853,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       }).catch(() => { /* keep local session */ });
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [bins, clips, playhead, selectedBin, selectedClip, captionDraft, pxPerSec, trackLayout, overlayPos, voiceover, stillCompose, shots, assemblyRationale, filmLoadError]);
+  }, [bins, clips, playhead, selectedBin, selectedClip, captionDraft, pxPerSec, trackLayout, overlayPos, voiceover, stillCompose, shots, assemblyRationale, exportSettings, filmLoadError]);
 
   useEffect(() => {
     const id = scopeIdRef.current;
@@ -838,12 +871,37 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         return;
       }
       const film = doc as ProjectDoc;
+      const cached = loadDirectorSession(id);
+      const durableVoiceover = film.voiceover;
+      const restoredVoiceover = durableVoiceover ?? cached?.voiceover ?? null;
+      if (restoredVoiceover) {
+        setVoiceover({
+          ...emptyVoiceoverSession(),
+          ...restoredVoiceover,
+          callouts: normalizeCalloutList(
+            film.callouts?.length
+              ? film.callouts
+              : restoredVoiceover.callouts,
+          ),
+        });
+      } else if (film.callouts?.length) {
+        setVoiceover((prev) => ({
+          ...prev,
+          callouts: normalizeCalloutList(film.callouts),
+        }));
+      }
       setFilmLoadError(null);
       setScopeName(film.name || '');
       setFilmBrief(film.brief || '');
       setFilmFormat(film.format === 'shorts' ? 'shorts' : 'landscape');
+      setExportSettings({
+        ...defaultExportSettings(film.format, film.preset),
+        ...(film.exportSettings ?? {}),
+      });
       setProductStillPath(film.productStillPath || null);
-      if (Array.isArray(film.shots)) setShots(film.shots);
+      if (Array.isArray(film.shots)) {
+        setShots(film.shots.filter((shot) => !shot.projectId || shot.projectId === film.id));
+      }
       const tl = film.timeline;
       if (tl && Array.isArray(tl.bins) && Array.isArray(tl.clips) && tl.clips.length > 0) {
         setBins(tl.bins as BinItem[]);
@@ -855,6 +913,9 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           setPlayhead(tl.playhead);
         }
         if (typeof tl.pxPerSec === 'number') setPxPerSec(tl.pxPerSec);
+        if (tl.stillCompose === 'intro' || tl.stillCompose === 'pip' || tl.stillCompose === 'off') {
+          setStillComposeState(tl.stillCompose);
+        }
         if (tl.assembly?.rationale) setAssemblyRationale(tl.assembly.rationale);
       } else if (film.scenes && Array.isArray(film.scenes) && film.scenes.some(sceneHasMedia)) {
         const sceneSources = sourcesFromScenes(film);
@@ -990,31 +1051,33 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   useEffect(() => {
     for (const bin of bins) {
       if (bin.kind === 'image' || bin.proxying) continue;
-      const url = blobs[bin.path];
-      if (!url) continue;
-      const kind = bin.kind === 'audio' ? 'audio' : 'video';
-      void probeMediaDuration(url, kind).then((durationSec) => {
+      if (durationProbed.current.has(bin.path)) continue;
+      durationProbed.current.add(bin.path);
+      void window.api?.probeMediaDuration?.(bin.path).then((durationSec) => {
         if (!(durationSec > 0)) return;
         setBins((prev) => {
           const current = prev.find((item) => item.id === bin.id);
           if (!current) return prev;
-          if (current.durationKnown && durationSec <= current.durationSec + 0.35) return prev;
+          if (current.durationKnown && Math.abs(durationSec - current.durationSec) < 0.05) return prev;
+          const followedSourceEnd = !current.durationKnown
+            || Math.abs(current.outSec - current.durationSec) < 0.08;
           const updated = {
             ...current,
             durationSec,
-            outSec: durationSec,
-            inSec: 0,
+            outSec: followedSourceEnd ? durationSec : Math.min(current.outSec, durationSec),
+            inSec: Math.min(current.inSec, Math.max(0, durationSec - 0.4)),
             durationKnown: true,
           };
-          setClips((clipList) => packTrack(
+          setClips((clipList) => sanitizeClips(
             clipList.map((clip) => (clip.binId === bin.id ? syncClipDuration(clip, updated) : clip)),
-            'v1',
           ));
           return prev.map((item) => (item.id === bin.id ? updated : item));
         });
+      }).catch(() => {
+        durationProbed.current.delete(bin.path);
       });
     }
-  }, [bins, blobs]);
+  }, [bins]);
 
   useEffect(() => {
     if (!playing) return undefined;
@@ -1246,38 +1309,15 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     setExportBusy(true);
     setExportError(null);
     try {
-      const currentCallouts = voiceover.callouts ?? [];
-      const result = await window.api.renderTimeline({
-        width: 1920,
-        height: 1080,
-        fps: 30,
-        clips: clipsRef.current.map((clip) => {
-          const bin = binsRef.current.find((b) => b.id === clip.binId);
-          return {
-            kind: clip.text ? 'text' : bin?.kind ?? 'video',
-            track: clip.track,
-            path: bin?.path ?? null,
-            text: clip.text ?? null,
-            start_sec: clip.startSec,
-            duration_sec: clip.durationSec,
-            source_in_sec: clip.sourceInSec,
-            muted: Boolean(clip.muted),
-          };
-        }),
-        callouts: currentCallouts.length > 0
-          ? currentCallouts.map((c) => ({
-              id: c.id,
-              start_sec: c.startSec,
-              duration_sec: c.endSec - c.startSec,
-              target_x: c.targetX,
-              target_y: c.targetY,
-              box_x: c.boxX,
-              box_y: c.boxY,
-              text: c.text,
-              theme: c.theme,
-            }))
-          : undefined,
-      });
+      const result = await window.api.renderTimeline(buildRenderPlan({
+        bins: binsRef.current,
+        clips: clipsRef.current,
+        callouts: voiceoverRef.current.callouts ?? [],
+        overlayPos,
+        format: filmFormat,
+        settings: exportSettings,
+        showHints,
+      }));
       setExportPath(result.file_path);
       setExportSavedTo(null);
     } catch (err) {
@@ -1304,6 +1344,44 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     setExportSavedTo(null);
   };
 
+  const enhanceSelectedAudio = async () => {
+    const clip = clipsRef.current.find((item) => item.id === selectedClipRef.current);
+    const bin = clip?.binId ? binsRef.current.find((item) => item.id === clip.binId) : null;
+    if (!clip || !bin || bin.kind !== 'audio' || !window.api?.enhanceAudio) return;
+    setVoiceBusy(true);
+    setVoiceError(null);
+    try {
+      const result = await window.api.enhanceAudio({
+        input_path: bin.path,
+        denoise: true,
+        normalize: true,
+        output_name: `${bin.name.replace(/\.[^.]+$/, '')}-enhanced`,
+      });
+      const nextBin: BinItem = {
+        ...bin,
+        id: newId('bin'),
+        path: result.file_path,
+        name: `${bin.name} · enhanced`,
+        durationSec: result.duration_sec || bin.durationSec,
+        inSec: 0,
+        outSec: result.duration_sec || bin.durationSec,
+        durationKnown: true,
+      };
+      pushHistory();
+      setBins((prev) => [...prev, nextBin]);
+      setClips((prev) => prev.map((item) => (
+        item.id === clip.id
+          ? { ...item, binId: nextBin.id, sourceInSec: 0, durationSec: Math.min(item.durationSec, nextBin.durationSec) }
+          : item
+      )));
+      setSelectedBin(nextBin.id);
+    } catch (err) {
+      setVoiceError(ipcMessage(err, 'Не удалось улучшить аудио'));
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
   const probeDuration = async (path: string, kind: BinKind): Promise<{ dur: number; known: boolean }> => {
     if (kind === 'image') return { dur: 4, known: true };
     try {
@@ -1312,7 +1390,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     } catch {
       /* fallback */
     }
-    return { dur: kind === 'audio' ? 8 : 12, known: false };
+    return { dur: 0.4, known: false };
   };
 
   const resolveDroppedPaths = async (files: FileList | File[]): Promise<Array<{ path: string; kind: BinKind }>> => {
@@ -2248,11 +2326,29 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           text: spoken,
           audio_path: filePath,
         });
-        await ingestAudioPathAt(
-          filePath,
-          part.start_sec,
-          t('video.vo_voice_clip_label', { n: i + 1 }),
-        );
+        part.file_path = filePath;
+        if (!window.api.mixVoiceoverTrack) {
+          await ingestAudioPathAt(
+            filePath,
+            part.start_sec,
+            t('video.vo_voice_clip_label', { n: i + 1 }),
+          );
+        }
+      }
+      if (window.api.mixVoiceoverTrack && parts.length) {
+        setVoiceoverApplyProgress({
+          current: parts.length,
+          total: parts.length,
+          detail: 'Собираем единую дорожку озвучки…',
+        });
+        const mixed = await window.api.mixVoiceoverTrack({
+          parts,
+          total_sec: Math.max(totalRef.current, ...parts.map((part) => (
+            part.start_sec + (part.max_duration_sec ?? 0)
+          ))),
+          output_name: `voiceover-${scopeIdRef.current || 'film'}`,
+        });
+        await ingestAudioPathAt(mixed.file_path, 0, 'AI narration');
       }
       if (speechUpdates.length) {
         setVoiceover((prev) => {
@@ -2286,6 +2382,88 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       }
       setVoiceoverApplyBusy(false);
       await refreshVoiceTools();
+    }
+  };
+
+  const regenerateVoiceSegment = async (index: number) => {
+    const script = voiceoverRef.current.script;
+    const segment = script?.segments[index];
+    if (!script || !segment?.text.trim() || !window.api?.synthesizeVoice) return;
+    setVoiceoverApplyBusy(true);
+    setVoiceoverApplyError(null);
+    setVoiceoverApplyProgress({ current: 1, total: 1, detail: `Озвучиваем сегмент ${index + 1}…` });
+    try {
+      const result = await window.api.synthesizeVoice({ text: segment.text.trim() });
+      const measured = await probeDuration(result.file_path, 'audio');
+      const nextSegments = script.segments.map((item, itemIndex) => (
+        itemIndex === index
+          ? { ...item, audio_path: result.file_path, speech_sec: measured.dur, speech_tempo: 1 }
+          : item
+      ));
+      setVoiceover((prev) => ({
+        ...prev,
+        status: 'voiced',
+        script: prev.script ? { ...prev.script, segments: nextSegments } : prev.script,
+      }));
+
+      const voiced = nextSegments.filter((item) => item.audio_path);
+      if (window.api.mixVoiceoverTrack && voiced.length) {
+        const hostClip = clipsRef.current
+          .filter((clip) => clip.track === 'v1' && (!voiceoverRef.current.sourceBinId || clip.binId === voiceoverRef.current.sourceBinId))
+          .sort((a, b) => a.startSec - b.startSec)[0];
+        const offset = hostClip ? Math.max(0, hostClip.startSec - hostClip.sourceInSec) : 0;
+        const mixed = await window.api.mixVoiceoverTrack({
+          parts: voiced.map((item) => ({
+            file_path: item.audio_path!,
+            start_sec: item.start_sec + offset,
+            max_duration_sec: Math.max(0.5, item.end_sec - item.start_sec),
+          })),
+          total_sec: totalRef.current,
+          output_name: `voiceover-${scopeIdRef.current || 'film'}`,
+        });
+        setClips((prev) => prev.filter((clip) => clip.track !== 'a1'));
+        await ingestAudioPathAt(mixed.file_path, 0, 'AI narration');
+      } else {
+        await ingestAudioPathAt(result.file_path, segment.start_sec, `Narration ${index + 1}`);
+      }
+      setVoiceoverApplyProgress({ current: 1, total: 1, detail: 'Сегмент обновлён' });
+    } catch (err) {
+      setVoiceoverApplyError(ipcMessage(err, 'Не удалось обновить сегмент озвучки'));
+    } finally {
+      setVoiceoverApplyBusy(false);
+    }
+  };
+
+  const scriptTimelineOffset = () => {
+    const sourceId = voiceoverRef.current.sourceBinId;
+    const host = clipsRef.current
+      .filter((clip) => clip.track === 'v1' && (!sourceId || clip.binId === sourceId))
+      .sort((a, b) => a.startSec - b.startSec)[0];
+    return host ? Math.max(0, host.startSec - host.sourceInSec) : 0;
+  };
+
+  const createCaptionsFromScript = () => {
+    const script = voiceoverRef.current.script;
+    if (!script?.segments.length) return;
+    pushHistory();
+    const captions = captionClipsFromScript(script, scriptTimelineOffset());
+    setTrackLayout((layout) => ensureTrackVisible(layout, 't1'));
+    setClips((prev) => [
+      ...prev.filter((clip) => !(clip.track === 't1' && clip.id.startsWith('caption-'))),
+      ...captions,
+    ]);
+  };
+
+  const exportSubtitles = async () => {
+    const script = voiceoverRef.current.script;
+    if (!script?.segments.length || !window.api?.saveSubtitles) return;
+    try {
+      await window.api.saveSubtitles({
+        content: scriptToSrt(script, scriptTimelineOffset()),
+        defaultName: `${(scopeName || 'film').replace(/[^\p{L}\p{N}_-]+/gu, '-')}.srt`,
+      });
+    } catch (err) {
+      setVoiceoverApplyError(ipcMessage(err, 'Не удалось сохранить субтитры'));
     }
   };
 
@@ -2593,7 +2771,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         (best, n) => (Math.abs(n - args.durationSec) < Math.abs(best - args.durationSec) ? n : best),
         1.7,
       );
-      const prompt = (args.prompt || '').trim() || promptForPurpose(args.purpose, filmBrief);
+      const prompt = promptForShot(args.purpose, filmBrief, args.prompt);
       const result = await window.api.generateVideo({
         prompt,
         format: filmFormat === 'shorts' ? 'portrait' : 'wide',
@@ -2705,7 +2883,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       for (let i = 0; i < purposes.length; i += 1) {
         const purpose = purposes[i];
         setAiStatus(`${purposeWord(purpose)} (${i + 1}/${purposes.length})`);
-        const prompt = promptForPurpose(purpose, filmBrief);
+        const prompt = promptForShot(purpose, filmBrief);
         const result = await window.api.generateVideo({
           prompt,
           format: filmFormat === 'shorts' ? 'portrait' : 'wide',
@@ -2755,26 +2933,47 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     }
   };
 
-  const applyAutoAssemble = (targetSec: number) => {
-    const footage: AssembleFootage[] = binsRef.current
-      .filter((bin) => bin.kind === 'video' || bin.kind === 'image')
-      .filter((bin) => bin.path !== productStillPath)
-      .filter((bin) => !bin.shotId)
-      .map((bin) => ({
+  const applyAutoAssemble = async (targetSec: number) => {
+    const still = productStillPath;
+    const candidates = binsRef.current
+      .filter((bin) => bin.kind === 'video')
+      .filter((bin) => bin.path !== still)
+      .filter((bin) => !bin.shotId);
+    const footage: AssembleFootage[] = [];
+    for (const bin of candidates) {
+      let productMatch: AssembleFootage['productMatch'] = 'unknown';
+      if (still && window.api?.matchProductFootage) {
+        try {
+          const verdict = await window.api.matchProductFootage(still, bin.path);
+          productMatch = verdict.match ? 'same' : 'other';
+        } catch {
+          productMatch = 'other';
+        }
+      } else if (still) {
+        productMatch = 'other';
+      }
+      footage.push({
         path: bin.path,
         durationSec: Math.max(0.4, bin.durationSec || 0),
         label: isTechnicalMediaName(bin.name)
-          ? (bin.kind === 'image' ? 'Product Image' : 'Uploaded Video')
-          : (humanizeFileStem(bin.name) || bin.name || 'Footage'),
-        kind: bin.kind === 'image' ? 'image' : 'video',
-      }));
+          ? 'Uploaded'
+          : (humanizeFileStem(bin.name) || bin.name || 'Uploaded'),
+        kind: 'video',
+        productMatch,
+      });
+    }
     const plan = assembleShots({
       shots: shotsRef.current,
       targetSec,
-      productStillPath,
+      productStillPath: still,
+      projectId: scopeIdRef.current,
       footage,
     });
-    if (plan.placements.length === 0) return;
+    if (plan.placements.length === 0) {
+      const why = plan.skipped.map((row) => row.reason).filter((reason, index, all) => all.indexOf(reason) === index);
+      setAssemblyRationale(why.length ? `Nothing usable · ${why.join(', ')}` : 'No usable shots');
+      return;
+    }
     pushHistory();
     const built = planToTimeline(plan);
     setTrackLayout((prev) => ({
@@ -2796,9 +2995,15 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       });
       return [...resolved, ...audioAndTitles];
     });
-    const note = plan.needMoreMaterial
-      ? `${plan.rationale} · ${plan.actualSec}s / ${plan.targetSec}s`
-      : plan.rationale;
+    const unrelated = plan.skipped.filter((row) => (
+      row.reason === 'other_product' || row.reason === 'unscoped' || row.reason === 'unrelated_footage' || row.reason === 'other_film'
+    )).length;
+    const note = [
+      plan.needMoreMaterial
+        ? `${plan.rationale} · ${plan.actualSec}s / ${plan.targetSec}s`
+        : plan.rationale,
+      unrelated ? `skipped ${unrelated} unrelated` : '',
+    ].filter(Boolean).join(' · ');
     setAssemblyRationale(note);
     setPlayhead(0);
     paintPlayhead(0);
@@ -3138,6 +3343,9 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     exportVideo: () => { void exportVideo(); },
     saveExportAs: () => { void saveExportAs(); },
     discardExport: () => { void discardExport(); },
+    exportSettings,
+    setAudioPolicy: (policy) => setExportSettings((prev) => ({ ...prev, audioPolicy: policy })),
+    enhanceSelectedAudio: () => { void enhanceSelectedAudio(); },
     voiceover,
     voiceoverSource,
     voiceoverBusy,
@@ -3161,6 +3369,9 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     voiceoverApplyError,
     voiceoverApplyProgress,
     applyScriptVoiceover: () => { void applyScriptVoiceover(); },
+    regenerateVoiceSegment: (index) => { void regenerateVoiceSegment(index); },
+    createCaptionsFromScript,
+    exportSubtitles: () => { void exportSubtitles(); },
     callouts,
     addCallout,
     updateCallout,
@@ -3178,6 +3389,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     extractAudioTrack,
     extractAudioBusy,
     extractAudioError,
+    filmFormat,
     projectScope: scopeIdRef.current
       ? { id: scopeIdRef.current, name: scopeName }
       : null,

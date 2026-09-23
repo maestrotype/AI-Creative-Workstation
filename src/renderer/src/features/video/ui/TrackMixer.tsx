@@ -19,8 +19,8 @@ import s from './TrackMixer.module.css';
 type ExtractMode = 'both' | 'audio_only' | 'mute_video';
 
 const LABEL_W = 140;
-/** Shortest clip should be at least this wide after auto-zoom (NLE-style). */
-const READABLE_CLIP_PX = 40;
+/** A short product shot stays a block you can grab, even beside a multi-minute upload. */
+const READABLE_CLIP_PX = 108;
 
 interface DraggingState {
   type: 'clip' | 'callout';
@@ -94,19 +94,21 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
   }, [displayClips, d.voiceoverSource, displayCallouts]);
 
   const fitPx = Math.max(1.2, (Math.max(viewportW, 240) - LABEL_W - 24) / Math.max(totalSec, 1));
-  const maxMixerPx = Math.max(64, fitPx * 16);
+  const maxMixerPx = Math.max(40, fitPx * 16);
   const minMixerPx = fitPx;
 
   const readablePx = useMemo(() => {
-    const onV1 = displayClips.filter((c) => c.track === 'v1');
+    const onV1 = displayClips.filter((c) => c.track === 'v1' && c.durationSec >= 0.8);
     if (onV1.length === 0) return fitPx;
-    const minDur = Math.min(...onV1.map((c) => Math.max(0.05, c.durationSec)));
-    if (fitPx * minDur >= READABLE_CLIP_PX * 0.9) return fitPx;
-    return Math.min(maxMixerPx, Math.max(fitPx, READABLE_CLIP_PX / minDur));
+    const shorts = onV1.filter((c) => c.durationSec <= 12);
+    const ref = shorts.length
+      ? Math.min(...shorts.map((c) => c.durationSec))
+      : Math.min(...onV1.map((c) => c.durationSec));
+    if (fitPx * ref >= READABLE_CLIP_PX * 0.9) return fitPx;
+    return Math.min(maxMixerPx, Math.max(fitPx, READABLE_CLIP_PX / ref));
   }, [displayClips, fitPx, maxMixerPx]);
 
-  // Embedded editor defaults to Fit so the full film is visible (3+ min).
-  const pxPerSec = mixerPx ?? (embedded ? fitPx : readablePx);
+  const pxPerSec = mixerPx ?? readablePx;
   const bodyPx = Math.max(viewportW - LABEL_W, Math.ceil(totalSec * pxPerSec) + 48);
 
   const v1Clips = useMemo(
@@ -151,23 +153,25 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
     return () => ro.disconnect();
   }, [bodyPx, pxPerSec, totalSec]);
 
-  const atFitZoom = !userZoomed || Math.abs(pxPerSec - fitPx) < 0.08;
+  const atFitZoom = Math.abs(pxPerSec - fitPx) < Math.max(0.08, fitPx * 0.06);
+  const [viewOrigin, setViewOrigin] = useState(0);
 
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const sync = () => setViewportW(el.clientWidth);
+    const sync = () => {
+      setViewportW(el.clientWidth);
+      setViewOrigin(el.scrollLeft);
+    };
     sync();
+    el.addEventListener('scroll', sync, { passive: true });
     const ro = new ResizeObserver(sync);
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      el.removeEventListener('scroll', sync);
+      ro.disconnect();
+    };
   }, []);
-
-  // Prefer readable zoom once viewport is known (scroll sideways — don't crush clips).
-  useEffect(() => {
-    if (viewportW < 220) return;
-    setMixerPx((prev) => (prev == null ? readablePx : prev));
-  }, [viewportW, readablePx]);
 
   // Persist a clean layout if older sessions still have stacked clips.
   useEffect(() => {
@@ -200,23 +204,26 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
   };
 
   const zoomFit = () => {
-    setUserZoomed(false);
-    commitZoom(fitPx, false);
+    commitZoom(fitPx, true);
     requestAnimationFrame(() => {
-      if (scrollRef.current) scrollRef.current.scrollLeft = 0;
+      if (scrollRef.current) {
+        scrollRef.current.scrollLeft = 0;
+        setViewOrigin(0);
+      }
     });
   };
 
   const zoomReadable = () => {
-    commitZoom(readablePx, true);
+    setUserZoomed(false);
+    commitZoom(readablePx, false);
   };
 
-  // Keep Fit in sync with viewport / duration until the user zooms manually.
+  // Shot scale until the user chooses «Весь ролик». Long footage scrolls.
   useEffect(() => {
-    if (!embedded || userZoomed) return;
-    setMixerPx(fitPx);
-    d.setPxPerSec(fitPx);
-  }, [embedded, userZoomed, fitPx, d]);
+    if (viewportW < 220 || userZoomed) return;
+    setMixerPx(readablePx);
+    d.setPxPerSec(readablePx);
+  }, [viewportW, userZoomed, readablePx, d]);
 
   // Keep playhead visible in the horizontal scroll viewport.
   useEffect(() => {
@@ -590,7 +597,7 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
       : (bin?.kind === 'audio' || tone.startsWith('audio'))
         ? 'audio'
         : 'video';
-    const mediaUrl = bin?.kind === 'video' && bin.path ? (d.blobs[bin.path] ?? null) : null;
+    const mediaUrl = bin && bin.kind !== 'image' && bin.path ? (d.blobs[bin.path] ?? null) : null;
     const origin = bin?.shotId ? 'ai' as const : bin ? 'original' as const : null;
     const seq = stillSeqById.get(clip.id);
     const displayName = clipDisplayName(clip, bin, shot, seq, { compact: widthPx < 72 });
@@ -695,18 +702,22 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
             <button
               type="button"
               className={s.zoomBtn}
-              data-fit={!atFitZoom}
+              data-on={atFitZoom}
               onClick={zoomFit}
-              title="Show the full film"
+              title="Весь ролик в ширину окна"
             >
-              fit
+              Весь ролик
             </button>
-            <button type="button" className={s.zoomBtn} onClick={zoomReadable} title="Zoom for short clips">100%</button>
-            <button type="button" className={s.zoomBtn} onClick={() => zoomBy(1.25)} title="Zoom in">+</button>
-            <span className={s.zoomHint} data-scroll={canScrollX}>
-              {formatTimecode(totalSec)} total
-              {canScrollX ? ' · scroll / wheel →' : ' · fit = whole film'}
-            </span>
+            <button
+              type="button"
+              className={s.zoomBtn}
+              data-on={!atFitZoom && Math.abs(pxPerSec - readablePx) < Math.max(0.4, readablePx * 0.08)}
+              onClick={zoomReadable}
+              title="Короткие кадры остаются крупными, длинная запись прокручивается"
+            >
+              Кадры
+            </button>
+            <button type="button" className={s.zoomBtn} onClick={() => zoomBy(1.25)} title="Приблизить">+</button>
           </div>
         </div>
 
@@ -743,6 +754,17 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
           >
             + Подсказка
           </button>
+          {d.productStillPath ? (
+            <button
+              type="button"
+              className={s.actionBtn}
+              disabled={d.aiBusy}
+              onClick={() => { void d.generateProductShotSet(); }}
+              title="Четыре кадра одного товара (если задан still)"
+            >
+              {d.aiBusy ? (d.aiStatus || 'Съёмка…') : '4 кадра'}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -756,6 +778,38 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
           ⚠ {d.extractAudioError}
         </div>
       ) : null}
+
+      <div
+        className={s.minimap}
+        title="Карта ролика — клик переносит окно"
+        onPointerDown={(e) => {
+          const el = scrollRef.current;
+          if (!el || totalSec <= 0) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / Math.max(1, rect.width)));
+          el.scrollLeft = Math.max(0, ratio * totalSec * pxPerSec - el.clientWidth / 2);
+          setViewOrigin(el.scrollLeft);
+        }}
+      >
+        {v1Clips.map((clip) => (
+          <span
+            key={clip.id}
+            className={s.minimapClip}
+            data-short={clip.durationSec <= 12}
+            style={{
+              left: `${(clip.startSec / Math.max(totalSec, 0.001)) * 100}%`,
+              width: `${Math.max(0.6, (clip.durationSec / Math.max(totalSec, 0.001)) * 100)}%`,
+            }}
+          />
+        ))}
+        <span
+          className={s.minimapWindow}
+          style={{
+            left: `${(viewOrigin / Math.max(bodyPx, 1)) * 100}%`,
+            width: `${Math.min(100, (Math.max(viewportW, 1) / Math.max(bodyPx, 1)) * 100)}%`,
+          }}
+        />
+      </div>
 
       {/* Split: fixed track labels | scrollable time canvas (no sticky left offset) */}
       <div

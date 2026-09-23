@@ -6,6 +6,7 @@ import asyncio
 import base64
 import json
 import os
+import shutil
 import tempfile
 import time
 import uuid
@@ -208,8 +209,10 @@ def _encode_frames(frames, fps: int, dest: str) -> None:
 
 # Mean absolute pixel difference below this is a freeze-frame, not generated motion.
 _LOW_MOTION_MAE = 4.0
-# First generated frame vs source still. Heuristic only — not a product-identity solver.
+# Reported for logs. Identity warning uses center color, not this full-frame threshold.
 _IDENTITY_MAE = 32.0
+# Share of center-crop pixels whose color never appears in the source still.
+_NOVEL_WARN = 0.42
 
 
 def _motion_report(frames, *, fps: int) -> dict:
@@ -250,10 +253,44 @@ def _motion_report(frames, *, fps: int) -> dict:
     }
 
 
-def _identity_vs_source(source, frames) -> dict:
-    """Warn when first/mid/last frames drift far from the source product photo.
+def _center_crop(arr):
+    """Middle of the frame — where the product sits. Drops most of the backdrop."""
+    height, width = arr.shape[:2]
+    margin_y = max(1, height // 5)
+    margin_x = max(1, width // 5)
+    cropped = arr[margin_y:height - margin_y, margin_x:width - margin_x]
+    if cropped.size == 0:
+        return arr
+    return cropped
 
-    First-frame-only checks miss late collapse and hallucinated objects.
+
+def _color_hist(arr):
+    """8×8×8 RGB histogram. Camera reframing stays in occupied bins; a new object does not."""
+    import numpy as np
+
+    quantized = (np.clip(arr, 0, 255) // 32).astype(np.int32)
+    index = (quantized[..., 0] * 64 + quantized[..., 1] * 8 + quantized[..., 2]).ravel()
+    hist = np.bincount(index, minlength=512).astype(np.float64)
+    total = float(hist.sum())
+    if total <= 0:
+        return hist
+    return hist / total
+
+
+def _novel_color_mass(source_arr, frame_arr) -> float:
+    """How much of the frame center uses colors absent from the whole source still."""
+    allowed = _color_hist(source_arr)
+    seen = _color_hist(_center_crop(frame_arr))
+    return float(seen[allowed <= 0].sum())
+
+
+def _identity_vs_source(source, frames) -> dict:
+    """Warn when the product region is replaced, not when the camera moves closer.
+
+    Full-frame pixel error flags a push-in (background shifts) and misses a product
+    swap that keeps the studio backdrop. Center colors are compared to the source
+    palette instead: a closer crop of the same product stays valid; a different
+    object introduces colors the still never had.
     """
     images = _frame_list(frames)
     if source is None or not images:
@@ -261,27 +298,93 @@ def _identity_vs_source(source, frames) -> dict:
     import numpy as np
 
     first = images[0].convert("RGB")
-    src = np.asarray(source.convert("RGB").resize(first.size), dtype=np.float32)
+    src_img = source.convert("RGB").resize((48, 48))
+    src_small = np.asarray(src_img, dtype=np.float32)
+    src_match = np.asarray(source.convert("RGB").resize(first.size), dtype=np.float32)
 
     def mae(img) -> float:
         return float(np.mean(np.abs(
-            src - np.asarray(img.convert("RGB"), dtype=np.float32)
+            src_match - np.asarray(img.convert("RGB"), dtype=np.float32)
         )))
 
+    def novel(img) -> float:
+        frame = np.asarray(img.convert("RGB").resize((48, 48)), dtype=np.float32)
+        return _novel_color_mass(src_small, frame)
+
+    picks = [images[0], images[len(images) // 2], images[-1]]
+    novels = [novel(img) for img in picks]
     first_mae = mae(images[0])
     mid_mae = mae(images[len(images) // 2])
     last_mae = mae(images[-1])
     mae_max = max(first_mae, mid_mae, last_mae)
-    warning = mae_max >= _IDENTITY_MAE
+    novel_max = max(novels)
+    warning = novel_max >= _NOVEL_WARN
     print(
-        f"[motion] identity first={first_mae:.2f} mid={mid_mae:.2f} last={last_mae:.2f} warning={warning}",
+        f"[motion] identity novel={novel_max:.2f} mae first={first_mae:.2f} "
+        f"mid={mid_mae:.2f} last={last_mae:.2f} warning={warning}",
         flush=True,
     )
     return {
         "identity_mae": round(mae_max, 3),
         "identity_mae_first": round(first_mae, 3),
         "identity_mae_last": round(last_mae, 3),
+        "identity_novel": round(novel_max, 3),
         "identity_warning": warning,
+    }
+
+
+def _sample_video_frames(video_path: str):
+    """Three frames (start, middle, end). Empty when ffmpeg cannot read the file."""
+    import subprocess
+    import tempfile
+
+    from PIL import Image
+
+    ffmpeg = shutil.which("ffmpeg")
+    ffprobe = shutil.which("ffprobe")
+    if not ffmpeg or not os.path.isfile(video_path):
+        return []
+    duration = 2.0
+    if ffprobe:
+        probe = subprocess.run(
+            [
+                ffprobe, "-v", "error", "-show_entries", "format=duration",
+                "-of", "default=nokey=1:noprint_wrappers=1", video_path,
+            ],
+            capture_output=True, text=True,
+        )
+        try:
+            duration = max(0.4, float((probe.stdout or "").strip() or 2))
+        except ValueError:
+            duration = 2.0
+    stamps = [min(0.15, duration * 0.05), duration * 0.5, max(0.2, duration - 0.15)]
+    frames = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for index, stamp in enumerate(stamps):
+            dest = os.path.join(tmp, f"{index}.png")
+            run = subprocess.run(
+                [ffmpeg, "-y", "-ss", f"{stamp:.3f}", "-i", video_path, "-frames:v", "1", dest],
+                capture_output=True, text=True,
+            )
+            if run.returncode == 0 and os.path.isfile(dest):
+                frames.append(Image.open(dest).convert("RGB").copy())
+    return frames
+
+
+def footage_matches_product(still_path: str, video_path: str) -> dict:
+    """Conservative: unrelated unless sampled frames share the still's colors."""
+    from PIL import Image
+
+    if not still_path or not os.path.isfile(still_path) or not os.path.isfile(video_path):
+        return {"match": False, "reason": "missing", "identity_warning": True}
+    frames = _sample_video_frames(video_path)
+    if not frames:
+        return {"match": False, "reason": "no_frames", "identity_warning": True}
+    report = _identity_vs_source(Image.open(still_path), frames)
+    return {
+        "match": not report.get("identity_warning"),
+        "reason": "other" if report.get("identity_warning") else "same",
+        **report,
     }
 
 

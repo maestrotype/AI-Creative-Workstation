@@ -111,6 +111,7 @@ interface Window {
       format?: 'landscape' | 'shorts';
       preset?: 'marketplace' | 'hero' | 'youtube' | 'shorts';
     }) => Promise<{
+      schemaVersion: number;
       id: string;
       name: string;
       kind: string;
@@ -130,6 +131,10 @@ interface Window {
       }>;
       shots?: unknown[];
       timeline?: unknown;
+      voiceover?: unknown;
+      callouts?: unknown[];
+      analysisRef?: unknown;
+      exportSettings?: unknown;
       productStillPath?: string | null;
       assembledPath: string | null;
       assembledFingerprint?: string | null;
@@ -137,6 +142,7 @@ interface Window {
       updatedAt: number;
     }>;
     loadProject: (id: string) => Promise<{
+      schemaVersion: number;
       id: string;
       name: string;
       kind: string;
@@ -156,6 +162,10 @@ interface Window {
       }>;
       shots?: unknown[];
       timeline?: unknown;
+      voiceover?: unknown;
+      callouts?: unknown[];
+      analysisRef?: unknown;
+      exportSettings?: unknown;
       productStillPath?: string | null;
       assembledPath: string | null;
       assembledFingerprint?: string | null;
@@ -175,6 +185,7 @@ interface Window {
         duration_sec: number;
         source_in_sec: number;
         muted?: boolean;
+        volume?: number;
         effect?: string | null;
       }>;
       width: number;
@@ -188,10 +199,24 @@ interface Window {
         target_y: number;
         box_x: number;
         box_y: number;
+        box_w?: number;
+        box_h?: number;
         text: string;
+        title?: string;
+        type?: string;
+        size?: string;
+        anchor?: string;
+        color?: string;
         theme?: string;
+        arrow_style?: string;
+        sticker_path?: string;
+        sticker_scale?: number;
       }>;
+      audio_policy?: 'original' | 'duck' | 'replace';
+      overlay_positions?: Record<string, { x: number; y: number }>;
     }) => Promise<{ file_path: string }>;
+    saveSubtitles: (payload: { content: string; defaultName?: string }) => Promise<string | null>;
+    saveScreenRecording: (payload: { data: ArrayBuffer; name?: string }) => Promise<{ file_path: string }>;
     loadVideoHistory: (projectId?: string) => Promise<{
       savedAt: number;
       currentId: string;
@@ -220,6 +245,7 @@ interface Window {
     deleteGeneratedStill: (sourcePath: string) => Promise<boolean>;
     pickVideo: () => Promise<string | null>;
     probeMediaDuration: (filePath: string) => Promise<number>;
+    matchProductFootage: (stillPath: string, videoPath: string) => Promise<{ match: boolean; reason?: string }>;
     rememberDroppedMedia: (filePath: string) => Promise<string | null>;
     getPathForFile: (file: File) => string;
     pickImage: () => Promise<string | null>;
@@ -345,6 +371,12 @@ interface Window {
         fitted: boolean;
       }>;
     }>;
+    enhanceAudio?: (payload: {
+      input_path: string;
+      denoise?: boolean;
+      normalize?: boolean;
+      output_name?: string;
+    }) => Promise<{ status: string; file_path: string; duration_sec: number }>;
     extractAudioFromVideo?: (payload: {
       video_path: string;
       mode?: 'audio_only' | 'mute_video' | 'both';

@@ -502,8 +502,9 @@
 }
 
 .sourcesPane .binList {
-  flex: 1;
-  min-height: 4rem;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: none;
   overflow: auto;
 }
 
@@ -591,6 +592,13 @@
   aspect-ratio: auto;
 }
 
+.resultPane[data-compact='true'] .stage {
+  flex: none;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
 /* CalloutEditor wrapper/container inside result pane should fill all space */
 .resultPane > [class*='wrapper'] {
   flex: 1;
@@ -603,16 +611,54 @@
 }
 
 .resultPane > [class*='wrapper'] > [class*='previewContainer'] > * {
-  flex: 1;
   min-height: 0;
 }
 
 .sourcesPane[data-compact='true'] {
-  gap: 8px;
+  padding: 8px;
+  gap: 6px;
+  height: auto;
+}
+
+.importGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
+}
+
+.sourcesPane[data-compact='true'] .importGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sourcesPane[data-compact='true'] .importGrid > :last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+.importGrid .toolBtn,
+.importGrid .toolPrimary {
+  min-width: 0;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 28px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sourcesPane[data-compact='true'] .inspector {
   display: none;
+}
+
+.generatePane {
+  height: auto;
+  flex: 0 0 auto;
+  padding: 8px;
+  gap: 8px;
 }
 
 .densePane .card {
@@ -641,10 +687,10 @@
 
 .projectBanner {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-5);
+  padding: 4px var(--space-4);
   border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-bg-card);
   color: var(--color-text-secondary);
@@ -709,6 +755,11 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.studioLayer > * {
+  flex: 1;
+  min-height: 0;
 }
 
 .studioLayer[hidden] {

@@ -1,4 +1,13 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import { homedir } from 'os';
 import { extname, join } from 'path';
 import { randomUUID } from 'crypto';
@@ -54,6 +63,18 @@ export interface FilmTimeline {
   };
 }
 
+export const PROJECT_SCHEMA_VERSION = 2;
+
+export interface ProjectExportSettings {
+  preset: 'draft' | 'youtube-1080p' | 'shorts-1080p';
+  width: number;
+  height: number;
+  fps: number;
+  audioPolicy: 'original' | 'duck' | 'replace';
+  burnInHints: boolean;
+  burnInCaptions: boolean;
+}
+
 export interface ProjectScene {
   id: string;
   title: string;
@@ -67,6 +88,7 @@ export interface ProjectScene {
 }
 
 export interface ProjectDoc {
+  schemaVersion: number;
   id: string;
   name: string;
   kind: ProjectKind;
@@ -76,6 +98,15 @@ export interface ProjectDoc {
   scenes: ProjectScene[];
   shots: FilmShot[];
   timeline: FilmTimeline | null;
+  voiceover: Record<string, unknown> | null;
+  callouts: unknown[];
+  analysisRef: {
+    sourcePath: string;
+    cachePath?: string | null;
+    fingerprint?: string | null;
+    updatedAt: number;
+  } | null;
+  exportSettings: ProjectExportSettings;
   productStillPath: string | null;
   assembledPath: string | null;
   assembledFingerprint?: string | null;
@@ -121,11 +152,25 @@ function normalizePreset(value: unknown): FilmPreset {
   return 'marketplace';
 }
 
+function defaultExportSettings(format: ProjectFormat, preset: FilmPreset): ProjectExportSettings {
+  const vertical = format === 'shorts' || preset === 'shorts';
+  return {
+    preset: vertical ? 'shorts-1080p' : 'youtube-1080p',
+    width: vertical ? 1080 : 1920,
+    height: vertical ? 1920 : 1080,
+    fps: 30,
+    audioPolicy: 'duck',
+    burnInHints: true,
+    burnInCaptions: true,
+  };
+}
+
 function emptyProject(name: string, format: ProjectFormat = 'landscape', preset: FilmPreset = 'marketplace'): ProjectDoc {
   const now = Date.now();
   const nextPreset = preset;
   const nextFormat = preset === 'shorts' ? 'shorts' : format;
   return {
+    schemaVersion: PROJECT_SCHEMA_VERSION,
     id: randomUUID(),
     name: name.trim() || 'Untitled',
     kind: 'video',
@@ -135,6 +180,10 @@ function emptyProject(name: string, format: ProjectFormat = 'landscape', preset:
     scenes: [],
     shots: [],
     timeline: null,
+    voiceover: null,
+    callouts: [],
+    analysisRef: null,
+    exportSettings: defaultExportSettings(nextFormat, nextPreset),
     productStillPath: null,
     assembledPath: null,
     assembledFingerprint: null,
@@ -169,15 +218,32 @@ function parseDoc(raw: string): ProjectDoc | null {
           motion: normalizeMotion(scene.motion) || (scene.clipPath ? 'import' : scene.stillPath ? 'still_motion' : 'import'),
     }));
     const shots = Array.isArray(parsed.shots) ? parsed.shots.filter((row) => row && row.id && row.artifactPath) : [];
+    const base = emptyProject(parsed.name, format, preset);
+    const callouts = Array.isArray(parsed.callouts)
+      ? parsed.callouts
+      : Array.isArray(parsed.voiceover?.callouts)
+        ? parsed.voiceover.callouts
+        : [];
+    const voiceover = parsed.voiceover && typeof parsed.voiceover === 'object'
+      ? { ...parsed.voiceover, callouts }
+      : null;
     return {
-      ...emptyProject(parsed.name, format, preset),
+      ...base,
       ...parsed,
+      schemaVersion: PROJECT_SCHEMA_VERSION,
       id: parsed.id,
       format,
       preset,
       scenes,
       shots,
       timeline: parsed.timeline && typeof parsed.timeline === 'object' ? parsed.timeline : null,
+      voiceover,
+      callouts,
+      analysisRef: parsed.analysisRef && typeof parsed.analysisRef === 'object' ? parsed.analysisRef : null,
+      exportSettings: {
+        ...base.exportSettings,
+        ...(parsed.exportSettings && typeof parsed.exportSettings === 'object' ? parsed.exportSettings : {}),
+      },
       productStillPath: parsed.productStillPath || null,
       assembledFingerprint: parsed.assembledFingerprint || null,
     };
@@ -237,9 +303,25 @@ export function loadProject(id: string): ProjectDoc | null {
 }
 
 export function saveProject(doc: ProjectDoc): ProjectDoc {
-  const next = { ...doc, updatedAt: Date.now() };
+  const format = doc.format === 'shorts' ? 'shorts' : 'landscape';
+  const preset = normalizePreset(doc.preset);
+  const next: ProjectDoc = {
+    ...doc,
+    schemaVersion: PROJECT_SCHEMA_VERSION,
+    format,
+    preset,
+    callouts: Array.isArray(doc.callouts) ? doc.callouts : [],
+    exportSettings: {
+      ...defaultExportSettings(format, preset),
+      ...(doc.exportSettings || {}),
+    },
+    updatedAt: Date.now(),
+  };
   mkdirSync(projectDir(next.id), { recursive: true });
-  writeFileSync(projectFile(next.id), JSON.stringify(next, null, 2));
+  const file = projectFile(next.id);
+  const temp = `${file}.${process.pid}.tmp`;
+  writeFileSync(temp, JSON.stringify(next, null, 2));
+  renameSync(temp, file);
   return next;
 }
 

@@ -54,6 +54,10 @@ export interface TimelineClip {
   previousBinId?: string;
   previousDurationSec?: number;
   muted?: boolean;
+  /** Linear gain used by preview and export. 1 = source level. */
+  volume?: number;
+  /** Optional gentle ffmpeg grade/effect description. */
+  effect?: string;
 }
 
 export interface DirectorSeed {

@@ -28,6 +28,22 @@ class Ti2vPromptTests(unittest.TestCase):
         self.assertIn("orbit", out["wan"].lower())
         self.assertIn("push", out["wan"].lower())
 
+    def test_shot_templates_stay_distinct(self):
+        hero = (
+            "Premium ecommerce hero shot of the exact product shown in the reference image. "
+            "Slow cinematic push-in. This is the exact product shown in the reference image."
+        )
+        detail = (
+            "Close-up ecommerce shot of the exact same product from the reference image. "
+            "Reveal material and construction. This is the exact product shown in the reference image."
+        )
+        hero_out = prepare_wan_prompt(hero, translate=False)
+        detail_out = prepare_wan_prompt(detail, translate=False)
+        self.assertIn("hero", hero_out["wan"].lower())
+        self.assertIn("close-up", detail_out["wan"].lower())
+        self.assertNotEqual(hero_out["wan"], detail_out["wan"])
+        self.assertNotIn("pull back", hero_out["wan"].lower())
+
     def test_hero_push_in(self):
         out = prepare_wan_prompt("slow push-in on the sneaker", translate=False)
         self.assertEqual(out["intent"], "hero")
