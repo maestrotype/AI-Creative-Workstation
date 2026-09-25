@@ -75,7 +75,14 @@ import { hasScreencastBin, v1Clips, visualTimelineFingerprint } from '../model/f
 import type { VideoAnalysisContext } from '../model/videoAnalysis';
 import type { VoiceoverScript } from '../model/voiceoverScript';
 import { newCallout, normalizeCalloutList, type Callout } from '../model/callout';
-import { MARKETPLACE_V0_BLOCKS, MARKETPLACE_PROJECT_BRIEF } from '../model/marketplaceVoiceoverPack';
+import { marketplaceVoiceoverSession } from '../model/marketplaceVoiceoverPack';
+import {
+  buildChapterPlan,
+  chaptersPayload,
+  v1ChapterSpans,
+  withTranscript,
+  type ChapterWindow,
+} from '../model/chapterNarration';
 import { buildRenderPlan } from '../model/renderPlan';
 import { captionClipsFromScript, scriptToSrt } from '../model/captions';
 
@@ -160,6 +167,7 @@ type DirectorSnap = {
   removeClip: (id: string) => void;
   patchClip: (id: string, patch: Partial<TimelineClip>) => void;
   moveClipWithRipple: (id: string, targetStartSec: number) => void;
+  moveClipToTrack: (id: string, track: TrackId) => void;
   replaceClips: (next: TimelineClip[]) => void;
   splitAtPlayhead: () => void;
   canDetachAudio: boolean;
@@ -222,6 +230,8 @@ type DirectorSnap = {
   openVoiceover: () => void;
   analyzeVoiceover: () => void;
   reanalyzeVoiceover: () => void;
+  replaceOwnNarration: () => void;
+  chapterCount: number;
   replaceVoiceoverVideo: (specificPath?: string) => Promise<void>;
   scriptBusy: boolean;
   scriptError: string | null;
@@ -257,6 +267,7 @@ type DirectorSnap = {
   canUndo: boolean;
   canRedo: boolean;
   undo: () => void;
+  pushHistory: () => void;
   redo: () => void;
   pickProductStill: () => void;
   setProductStillFromBin: (binId: string) => void;
@@ -595,6 +606,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     () => resolveVoiceoverSource(bins, clips, selectedBin, selectedClip, assembledPreview),
     [bins, clips, selectedBin, selectedClip, assembledPreview],
   );
+  const chapterCount = useMemo(() => v1ChapterSpans(clips, bins).length, [clips, bins]);
 
   useEffect(() => {
     const path = voiceoverSource?.path;
@@ -1958,6 +1970,10 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
 
   const openVoiceover = async () => {
     setVoiceover((prev) => ({ ...prev, expanded: true }));
+    if (v1ChapterSpans(clipsRef.current, binsRef.current).length > 1) {
+      setVoiceoverError(null);
+      return;
+    }
     if (hasScreencastBin(binsRef.current)) {
       const longest = pickLongestVideoBin(binsRef.current);
       setClips((prev) => relayoutVoiceoverPicture(prev));
@@ -2001,9 +2017,29 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     }
   };
 
-  const analyzeVoiceover = async (force = false) => {
+  const analyzeVoiceover = async (force = false): Promise<VideoAnalysisContext | null> => {
+    setVoiceoverBusy(true);
+    setVoiceoverProgress({
+      stage: 'starting',
+      percent: 4,
+      detail: 'Готовлю ролик к разбору…',
+    });
     let src: { path: string; binId: string | null; name?: string } | null = null;
-    if (hasScreencastBin(binsRef.current)) {
+    if (v1ChapterSpans(clipsRef.current, binsRef.current).length > 1) {
+      try {
+        const preview = await ensureAssembledPreview();
+        if (!preview?.path) {
+          setVoiceoverError(t('video.vo_assemble_fail'));
+          setVoiceoverBusy(false);
+          return null;
+        }
+        src = { path: preview.path, binId: null, name: 'Film' };
+      } catch (err) {
+        setVoiceoverError(ipcMessage(err, t('video.vo_assemble_fail')));
+        setVoiceoverBusy(false);
+        return null;
+      }
+    } else if (hasScreencastBin(binsRef.current)) {
       setClips((prev) => relayoutVoiceoverPicture(prev));
       const longest = pickLongestVideoBin(binsRef.current);
       if (longest) setSelectedBin(longest.id);
@@ -2018,12 +2054,14 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         }
       } catch (err) {
         setVoiceoverError(ipcMessage(err, t('video.vo_no_video')));
-        return;
+        setVoiceoverBusy(false);
+        return null;
       }
     }
     if (!src?.path || !window.api?.analyzeVideo) {
       setVoiceoverError(t('video.vo_no_video'));
-      return;
+      setVoiceoverBusy(false);
+      return null;
     }
     setVoiceoverBusy(true);
     setVoiceoverError(null);
@@ -2067,8 +2105,10 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         percent: 100,
         detail: ctx.from_cache ? t('video.vo_analyze_done_cache') : t('video.vo_analyze_done'),
       });
+      return ctx;
     } catch (err) {
       setVoiceoverError(ipcMessage(err, t('video.vo_analyze_fail')));
+      return null;
     } finally {
       if (voiceoverPollRef.current) {
         clearInterval(voiceoverPollRef.current);
@@ -2090,19 +2130,42 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     setVoiceover((prev) => ({ ...prev, projectContext: value }));
   };
 
-  const generateScript = async () => {
-    const ctx = voiceover.analysis;
+  const generateScript = async (
+    ctxOverride?: VideoAnalysisContext,
+    planOverride?: ChapterWindow[],
+  ) => {
+    const session = voiceoverRef.current;
+    const ctx = ctxOverride ?? session.analysis;
     if (!ctx || !window.api?.generateScript) {
       setScriptError(t('video.vo_script_need_analysis'));
       return;
     }
+    const chapters = withTranscript(
+      planOverride ?? buildChapterPlan(clipsRef.current, binsRef.current, {
+        script: session.script,
+        brief: filmBrief,
+        prompt: session.scriptPrompt,
+      }),
+      ctx.transcript?.segments ?? [],
+    );
+    const chapterNote = chapters.length
+      ? 'Замени авторскую озвучку. Минута картины — это несколько реплик по ходу кадра, не одна фраза на всю главу. Пиши то, что видно и что меняется, опираясь на разбор кадров и на слова автора. Черновик главы — смысл, не текст для копирования.'
+      : '';
     setScriptBusy(true);
     setScriptError(null);
+    setVoiceoverProgress({
+      stage: 'script',
+      percent: 18,
+      detail: 'Читаю надписи на кадрах и пишу реплики…',
+    });
     try {
       const result = await window.api.generateScript({
-        video_context: ctx as unknown as Record<string, unknown>,
-        prompt: voiceover.scriptPrompt,
-        project_context: voiceover.projectContext,
+        video_context: {
+          ...(ctx as unknown as Record<string, unknown>),
+          chapters: chaptersPayload(chapters),
+        },
+        prompt: [session.scriptPrompt, chapterNote].filter(Boolean).join('\n\n'),
+        project_context: session.projectContext,
         language: 'ru',
         target_wpm: 130,
         ollama_model: scriptModel,
@@ -2116,7 +2179,6 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         script,
         status: 'scripted',
       }));
-      setClips((prev) => prev.filter((clip) => clip.track !== 'a1'));
     } catch (err) {
       const msg = ipcMessage(err, t('video.vo_script_fail'));
       setScriptError(
@@ -2127,30 +2189,37 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     }
   };
 
+  const replaceOwnNarration = async () => {
+    const session = voiceoverRef.current;
+    const plan = buildChapterPlan(clipsRef.current, binsRef.current, {
+      script: session.script,
+      brief: filmBrief,
+      prompt: session.scriptPrompt,
+    });
+    setScriptError(null);
+    setVoiceoverError(null);
+    setScriptBusy(true);
+    setVoiceoverProgress({
+      stage: 'script',
+      percent: 8,
+      detail: 'Читаю кадры и пишу озвучку…',
+    });
+    try {
+      const ctx = session.analysis ?? await analyzeVoiceover(false);
+      if (!ctx) return;
+      await generateScript(ctx, plan);
+    } finally {
+      setScriptBusy(false);
+    }
+  };
+
   const loadMarketplacePack = () => {
+    const seeded = marketplaceVoiceoverSession();
     setVoiceover((prev) => ({
       ...prev,
-      projectContext: MARKETPLACE_PROJECT_BRIEF,
-      scriptPrompt: 'Marketplace promo trailer (V0)',
-      script: {
-        segments: MARKETPLACE_V0_BLOCKS.map((b) => ({
-          start_sec: b.startSec,
-          end_sec: b.endSec,
-          text: b.voiceoverRu,
-          role: b.code === 'A' ? 'hook' : b.code === 'H' ? 'cta' : 'feature',
-          purpose: b.title,
-          speak: true,
-          window_sec: b.endSec - b.startSec,
-          target_words: Math.round(((b.endSec - b.startSec) / 60) * 130 * 0.75),
-        })),
-        meta: {
-          tone: 'commercial',
-          language: 'ru',
-          words_per_min: 130,
-          provider: 'preset',
-          model: 'preset:marketplace_v0',
-        },
-      },
+      projectContext: seeded.projectContext,
+      scriptPrompt: seeded.scriptPrompt,
+      script: seeded.script,
       status: 'scripted',
     }));
     setScriptError(null);
@@ -2212,7 +2281,9 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
 
     setVoiceoverApplyBusy(true);
     setVoiceoverApplyError(null);
-    setClips((prev) => prev.filter((c) => c.track !== 'a1'));
+    setClips((prev) => prev
+      .filter((c) => c.track !== 'a1')
+      .map((c) => (c.track === 'v1' ? { ...c, muted: true } : c)));
 
     if (voiceoverApplyPollRef.current) clearInterval(voiceoverApplyPollRef.current);
     voiceoverApplyPollRef.current = setInterval(() => {
@@ -3025,6 +3096,16 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     setClips((prev) => moveClipWithRipple(prev, id, targetStartSec));
   };
 
+  const moveClipToTrackFn = (id: string, track: TrackId) => {
+    pushHistory();
+    setClips((prev) => {
+      const clip = prev.find((item) => item.id === id);
+      if (!clip || clip.track === track) return prev;
+      const withTrack = prev.map((item) => (item.id === id ? { ...item, track } : item));
+      return unstackAllTracks(moveClipWithRipple(withTrack, id, clip.startSec));
+    });
+  };
+
   /** Replace the full clip list in one commit (used after multi-clip shove preview). */
   const replaceClipsFn = (next: TimelineClip[]) => {
     pushHistory();
@@ -3355,6 +3436,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     openVoiceover,
     analyzeVoiceover: () => { void analyzeVoiceover(false); },
     reanalyzeVoiceover,
+    replaceOwnNarration: () => { void replaceOwnNarration(); },
+    chapterCount,
     replaceVoiceoverVideo,
     scriptBusy,
     scriptError,
@@ -3383,6 +3466,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     canUndo: historyTick >= 0 && historyRef.current.canUndo,
     canRedo: historyTick >= 0 && historyRef.current.canRedo,
     undo,
+    pushHistory,
     redo,
     pickProductStill: () => { void pickProductStill(); },
     setProductStillFromBin,
@@ -3410,6 +3494,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     restoreClip,
     patchClip,
     moveClipWithRipple: moveClipWithRippleFn,
+    moveClipToTrack: moveClipToTrackFn,
     replaceClips: replaceClipsFn,
   };
 

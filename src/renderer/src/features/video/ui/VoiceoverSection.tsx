@@ -20,8 +20,9 @@ export function VoiceoverSection(): ReactNode {
 
   const source = d.voiceoverSource;
   const ctx = d.voiceover.analysis;
-  const busy = d.voiceoverBusy;
-  const canAnalyze = Boolean(source?.path) && !busy;
+  const busy = d.voiceoverBusy || d.scriptBusy;
+  const film = source?.from === 'assembled_timeline';
+  const canAnalyze = Boolean(source && (source.path || film)) && !d.voiceoverBusy;
 
   return (
     <section ref={rootRef} className={styles.voSection} data-expanded={d.voiceover.expanded}>
@@ -42,12 +43,34 @@ export function VoiceoverSection(): ReactNode {
       {source ? (
         <div className={styles.voSource}>
           <span className={styles.voSourceLabel}>{d.t('video.vo_source')}</span>
-          <strong>{source.name}</strong>
+          <strong>
+            {film
+              ? d.t('video.vo_source_film', { count: d.chapterCount })
+              : source.name}
+          </strong>
           <span className={styles.voSourceFrom}>{d.t(`video.vo_source_${source.from}`)}</span>
         </div>
       ) : (
         <p className={styles.hintTight}>{d.t('video.vo_no_video')}</p>
       )}
+
+      {film ? (
+        <>
+          <div className={styles.toolRow}>
+            <button
+              type="button"
+              className={styles.toolPrimary}
+              onClick={d.replaceOwnNarration}
+              disabled={!canAnalyze || d.scriptBusy}
+            >
+              {d.scriptBusy || d.voiceoverBusy
+                ? d.t('video.vo_replace_own_busy')
+                : d.t('video.vo_replace_own')}
+            </button>
+          </div>
+          <p className={styles.hintTight}>{d.t('video.vo_replace_own_hint')}</p>
+        </>
+      ) : null}
 
       <div className={styles.toolRow}>
         {ctx ? (
@@ -55,11 +78,11 @@ export function VoiceoverSection(): ReactNode {
         ) : (
           <button
             type="button"
-            className={styles.toolPrimary}
+            className={film ? styles.toolBtn : styles.toolPrimary}
             onClick={d.analyzeVoiceover}
             disabled={!canAnalyze}
           >
-            {busy ? d.t('video.vo_analyzing') : d.t('video.vo_analyze')}
+            {d.voiceoverBusy ? d.t('video.vo_analyzing') : d.t('video.vo_analyze')}
           </button>
         )}
         {ctx ? (

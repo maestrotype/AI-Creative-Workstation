@@ -140,6 +140,10 @@ export function DirectorPreview({
       el.volume = Math.max(0, Math.min(1, volume));
       if (!url || !clip) {
         el.pause();
+        if (el.getAttribute('src')) {
+          el.removeAttribute('src');
+          el.load();
+        }
         return;
       }
       const mediaT = mediaTimeForClip(clip, playheadRef.current);
@@ -196,14 +200,14 @@ export function DirectorPreview({
       <video
         ref={v1Ref}
         className={styles.stageMain}
-        style={{ display: v1IsVideo ? 'block' : 'none' }}
+        style={{ display: v1IsVideo ? 'block' : 'none', background: '#000' }}
         playsInline
         preload="auto"
+        onLoadedData={() => setDecodeError(null)}
         onError={() => {
           if (effectiveV1Bin && !effectiveV1Bin.proxying && !effectiveV1Bin.path.includes('preview-')) onDecodeFail(effectiveV1Bin.id);
           else setDecodeError(t('video.dir_decode_error'));
         }}
-        onLoadedData={() => setDecodeError(null)}
       />
       {v1IsImage ? <img className={styles.stageMain} src={v1Url ?? ''} alt="" /> : null}
 

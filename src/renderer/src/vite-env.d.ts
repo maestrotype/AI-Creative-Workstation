@@ -440,6 +440,15 @@ interface Window {
       file_path: string | null;
       plan?: { notes: string[]; trim_end_sec: number };
     }>;
+    eraseVideoRegion: (payload: {
+      input_path: string;
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      start_sec?: number;
+      end_sec?: number;
+    }) => Promise<{ file_path: string }>;
     analyzeVideo: (payload: {
       video_path: string;
       transcribe?: boolean;

@@ -13,6 +13,15 @@ function scriptCoverageSec(script: NonNullable<ReturnType<typeof useDirector>['v
   return Math.max(...script.segments.map((seg) => seg.end_sec));
 }
 
+function wordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function targetWords(startSec: number, endSec: number): number {
+  const windowSec = Math.max(0.4, endSec - startSec);
+  return Math.max(10, Math.round(windowSec * 130 / 60 * 0.72 * 0.85));
+}
+
 export function VoiceoverScriptEditor(): ReactNode {
   const d = useDirector();
   const script = d.voiceover.script;
@@ -85,44 +94,42 @@ export function VoiceoverScriptEditor(): ReactNode {
             </p>
           ) : null}
           <p className={styles.hintTight}>{d.t('video.vo_script_edit_hint')}</p>
-          <div className={styles.voScriptTableWrap}>
-            <table className={styles.voScriptTable}>
-              <thead>
-                <tr>
-                  <th>{d.t('video.vo_script_col_time')}</th>
-                  <th>{d.t('video.vo_script_col_text')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {script.segments.map((seg, index) => (
-                  <tr key={`${seg.start_sec}-${index}`}>
-                    <td className={styles.voScriptTime}>
+          <div className={styles.voScriptCards}>
+            {script.segments.map((seg, index) => {
+              const words = wordCount(seg.text);
+              const target = targetWords(seg.start_sec, seg.end_sec);
+              const thin = words < Math.round(target * 0.6);
+              return (
+                <article key={`${seg.start_sec}-${index}`} className={styles.voScriptCard}>
+                  <header className={styles.voScriptCardHead}>
+                    <span className={styles.voScriptTime}>
                       {formatTimecode(seg.start_sec)} – {formatTimecode(seg.end_sec)}
-                      <span className={styles.voScriptRole}>{seg.role}</span>
-                    </td>
-                    <td>
-                      <textarea
-                        className={styles.voScriptText}
-                        rows={2}
-                        value={seg.text}
-                        onChange={(e) => d.updateScriptSegment(index, { text: e.target.value })}
-                        disabled={busy}
-                      />
-                      {seg.audio_path ? (
-                        <button
-                          type="button"
-                          className={styles.toolBtn}
-                          onClick={() => d.regenerateVoiceSegment(index)}
-                          disabled={busy || !d.ttsReady}
-                        >
-                          Regenerate voice
-                        </button>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </span>
+                    <span className={styles.voScriptRole}>{seg.role}</span>
+                    <span className={styles.voScriptWords} data-thin={thin || undefined}>
+                      {words} / ~{target}
+                    </span>
+                  </header>
+                  <textarea
+                    className={styles.voScriptText}
+                    rows={Math.min(8, Math.max(4, Math.ceil(seg.text.length / 42)))}
+                    value={seg.text}
+                    onChange={(e) => d.updateScriptSegment(index, { text: e.target.value })}
+                    disabled={busy}
+                  />
+                  {seg.audio_path ? (
+                    <button
+                      type="button"
+                      className={styles.toolBtn}
+                      onClick={() => d.regenerateVoiceSegment(index)}
+                      disabled={busy || !d.ttsReady}
+                    >
+                      Заново озвучить
+                    </button>
+                  ) : null}
+                </article>
+              );
+            })}
           </div>
           <div className={styles.voNextStep}>
             <div className={styles.toolRow}>

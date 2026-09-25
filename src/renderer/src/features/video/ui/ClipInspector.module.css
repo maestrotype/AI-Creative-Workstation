@@ -213,11 +213,57 @@
 .productHeroImg,
 .productHeroEmpty {
   width: 100%;
-  aspect-ratio: 1 / 1;
-  max-height: 180px;
+  aspect-ratio: 16 / 9;
+  max-height: 96px;
   object-fit: cover;
   background: #0b0f14;
   display: block;
+}
+
+.filmFacts {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+}
+
+.policy {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.policyBtn {
+  height: 28px;
+  border: 1px solid var(--color-border-default);
+  background: var(--color-bg-card);
+  color: var(--color-text-secondary);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.policyBtn[data-on='true'] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+
+.fold {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.fold summary {
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
 }
 
 .productHeroEmpty {

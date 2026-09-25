@@ -1,5 +1,6 @@
 import type { BinItem, TimelineClip, TrackId } from './directorTimeline';
 import { clipSpan, fileName, packTrack } from './directorTimeline';
+import { v1ChapterSpans } from './chapterNarration';
 import { hasScreencastBin } from './filmVisual';
 import type { VideoAnalysisContext } from './videoAnalysis';
 import type { VoiceoverScript } from './voiceoverScript';
@@ -103,6 +104,18 @@ export function resolveVoiceoverSource(
   selectedClip: string | null,
   assembled?: { path: string; durationSec: number; name?: string } | null,
 ): VoiceoverSource | null {
+  const chapters = v1ChapterSpans(clips, bins);
+  if (chapters.length > 1) {
+    const durationSec = Math.max(...chapters.map((chapter) => chapter.endSec));
+    return {
+      path: assembled?.path || '',
+      binId: null,
+      name: assembled?.name || 'Film',
+      durationSec: assembled?.durationSec || durationSec,
+      from: 'assembled_timeline',
+    };
+  }
+
   if (!hasScreencastBin(bins)) {
     if (assembled?.path) {
       return {

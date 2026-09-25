@@ -365,6 +365,64 @@ def clean_screencast(request: CleanScreencastRequest):
     return {"status": "completed", "file_path": output_path, "plan": plan}
 
 
+class EraseRegionRequest(BaseModel):
+    input_path: str
+    x: float
+    y: float
+    w: float
+    h: float
+    start_sec: float = 0
+    end_sec: float = 0
+
+
+@router.post("/video/erase-region")
+def erase_region(request: EraseRegionRequest):
+    """Paint out a rectangle burned into the picture (player buttons in the middle of a recording)."""
+    src = os.path.expanduser(request.input_path)
+    if not os.path.isfile(src):
+        raise HTTPException(status_code=400, detail=f"File not found: {src}")
+    ffmpeg = _ffmpeg_bin()
+    probe = subprocess.run(
+        [_ffprobe_bin(), "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "csv=p=0", src],
+        capture_output=True, text=True, check=False,
+    )
+    parts = (probe.stdout or "").strip().split(",")
+    if len(parts) < 2:
+        raise HTTPException(status_code=400, detail="Could not read video size.")
+    width, height = int(float(parts[0])), int(float(parts[1]))
+    x = max(0, min(width - 4, int(request.x * width)))
+    y = max(0, min(height - 4, int(request.y * height)))
+    w = max(8, min(width - x, int(request.w * width)))
+    h = max(8, min(height - y, int(request.h * height)))
+    x -= x % 2
+    y -= y % 2
+    w -= w % 2
+    h -= h % 2
+    output_path = os.path.join(_video_draft_dir(), f"erase-{uuid.uuid4().hex[:12]}.mp4")
+    enable = ""
+    if request.end_sec > request.start_sec + 0.05:
+        enable = f":enable='between(t,{request.start_sec:.3f},{request.end_sec:.3f})'"
+    cmd = [
+        ffmpeg, "-y", "-i", src,
+        "-vf", f"delogo=x={x}:y={y}:w={w}:h={h}{enable}",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+    ]
+    if _has_audio(src):
+        cmd += ["-c:a", "aac", "-b:a", "192k"]
+    else:
+        cmd += ["-an"]
+    cmd += ["-movflags", "+faststart", output_path]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(exc.stderr or exc.stdout or "ffmpeg failed")[:500],
+        ) from exc
+    return {"status": "completed", "file_path": output_path}
+
+
 # ── Timeline render: the single "make MP4" for the director desk ──────────────
 
 
