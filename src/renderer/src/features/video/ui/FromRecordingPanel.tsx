@@ -8,9 +8,12 @@ import styles from './VideoPage.module.css';
 export function FromRecordingPanel({
   onProduced,
   embedded,
+  trackSource,
 }: {
   onProduced?: (path: string) => void;
   embedded?: boolean;
+  /** Video already sitting on the timeline. Cleaning starts from it. */
+  trackSource?: { path: string; name: string } | null;
 }): ReactNode {
   const { t } = useTranslation();
 
@@ -87,8 +90,13 @@ export function FromRecordingPanel({
     }
   };
 
+  const activePath = screencastPath || trackSource?.path || null;
+  const activeName = screencastPath
+    ? fileName(screencastPath)
+    : (trackSource?.name || '');
+
   const handleCleanPlan = async (dryRun: boolean) => {
-    if (!screencastPath || !window.api?.cleanScreencast) {
+    if (!activePath || !window.api?.cleanScreencast) {
       setCleanError(t('video.clean_no_file'));
       return;
     }
@@ -96,7 +104,7 @@ export function FromRecordingPanel({
     setCleanError(null);
     try {
       const result = await window.api.cleanScreencast({
-        input_path: screencastPath,
+        input_path: activePath,
         prompt: cleanPrompt,
         dry_run: dryRun,
       });
@@ -113,9 +121,9 @@ export function FromRecordingPanel({
   };
 
   const handleUseRaw = () => {
-    if (!screencastPath) return;
-    onProduced?.(screencastPath);
-    setSentName(fileName(screencastPath));
+    if (!activePath) return;
+    onProduced?.(activePath);
+    setSentName(fileName(activePath));
   };
 
   return (
@@ -129,21 +137,10 @@ export function FromRecordingPanel({
       )}
       <section className={styles.card}>
         <h2 className={styles.subtitle}>{t('video.clean_title')}</h2>
-        <p className={styles.lead}>{t('video.clean_lead')}</p>
-        <div className={styles.actions}>
-          <button type="button" className={recording ? styles.primary : styles.secondary} onClick={() => { void toggleScreenRecording(); }} disabled={cleanBusy}>
-            {recording ? 'Stop screen recording' : 'Record screen'}
-          </button>
-          <button type="button" className={styles.secondary} onClick={() => { void handlePickScreencast(); }} disabled={cleanBusy}>
-            {t('video.clean_choose')}
-          </button>
-          {screencastPath && onProduced ? (
-            <button type="button" className={styles.secondary} onClick={handleUseRaw} disabled={cleanBusy}>
-              {t('video.rec_use_raw')}
-            </button>
-          ) : null}
-        </div>
-        {screencastPath ? <p className={styles.hint}>{fileName(screencastPath)}</p> : null}
+        <p className={styles.hint}>
+          Кнопки посреди кадра эта кнопка не стирает: она только обрезает края. Обведите их кнопкой «Стереть» под превью.
+        </p>
+        {activeName ? <p className={styles.hint}>{screencastPath ? activeName : `С дорожки: ${activeName}`}</p> : null}
         <label className={styles.label} htmlFor="clean-prompt">{t('video.clean_prompt')}</label>
         <textarea
           id="clean-prompt"
@@ -155,12 +152,25 @@ export function FromRecordingPanel({
           disabled={cleanBusy}
         />
         <div className={styles.actions}>
-          <button type="button" className={styles.secondary} onClick={() => { void handleCleanPlan(true); }} disabled={cleanBusy || !screencastPath}>
-            {t('video.clean_preview')}
-          </button>
-          <button type="button" className={styles.primary} onClick={() => { void handleCleanPlan(false); }} disabled={cleanBusy || !screencastPath}>
+          <button type="button" className={styles.primary} onClick={() => { void handleCleanPlan(false); }} disabled={cleanBusy || !activePath}>
             {t('video.clean_run')}
           </button>
+          <button type="button" className={styles.secondary} onClick={() => { void handleCleanPlan(true); }} disabled={cleanBusy || !activePath}>
+            {t('video.clean_preview')}
+          </button>
+        </div>
+        <div className={styles.actions}>
+          <button type="button" className={recording ? styles.primary : styles.secondary} onClick={() => { void toggleScreenRecording(); }} disabled={cleanBusy}>
+            {recording ? 'Стоп' : 'Запись экрана'}
+          </button>
+          <button type="button" className={styles.secondary} onClick={() => { void handlePickScreencast(); }} disabled={cleanBusy}>
+            {t('video.clean_choose')}
+          </button>
+          {activePath && onProduced ? (
+            <button type="button" className={styles.secondary} onClick={handleUseRaw} disabled={cleanBusy}>
+              {t('video.rec_use_raw')}
+            </button>
+          ) : null}
         </div>
         {cleanBusy ? <p className={styles.progress}>{t('video.clean_working')}</p> : null}
         {cleanError ? <p className={styles.error}>{cleanError}</p> : null}

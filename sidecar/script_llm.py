@@ -622,6 +622,11 @@ def _try_ollama(system_prompt: str, model: str = DEFAULT_OLLAMA_MODEL) -> dict[s
 
 
 SPEAK_WINDOW_RATIO = 0.72
+# How full a beat should be before we stop adding what the frames actually show.
+BEAT_FILL = 0.85
+BEAT_SEC = 16.0
+MAX_BEATS_PER_CHAPTER = 6
+MAX_BEATS = 40
 
 
 def _analysis_rows(video_context: dict[str, Any]) -> list[dict[str, Any]]:
@@ -690,6 +695,470 @@ def _clip_to_budget(text: str, window_sec: float, wpm: int) -> str:
     return clipped
 
 
+def _chapter_rows(video_context: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = [row for row in (video_context.get("chapters") or []) if isinstance(row, dict)]
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            start = float(row.get("start", 0))
+            end = float(row.get("end", start))
+        except (TypeError, ValueError):
+            continue
+        if end <= start:
+            continue
+        out.append(row)
+    return out
+
+
+def _sentences(text: str) -> list[str]:
+    parts = re.split(r"(?<=[.!?…])\s+", re.sub(r"\s+", " ", (text or "").strip()))
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _said_in_window(video_context: dict[str, Any], start: float, end: float) -> str:
+    parts: list[str] = []
+    for seg in (video_context.get("transcript") or {}).get("segments") or []:
+        if not isinstance(seg, dict):
+            continue
+        try:
+            seg_start = float(seg.get("start", 0))
+            seg_end = float(seg.get("end", seg_start))
+        except (TypeError, ValueError):
+            continue
+        if min(end, seg_end) - max(start, seg_start) <= 0.2:
+            continue
+        text = str(seg.get("text") or "").strip()
+        if text:
+            parts.append(text)
+    return " ".join(parts).strip()
+
+
+def _split_span(start: float, end: float, parts: int) -> list[tuple[float, float]]:
+    span = max(0.4, end - start)
+    count = max(1, parts)
+    if count == 1:
+        return [(start, end)]
+    step = span / count
+    out: list[tuple[float, float]] = []
+    for index in range(count):
+        left = start + index * step
+        right = end if index == count - 1 else start + (index + 1) * step
+        out.append((left, right))
+    return out
+
+
+_NAV_NOISE = (
+    "головна", "главная", "магазин", "best sellers", "featured categor",
+    "контакти", "контакты", "адмін", "админ", "повернутися", "вернуться",
+)
+
+
+def _ocr_labels(lines: list[dict[str, Any]]) -> list[str]:
+    labels: list[str] = []
+    for line in lines:
+        text = re.sub(r"\s+", " ", str(line.get("text") or "")).strip(" .•·?+")
+        if len(text) < 2 or not re.search(r"[A-Za-zА-Яа-яІіЇїЄєҐґ0-9]", text):
+            continue
+        if text.lower() in {item.lower() for item in labels}:
+            continue
+        labels.append(text)
+    return labels
+
+
+def _screen_summary(lines: list[dict[str, Any]]) -> str:
+    """Turn the words actually painted on a frame into a spoken beat."""
+    labels = _ocr_labels(lines)
+    if not labels:
+        return ""
+
+    def noise(text: str) -> bool:
+        low = text.lower()
+        return any(token in low for token in _NAV_NOISE)
+
+    priced = [text for text in labels if re.search(r"(?:\$|€|₴)\s?\d|\d+[.,]\d{2}", text)]
+    actions = [text for text in labels if re.search(r"кошик|корзин|cart|купит|buy|додати|добавить", text, re.I)]
+    tabs = [text for text in labels if re.search(r"товар|характер|відгук|отзыв|схож|похож|review|detail", text, re.I)]
+    stock = next((text for text in labels if re.search(r"наявност|налич|in stock", text, re.I)), "")
+    title = ""
+    for line in sorted(lines, key=lambda item: float(item.get("y") or 0), reverse=True):
+        text = re.sub(r"\s+", " ", str(line.get("text") or "")).strip(" .•·?+")
+        if float(line.get("y") or 0) > 0.78:
+            continue
+        if len(text) < 3 or noise(text) or "/" in text or re.fullmatch(r"[\d\W]+", text):
+            continue
+        if re.fullmatch(r"@?\s*[A-Za-z]{2}", text):
+            continue
+        if re.search(r"кошик|корзин|характер|відгук|отзыв|схож|похож|наявност|налич|код товар", text, re.I):
+            continue
+        if re.search(r"(?:\$|€|₴)\s?\d", text):
+            continue
+        title = text
+        break
+    if not title:
+        title = next((text for text in labels if not noise(text)), labels[0])
+    price = priced[0] if priced else ""
+    can_orbit = any(re.search(r"orbit|покрут|rotate|3d", text, re.I) for text in labels)
+    can_cart = any(re.search(r"cart|кошик|корзин|buy|купит", text, re.I) for text in labels)
+    head = f"Открыта карточка «{title}»" + (f" за {price}" if price else "")
+    moves: list[str] = []
+    if can_orbit:
+        moves.append("модель можно покрутить")
+    if can_cart:
+        moves.append("и добавить в корзину" if moves else "её можно добавить в корзину")
+    elif tabs:
+        moves.append("ниже есть подробности о товаре")
+    sentence = head + (": " + " ".join(moves) if moves else "") + "."
+    if stock and re.search(r"наяв|налич|stock", stock, re.I):
+        sentence += " Товар в наличии."
+    return sentence
+
+
+def _with_frame_captions(video_context: dict[str, Any]) -> dict[str, Any]:
+    rows = [row for row in (video_context.get("scene_analysis") or []) if isinstance(row, dict)]
+    if not rows or any(str(row.get("visual_summary") or "").strip() for row in rows):
+        return video_context
+    from frame_ocr import read_frames
+
+    found = read_frames([str(row.get("frame_path") or "") for row in rows])
+    if not found:
+        return video_context
+    next_rows: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        summary = _screen_summary(found.get(str(row.get("frame_path") or ""), []))
+        if summary:
+            item["visual_summary"] = summary
+            item["caption"] = summary
+            item["source"] = "ocr"
+            item["narration_recommended"] = True
+        next_rows.append(item)
+    ctx = dict(video_context)
+    ctx["scene_analysis"] = next_rows
+    ctx["visual_notes"] = [
+        {
+            "time": (float(row.get("start", 0)) + float(row.get("end", 0))) / 2,
+            "caption": row.get("visual_summary") or "",
+            "frame_path": row.get("frame_path"),
+            "source": row.get("source") or "keyframe",
+        }
+        for row in next_rows
+    ]
+    warnings = list(ctx.get("warnings") or [])
+    if "FRAME_TEXT_READ" not in warnings:
+        warnings.append("FRAME_TEXT_READ")
+    ctx["warnings"] = warnings
+    return ctx
+
+
+def _beats_from_analysis(video_context: dict[str, Any], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One spoken line per picture. The same screen is not said twice."""
+    beats: list[dict[str, Any]] = []
+    for row in rows:
+        start = float(row.get("start", 0))
+        end = float(row.get("end", start))
+        if end <= start:
+            continue
+        summary = str(row.get("visual_summary") or "").strip()
+        said = _said_in_window(video_context, start, end)
+        if beats and summary and beats[-1]["visuals"] == [summary]:
+            beats[-1]["end"] = round(end, 2)
+            if said and said not in beats[-1]["said"]:
+                beats[-1]["said"] = f"{beats[-1]['said']} {said}".strip()
+            continue
+        beats.append({
+            "start": round(start, 2),
+            "end": round(end, 2),
+            "chapter_index": int(row.get("index", 0)),
+            "chapter_title": "",
+            "intent": summary,
+            "draft_slice": "",
+            "visuals": [summary] if summary else [],
+            "user": str(row.get("user_doing") or "").strip(),
+            "ui": list(row.get("ui_elements") or [])[:6],
+            "actions": list(row.get("actions") or [])[:6],
+            "said": said,
+        })
+    return beats
+
+
+def _speech_beats(video_context: dict[str, Any]) -> list[dict[str, Any]]:
+    """Picture slices a host can actually talk through. A minute is several beats."""
+    duration = float(video_context.get("duration_sec") or 60)
+    chapters = _chapter_rows(video_context)
+    spans = chapters or [{
+        "start": 0.0,
+        "end": duration,
+        "title": "",
+        "intent": "",
+        "draft": "",
+        "said": "",
+    }]
+    rows = _analysis_rows(video_context)
+    if any(str(row.get("visual_summary") or "").strip() for row in rows):
+        picture = _beats_from_analysis(video_context, rows)
+        if len(picture) <= MAX_BEATS:
+            return picture
+        return picture[:MAX_BEATS]
+    beats: list[dict[str, Any]] = []
+    for chapter_index, chapter in enumerate(spans):
+        start = float(chapter.get("start", 0))
+        end = float(chapter.get("end", start))
+        if end <= start:
+            continue
+        span = end - start
+        count = 1 if span <= 22 else min(MAX_BEATS_PER_CHAPTER, max(2, int(round(span / BEAT_SEC))))
+        slices = _split_span(start, end, count)
+        draft_bits = _sentences(str(chapter.get("draft") or ""))
+        for slice_index, (left, right) in enumerate(slices):
+            visuals: list[str] = []
+            users: list[str] = []
+            ui: list[str] = []
+            actions: list[str] = []
+            for row in rows:
+                row_start = float(row.get("start", 0))
+                row_end = float(row.get("end", row_start))
+                midpoint = (row_start + row_end) / 2
+                if not (left <= midpoint < right or (slice_index == count - 1 and left <= midpoint <= right)):
+                    continue
+                summary = str(row.get("visual_summary") or "").strip()
+                if summary and summary not in visuals:
+                    visuals.append(summary)
+                doing = str(row.get("user_doing") or "").strip()
+                if doing and doing not in users:
+                    users.append(doing)
+                for token in list(row.get("ui_elements") or []) + list(row.get("actions") or []):
+                    label = str(token).strip()
+                    if not label:
+                        continue
+                    bucket = ui if token in (row.get("ui_elements") or []) else actions
+                    if label not in bucket:
+                        bucket.append(label)
+            draft_slice = ""
+            if draft_bits:
+                draft_slice = draft_bits[slice_index] if slice_index < len(draft_bits) else ""
+            beats.append({
+                "start": round(left, 2),
+                "end": round(right, 2),
+                "chapter_index": chapter_index,
+                "chapter_title": str(chapter.get("title") or ""),
+                "intent": str(chapter.get("intent") or ""),
+                "draft_slice": draft_slice,
+                "visuals": visuals[:4],
+                "user": "; ".join(users[:3]),
+                "ui": ui[:6],
+                "actions": actions[:6],
+                "said": _said_in_window(video_context, left, right),
+            })
+    if len(beats) <= MAX_BEATS:
+        return beats
+    # Long films: keep coverage, but don't ask the model for a beat every few seconds.
+    step = max(2, int((len(beats) + MAX_BEATS - 1) / MAX_BEATS))
+    merged: list[dict[str, Any]] = []
+    index = 0
+    while index < len(beats):
+        chunk = beats[index:index + step]
+        head = dict(chunk[0])
+        head["end"] = chunk[-1]["end"]
+        for item in chunk[1:]:
+            for visual in item["visuals"]:
+                if visual not in head["visuals"]:
+                    head["visuals"].append(visual)
+            if item["said"] and item["said"] not in head["said"]:
+                head["said"] = f"{head['said']} {item['said']}".strip()
+            if item["draft_slice"] and item["draft_slice"] not in head["draft_slice"]:
+                head["draft_slice"] = f"{head['draft_slice']} {item['draft_slice']}".strip()
+        head["visuals"] = head["visuals"][:4]
+        merged.append(head)
+        index += step
+    return merged[:MAX_BEATS]
+
+
+def _beat_block(beats: list[dict[str, Any]], target_wpm: int) -> str:
+    if not beats:
+        return ""
+    lines = [
+        "Speech beats — return ONE spoken segment per beat, with the same start_sec and end_sec.",
+        "A minute of picture is several beats. Do not cover a whole minute with one slogan.",
+        "Write about the target word count: name what is on screen in THAT beat and what changes.",
+        "Visible / User / Author said are the facts. The selling point is intent, not a line to paste.",
+    ]
+    for index, beat in enumerate(beats):
+        window = max(0.4, float(beat["end"]) - float(beat["start"]))
+        budget = _max_words_for_window(window, target_wpm)
+        target = max(10, int(round(budget * BEAT_FILL)))
+        lines.append(
+            f"BEAT {index} {float(beat['start']):.1f}s–{float(beat['end']):.1f}s "
+            f"({window:.1f}s, write about {target} words, hard max {budget})\n"
+            f"  Chapter: {beat.get('chapter_title') or '—'}\n"
+            f"  Show: {beat.get('intent') or '—'}\n"
+            f"  Visible: {'; '.join(beat.get('visuals') or []) or '—'}\n"
+            f"  User: {beat.get('user') or '—'}\n"
+            f"  UI: {', '.join(beat.get('ui') or []) or '—'}\n"
+            f"  Actions: {', '.join(beat.get('actions') or []) or '—'}\n"
+            f"  Author said: {beat.get('said') or '—'}\n"
+            f"  Selling point: {beat.get('draft_slice') or '—'}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _expand_from_beat(text: str, beat: dict[str, Any], language: str, wpm: int) -> str:
+    window = max(0.4, float(beat["end"]) - float(beat["start"]))
+    budget = _max_words_for_window(window, wpm)
+    target = max(10, int(round(budget * BEAT_FILL)))
+    visual = " ".join(str(item).strip() for item in (beat.get("visuals") or []) if str(item).strip())
+    if visual:
+        # The screen line is the narration. Do not paste it a second time.
+        return _clip_to_budget(visual, window, wpm)
+    parts = [re.sub(r"\s+", " ", (text or "").strip())]
+    parts = [part for part in parts if part]
+    ru = language.startswith("ru")
+
+    def words() -> int:
+        return len(" ".join(parts).split())
+
+    blob = " ".join(parts).lower()
+    extras: list[str] = []
+    for visual in beat.get("visuals") or []:
+        line = visual if str(visual).rstrip().endswith((".", "!", "?", "…")) else f"{visual}."
+        extras.append(line)
+    if beat.get("user"):
+        extras.append(f"Сейчас {beat['user']}." if ru else f"Right now: {beat['user']}.")
+    if beat.get("said"):
+        extras.append(str(beat["said"]))
+    if beat.get("draft_slice") and not beat.get("visuals"):
+        extras.append(str(beat["draft_slice"]))
+    for extra in extras:
+        if words() >= target:
+            break
+        cleaned = re.sub(r"\s+", " ", extra).strip()
+        if not cleaned or cleaned.lower() in blob:
+            continue
+        parts.append(cleaned)
+        blob = " ".join(parts).lower()
+    return _clip_to_budget(" ".join(parts), window, wpm)
+
+
+def _align_segments_to_beats(
+    segments: list[dict[str, Any]],
+    beats: list[dict[str, Any]],
+    language: str,
+    target_wpm: int,
+) -> list[dict[str, Any]]:
+    if not beats:
+        return segments
+    owned: list[list[dict[str, Any]]] = [[] for _ in beats]
+    for seg in segments:
+        try:
+            start = float(seg.get("start_sec") or 0)
+            end = float(seg.get("end_sec") or start)
+        except (TypeError, ValueError):
+            continue
+        span = max(0.0, end - start)
+        owner = None
+        best = 0.0
+        for index, beat in enumerate(beats):
+            overlap = min(end, float(beat["end"])) - max(start, float(beat["start"]))
+            if overlap > best:
+                best = overlap
+                owner = index
+        if owner is None:
+            continue
+        beat_len = float(beats[owner]["end"]) - float(beats[owner]["start"])
+        # A single line stretched over the whole chapter is not the script for one slice.
+        if span > beat_len * 1.6 and best < span * 0.55:
+            continue
+        owned[owner].append(seg)
+    aligned: list[dict[str, Any]] = []
+    for index, beat in enumerate(beats):
+        start = float(beat["start"])
+        end = float(beat["end"])
+        text = " ".join(str(seg.get("text") or "").strip() for seg in owned[index]).strip()
+        if not text:
+            text = str(beat.get("draft_slice") or "").strip()
+        text = _spoken_in_language(text, language)
+        text = _expand_from_beat(text, beat, language, target_wpm)
+        if not text:
+            continue
+        role = "hook" if index == 0 else "cta" if index == len(beats) - 1 else "body"
+        aligned.append({
+            "start_sec": round(start, 2),
+            "end_sec": round(end, 2),
+            "text": text,
+            "role": role,
+            "purpose": str(beat.get("chapter_title") or ""),
+            "visual_summary": "; ".join(beat.get("visuals") or [])[:240],
+            "estimated_sec": _estimated_sec(text, target_wpm),
+        })
+    return aligned or segments
+
+
+def _chapter_block(video_context: dict[str, Any], target_wpm: int) -> str:
+    rows = _chapter_rows(video_context)
+    if not rows:
+        return ""
+    lines = [
+        "Chapter plan — write ONE spoken segment per chapter. "
+        "start_sec and end_sec MUST equal that chapter's window. "
+        "The draft is the selling intent; rewrite it so it matches the beats inside the window "
+        "and fits the length. The author's own words are facts and tone, not a script to copy."
+    ]
+    for i, row in enumerate(rows):
+        start = float(row.get("start", 0))
+        end = float(row.get("end", start))
+        window = max(0.4, end - start)
+        budget = _max_words_for_window(window, target_wpm)
+        lines.append(
+            f"CHAPTER {i + 1} {start:.1f}s–{end:.1f}s ({window:.1f}s, max ~{budget} words) "
+            f"«{row.get('title') or 'chapter'}»\n"
+            f"  Show: {row.get('intent') or '—'}\n"
+            f"  Draft: {row.get('draft') or '—'}\n"
+            f"  Author said: {row.get('said') or '—'}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _snap_segments_to_chapters(
+    segments: list[dict[str, Any]],
+    video_context: dict[str, Any],
+    target_wpm: int,
+) -> list[dict[str, Any]]:
+    chapters = _chapter_rows(video_context)
+    if not chapters:
+        return segments
+    snapped: list[dict[str, Any]] = []
+    for i, chapter in enumerate(chapters):
+        start = float(chapter.get("start", 0))
+        end = float(chapter.get("end", start))
+        overlapping = [
+            seg for seg in segments
+            if min(end, float(seg.get("end_sec") or 0)) - max(start, float(seg.get("start_sec") or 0)) > 0.4
+        ]
+        text = " ".join(str(seg.get("text") or "").strip() for seg in overlapping).strip()
+        if not text:
+            text = str(chapter.get("draft") or chapter.get("said") or "").strip()
+        text = _clip_to_budget(text, max(0.4, end - start), target_wpm)
+        if not text:
+            continue
+        role = "hook" if i == 0 else "cta" if i == len(chapters) - 1 else "body"
+        snapped.append({
+            "start_sec": round(start, 2),
+            "end_sec": round(end, 2),
+            "text": text,
+            "role": role,
+            "purpose": str(chapter.get("title") or ""),
+            "visual_summary": str(chapter.get("intent") or ""),
+            "estimated_sec": _estimated_sec(text, target_wpm),
+        })
+    return snapped or segments
+
+
+def _fallback_from_chapters(
+    video_context: dict[str, Any],
+    target_wpm: int,
+) -> list[dict[str, Any]]:
+    return _snap_segments_to_chapters([], video_context, target_wpm)
+
+
 def _build_director_prompt(
     video_context: dict[str, Any],
     prompt: str,
@@ -725,16 +1194,21 @@ def _build_director_prompt(
         )
     ctx = (project_context or "").strip()
     context_block = f"Product brief (context only — never claim a feature that is not visible):\n{ctx[:2500]}\n" if ctx else ""
+    beats = _speech_beats(video_context)
+    beat_block = _beat_block(beats, target_wpm)
+    chapter_block = "" if beat_block else _chapter_block(video_context, target_wpm)
+    listed = beat_block or (chr(10).join(blocks) or "(no beats)")
+    beat_count = len(beats) or len(blocks)
     return f"""You are a director writing voiceover for a REAL screencast. Watch the beats. Then decide what to say.
 
 User notes: {prompt or '(none)'}
-{context_block}
+{context_block}{chapter_block}
 Video duration: {duration:.1f}s
 Language: {lang_label}
-Speaking rate target: ~{target_wpm} wpm (leave breathing room; never fill silence with filler)
+Speaking rate target: ~{target_wpm} wpm. A minute of picture needs about a minute of speech, split across the beats — not one sentence.
 
-Visual beats:
-{chr(10).join(blocks) or '(no beats)'}
+Speech beats:
+{listed}
 
 Return ONLY JSON:
 {{
@@ -751,15 +1225,15 @@ Return ONLY JSON:
 }}
 
 Rules:
-- One narration segment can COVER several short beats if they are the same idea (e.g. page opens then 3D viewer).
-- PAUSE / NO_NARRATION beats must not get spoken lines. Do not invent talk for transitions, logos, or repeated identical UI.
-- Speak only about what the Visible / User / UI fields show. Product brief is context, not a checklist to read.
-- Write a coherent commercial: hook → what it is → what we see now → why it matters → optional CTA. Not a slideshow of captions.
-- start_sec/end_sec must sit inside the beats you are covering. end_sec is the VISUAL window you may occupy, not a command to keep talking.
-- Word count per segment MUST stay under the max words of that window ({SPEAK_WINDOW_RATIO:.0%} of duration at {target_wpm} wpm). Shorter clear sentences beat stuffed ones.
+- Return exactly {beat_count} segments when beats are listed — one per beat, same start_sec and end_sec.
+- Hit the target word count for each beat. One slogan must not cover a minute of picture.
+- Speak only about what Visible / User / Author said show in that beat. Do not invent screens that are not listed.
+- The selling point is a fact you may use once. Do not paste it into every beat, and do not copy it instead of describing the frame.
+- Neighboring beats must move the story: what changed on screen, what the viewer should notice next.
+- Word count per segment MUST stay under that beat's hard max ({SPEAK_WINDOW_RATIO:.0%} of the beat at {target_wpm} wpm).
 - roles: hook | body | outro | cta
 - Spoken "text" and "purpose" MUST be only in {lang_label}. Never Chinese, never mixed scripts.
-- Cover the whole recording with several segments. Do not stop after the first 5 seconds.
+- Cover every beat through the end of the recording. Do not stop after the first chapter or the first 5 seconds.
 - No stage directions, no "Scene 1", no commands like "покажи" / "tell the client".
 """
 
@@ -889,8 +1363,10 @@ def generate_voiceover_script(
     ollama_model: str = DEFAULT_OLLAMA_MODEL,
     project_context: str = "",
 ) -> dict[str, Any]:
+    video_context = _with_frame_captions(video_context)
     duration = float(video_context.get("duration_sec") or 60)
     rows = _analysis_rows(video_context)
+    beats = _speech_beats(video_context)
     llm_prompt = _build_director_prompt(
         video_context, prompt, language, target_wpm, project_context
     )
@@ -904,8 +1380,13 @@ def generate_voiceover_script(
                 language,
                 target_wpm,
             )
+            if beats:
+                segments = _align_segments_to_beats(segments, beats, language, target_wpm)
+            elif _chapter_rows(video_context):
+                segments = _snap_segments_to_chapters(segments, video_context, target_wpm)
             if segments and _coverage_ok(segments, duration):
                 meta = llm_result.get("meta") if isinstance(llm_result.get("meta"), dict) else {}
+                planner = "chapters" if _chapter_rows(video_context) else "visual_director"
                 return {
                     "segments": segments,
                     "meta": {
@@ -915,9 +1396,24 @@ def generate_voiceover_script(
                         "provider": "ollama",
                         "model": str(meta.get("model") or ollama_model),
                         "scene_count": len(rows),
-                        "planner": "visual_director",
+                        "planner": planner,
                     },
                 }
+
+    chapter_fallback = _align_segments_to_beats([], beats, language, target_wpm) if beats else _fallback_from_chapters(video_context, target_wpm)
+    if chapter_fallback:
+        return {
+            "segments": chapter_fallback,
+            "meta": {
+                "tone": "draft",
+                "language": language,
+                "words_per_min": target_wpm,
+                "provider": "fallback",
+                "scene_count": len(rows),
+                "planner": "chapters",
+                "duration_sec": duration,
+            },
+        }
 
     return {
         "segments": _fallback_from_analysis(video_context, language, target_wpm),

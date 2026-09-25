@@ -59,12 +59,17 @@ export function HintOverlay({
     const root = rootRef.current;
     if (!root) return undefined;
     const measure = () => {
-      const rect = root.getBoundingClientRect();
-      setSize({ w: Math.max(1, rect.width), h: Math.max(1, rect.height) });
+      const own = root.getBoundingClientRect();
+      const box = own.width > 8 && own.height > 8
+        ? own
+        : root.parentElement?.getBoundingClientRect();
+      if (!box || box.width < 8 || box.height < 8) return;
+      setSize({ w: box.width, h: box.height });
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(root);
+    if (root.parentElement) observer.observe(root.parentElement);
     return () => observer.disconnect();
   }, []);
 
@@ -120,11 +125,11 @@ export function HintOverlay({
     >
       <svg className={s.leaders} viewBox={`0 0 ${size.w} ${size.h}`} aria-hidden>
         <defs>
-          <marker id="hint-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+          <marker id="hint-arrow" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
             <path d="M0,0 L9,4.5 L0,9 Z" fill="#f2c14e" />
           </marker>
         </defs>
-        {hints.map((hint) => {
+        {size.w > 8 && size.h > 8 ? hints.map((hint) => {
           if (!showsArrow(hint)) return null;
           const box = labelPoint(hint);
           const x1 = (box.x / 100) * size.w;
@@ -147,7 +152,7 @@ export function HintOverlay({
               markerEnd="url(#hint-arrow)"
             />
           );
-        })}
+        }) : null}
       </svg>
       {hints.map((hint) => {
         const selected = selectedId === hint.id;

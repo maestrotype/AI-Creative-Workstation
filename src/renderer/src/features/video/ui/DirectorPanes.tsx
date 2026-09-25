@@ -326,12 +326,42 @@ export function DirectorResultPane({
   onHintPlacementChange?: (placing: boolean) => void;
 } = {}): ReactNode {
   const d = useDirector();
+  const [erasing, setErasing] = useState(false);
+  const eraseRegion = async (box: { x: number; y: number; w: number; h: number }) => {
+    const clip = d.clips.find((item) => (
+      item.track === 'v1'
+      && d.playhead >= item.startSec
+      && d.playhead < item.startSec + item.durationSec
+    ));
+    const bin = clip?.binId ? d.bins.find((item) => item.id === clip.binId) : null;
+    if (!clip || !bin?.path || !window.api?.eraseVideoRegion) return;
+    setErasing(true);
+    try {
+      const at = Math.max(0, clip.sourceInSec + (d.playhead - clip.startSec));
+      const clipEnd = clip.sourceInSec + clip.durationSec;
+      const nearEnd = d.playhead >= clip.startSec + clip.durationSec - 8;
+      const result = await window.api.eraseVideoRegion({
+        input_path: bin.path,
+        ...box,
+        start_sec: Math.max(0, at - 0.2),
+        end_sec: nearEnd ? clipEnd : Math.min(clipEnd, at + 3),
+      });
+      if (result.file_path) {
+        d.pushHistory();
+        d.patchBin(bin.id, { path: result.file_path });
+      }
+    } finally {
+      setErasing(false);
+    }
+  };
   return (
     <div className={`${styles.paneFill} ${styles.resultPane}`} data-compact={compact || undefined}>
       <CalloutEditor
         active={previewActive}
         compactChrome={compact}
         onPlacementModeChange={onHintPlacementChange}
+        erasing={erasing}
+        onEraseRegion={(box) => { void eraseRegion(box); }}
       >
         <DirectorPreview
           playhead={d.playhead}

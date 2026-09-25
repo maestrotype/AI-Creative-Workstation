@@ -278,10 +278,11 @@
 }
 
 .historyRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 8px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-md);
 }
@@ -306,9 +307,24 @@
   cursor: pointer;
 }
 
+.historyMain strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  word-break: break-word;
+  line-height: 1.35;
+}
+
 .historyMain span {
   color: var(--color-text-tertiary);
   font-size: var(--text-caption);
+}
+
+.historyRow .link {
+  flex-shrink: 0;
+  white-space: nowrap;
+  align-self: start;
 }
 
 .genStatus {
@@ -1639,6 +1655,40 @@
   font: inherit;
   font-size: var(--text-body-sm);
   resize: vertical;
+}
+
+.voScriptCards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.voScriptCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  background: var(--color-bg-card);
+}
+
+.voScriptCardHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.voScriptWords {
+  margin-left: auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+}
+
+.voScriptWords[data-thin='true'] {
+  color: #f0b429;
 }
 
 .voScriptTableWrap {

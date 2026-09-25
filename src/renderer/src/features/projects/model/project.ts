@@ -1,5 +1,6 @@
 import type { Callout } from '../../video/model/callout';
 import type { VoiceoverSession } from '../../video/model/voiceoverSession';
+import { MARKETPLACE_BRIEF_RU, MARKETPLACE_V0_BLOCKS, marketplaceVoiceoverSession } from '../../video/model/marketplaceVoiceoverPack';
 
 export type ProjectFormat = 'landscape' | 'shorts';
 export type FilmPreset = 'marketplace' | 'hero' | 'youtube' | 'shorts';
@@ -223,27 +224,32 @@ export function shotFromGeneration(args: {
   };
 }
 
-/** Chapters for a store-template demo. You record the UI; the app cuts, titles, and voices. */
-export const TEMPLATE_CHAPTER_IDS = [
-  'intro',
-  'design',
-  'catalog',
-  'product',
-  'checkout',
-  'admin',
-  'builder',
-  'payments',
-] as const;
-
-export function templateChapters(label: (key: string) => string): ProjectScene[] {
-  return TEMPLATE_CHAPTER_IDS.map((id) => ({
-    ...newScene(label(`projects.chapter_${id}`)),
-    prompt: label(`projects.chapter_${id}_do`),
-    textOverlay: label(`projects.chapter_${id}`),
-    effectPrompt: label('projects.effect_default'),
-    durationSec: 12,
+/** Chapters for the Angular 3D Ecommerce marketplace demo. Blank films stay empty. */
+export function templateChapters(): ProjectScene[] {
+  return MARKETPLACE_V0_BLOCKS.map((block) => ({
+    ...newScene(block.titleRu),
+    prompt: block.shootRu,
+    textOverlay: block.titleRu,
+    effectPrompt: 'лёгкий зум',
+    durationSec: Math.max(8, block.endSec - block.startSec),
     motion: 'import' as const,
   }));
+}
+
+export function marketplaceFilmSeed(): {
+  name: string;
+  brief: string;
+  preset: FilmPreset;
+  scenes: ProjectScene[];
+  voiceover: VoiceoverSession;
+} {
+  return {
+    name: 'Angular 3D Ecommerce',
+    brief: MARKETPLACE_BRIEF_RU,
+    preset: 'marketplace',
+    scenes: templateChapters(),
+    voiceover: marketplaceVoiceoverSession(),
+  };
 }
 
 export function formatForPreset(preset: FilmPreset): ProjectFormat {

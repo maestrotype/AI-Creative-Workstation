@@ -5,8 +5,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 // import icon from '../../resources/icon.png?asset'
 
 import { spawn, spawnSync, ChildProcess, execFileSync } from 'child_process';
-import { copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, statfsSync, unlinkSync, writeFileSync } from 'fs';
-import { Readable } from 'stream';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, statfsSync, unlinkSync, writeFileSync } from 'fs';
 import { homedir, freemem, totalmem } from 'os';
 import { initDb, getDb } from './db';
 import { models, settings } from './db/schema';
@@ -292,25 +291,33 @@ function probeMediaDurationSec(filePath: string): number {
   }
 }
 
-function probeVideoCodec(filePath: string): string {
+function probeVideoStream(filePath: string): { codec: string; pix: string; transfer: string } {
   try {
-    return execFileSync(
+    const raw = execFileSync(
       ffprobeBin(),
-      ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', filePath],
+      [
+        '-v', 'error',
+        '-select_streams', 'v:0',
+        '-show_entries', 'stream=codec_name,pix_fmt,color_transfer',
+        '-of', 'csv=p=0',
+        filePath,
+      ],
       { encoding: 'utf8', timeout: 20_000 },
-    )
-      .trim()
-      .split('\n')[0]
-      ?.trim()
-      .toLowerCase() ?? '';
+    ).trim().split('\n')[0] ?? '';
+    const [codec = '', pix = '', transfer = ''] = raw.split(',').map((part) => part.trim().toLowerCase());
+    return { codec, pix, transfer };
   } catch {
-    return '';
+    return { codec: '', pix: '', transfer: '' };
   }
 }
 
-function needsH264Proxy(codec: string): boolean {
-  if (!codec) return true;
-  return !['h264', 'avc1', 'vp8', 'theora'].includes(codec);
+function needsH264Proxy(codec: string, pix = '', transfer = ''): boolean {
+  if (!codec || !['h264', 'avc1', 'vp8', 'theora'].includes(codec)) return true;
+  if (pix && pix !== 'yuv420p' && pix !== 'yuvj420p') return true;
+  if (transfer && !['bt709', 'iec61966-2-1', 'smpte170m', 'bt470m', 'bt470bg', 'unknown'].includes(transfer)) {
+    return true;
+  }
+  return false;
 }
 
 function previewProxyPath(sourcePath: string): string {
@@ -352,9 +359,9 @@ function runFfmpeg(args: string[]): Promise<void> {
 }
 
 async function ensureH264Preview(sourcePath: string, force: boolean): Promise<{ path: string; transcoded: boolean }> {
-  const codec = probeVideoCodec(sourcePath);
+  const stream = probeVideoStream(sourcePath);
   const out = previewProxyPath(sourcePath);
-  if (!force && !needsH264Proxy(codec)) {
+  if (!force && !needsH264Proxy(stream.codec, stream.pix, stream.transfer)) {
     return { path: sourcePath, transcoded: false };
   }
   if (existsSync(out) && !force) {
@@ -369,6 +376,9 @@ async function ensureH264Preview(sourcePath: string, force: boolean): Promise<{ 
     '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
     '-c:v', 'libx264',
     '-pix_fmt', 'yuv420p',
+    '-colorspace', 'bt709',
+    '-color_primaries', 'bt709',
+    '-color_trc', 'bt709',
     '-preset', 'veryfast',
     '-crf', '23',
     '-c:a', 'aac',
@@ -1703,6 +1713,18 @@ function setupIpc() {
     return body;
   });
 
+  ipcMain.handle('erase-video-region', async (_, payload: {
+    input_path: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    start_sec?: number;
+    end_sec?: number;
+  }) => {
+    return sidecarJson('/api/video/erase-region', payload, 30 * 60 * 1000);
+  });
+
   ipcMain.handle('analyze-video', async (_, payload: {
     video_path: string;
     transcribe?: boolean;
@@ -2549,28 +2571,6 @@ function assetPathFromUrl(url: string): string {
   return decoded.startsWith('/') ? decoded : `/${decoded}`;
 }
 
-function getMimeType(filePath: string): string {
-  const ext = extname(filePath).toLowerCase();
-  const mimes: Record<string, string> = {
-    '.mp4': 'video/mp4',
-    '.webm': 'video/webm',
-    '.mov': 'video/quicktime',
-    '.mkv': 'video/x-matroska',
-    '.mp3': 'audio/mpeg',
-    '.wav': 'audio/wav',
-    '.m4a': 'audio/mp4',
-    '.aac': 'audio/aac',
-    '.ogg': 'audio/ogg',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.png': 'image/png',
-    '.gif': 'image/gif',
-    '.webp': 'image/webp',
-    '.svg': 'image/svg+xml',
-  };
-  return mimes[ext] || 'application/octet-stream';
-}
-
 function serveAssetFile(request: Request): Response | Promise<Response> {
   const filePath = assetPathFromUrl(request.url);
   if (!existsSync(filePath)) {
@@ -2582,47 +2582,15 @@ function serveAssetFile(request: Request): Response | Promise<Response> {
     if (!stat.isFile()) {
       return new Response('Not a file', { status: 400 });
     }
-
-    const mimeType = getMimeType(filePath);
-    const rangeHeader = request.headers.get('range');
-
-    if (rangeHeader && stat.size > 0) {
-      const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
-      if (match) {
-        const start = match[1] ? parseInt(match[1], 10) : 0;
-        const end = match[2] ? parseInt(match[2], 10) : stat.size - 1;
-        const boundedStart = Math.max(0, Math.min(start, stat.size - 1));
-        const boundedEnd = Math.max(boundedStart, Math.min(end, stat.size - 1));
-        const chunkSize = boundedEnd - boundedStart + 1;
-
-        const nodeStream = createReadStream(filePath, { start: boundedStart, end: boundedEnd });
-        const webStream = Readable.toWeb(nodeStream);
-
-        return new Response(webStream as BodyInit, {
-          status: 206,
-          statusText: 'Partial Content',
-          headers: {
-            'Content-Range': `bytes ${boundedStart}-${boundedEnd}/${stat.size}`,
-            'Accept-Ranges': 'bytes',
-            'Content-Length': String(chunkSize),
-            'Content-Type': mimeType,
-          },
-        });
-      }
-    }
-
-    const nodeStream = createReadStream(filePath);
-    const webStream = Readable.toWeb(nodeStream);
-    return new Response(webStream as BodyInit, {
-      status: 200,
-      headers: {
-        'Accept-Ranges': 'bytes',
-        'Content-Length': String(stat.size),
-        'Content-Type': mimeType,
-      },
+    const headers = new Headers();
+    const range = request.headers.get('range');
+    if (range) headers.set('Range', range);
+    return net.fetch(pathToFileURL(filePath).href, {
+      headers,
+      bypassCustomProtocolHandlers: true,
     });
   } catch {
-    return net.fetch(pathToFileURL(filePath).href);
+    return new Response('Unreadable', { status: 500 });
   }
 }
 

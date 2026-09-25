@@ -30,6 +30,7 @@ interface DraggingState {
   origStartSec: number;
   durationSec: number;
   origSourceIn: number;
+  origTrack: TimelineClip['track'];
   currentStartSec: number;
   currentDurationSec: number;
 }
@@ -42,6 +43,18 @@ function laneStyle(startSec: number, durationSec: number, pxPerSec: number): CSS
   const left = Math.max(0, startSec) * pxPerSec;
   const width = Math.max(0.5, durationSec * pxPerSec - 1);
   return { left, width };
+}
+
+function videoTrackAt(clientY: number, v2El: HTMLDivElement | null, v1El: HTMLDivElement | null): 'v1' | 'v2' | null {
+  if (v2El) {
+    const box = v2El.getBoundingClientRect();
+    if (clientY >= box.top && clientY <= box.bottom) return 'v2';
+  }
+  if (v1El) {
+    const box = v1El.getBoundingClientRect();
+    if (clientY >= box.top && clientY <= box.bottom) return 'v1';
+  }
+  return null;
 }
 
 function pickRulerStep(pxPerSec: number): number {
@@ -68,6 +81,9 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
   const [previewCallouts, setPreviewCallouts] = useState<Callout[] | null>(null);
   const baselineClipsRef = useRef<TimelineClip[] | null>(null);
   const baselineCalloutsRef = useRef<Callout[] | null>(null);
+  const v2TrackRef = useRef<HTMLDivElement | null>(null);
+  const v1TrackRef = useRef<HTMLDivElement | null>(null);
+  const [dropTargetTrack, setDropTargetTrack] = useState<'v1' | 'v2' | null>(null);
   const previewClipsRef = useRef<TimelineClip[] | null>(null);
   const previewCalloutsRef = useRef<Callout[] | null>(null);
 
@@ -344,6 +360,9 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
       baselineClipsRef.current = null;
       startSec = baseline.find((item) => item.id === id)?.startSec ?? origStartSec;
     }
+    const origTrack = type === 'clip'
+      ? (baselineClipsRef.current?.find((clip) => clip.id === id)?.track ?? 'v1')
+      : 'v1';
     setDraggingItem({
       type,
       mode,
@@ -352,6 +371,7 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
       origStartSec: startSec,
       durationSec,
       origSourceIn: sourceIn,
+      origTrack,
       currentStartSec: startSec,
       currentDurationSec: durationSec,
     });
@@ -375,7 +395,7 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
           const maxDur = bin?.kind === 'video'
             ? Math.max(0.4, (bin.durationSec || draggingItem.durationSec) - target.sourceInSec)
             : 3600;
-          const nextDur = Math.max(0.4, Math.min(maxDur, Math.round((draggingItem.durationSec + deltaSec) * 10) / 10));
+          const nextDur = Math.max(0.4, Math.min(maxDur, Math.round((draggingItem.durationSec + deltaSec) * 100) / 100));
           const withDur = base.map((clip) => (
             clip.id === draggingItem.id
               ? { ...clip, durationSec: nextDur, autoLength: false }
@@ -393,8 +413,8 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
         if (draggingItem.mode === 'trim-in') {
           const maxShift = draggingItem.durationSec - 0.4;
           const shift = Math.max(-draggingItem.origStartSec, Math.min(maxShift, deltaSec));
-          const nextStart = Math.round((draggingItem.origStartSec + shift) * 10) / 10;
-          const nextDur = Math.round((draggingItem.durationSec - shift) * 10) / 10;
+          const nextStart = Math.round((draggingItem.origStartSec + shift) * 100) / 100;
+          const nextDur = Math.round((draggingItem.durationSec - shift) * 100) / 100;
           const bin = d.bins.find((b) => b.id === target.binId);
           const nextSource = bin?.kind === 'image'
             ? target.sourceInSec
@@ -419,10 +439,18 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
           return;
         }
 
+        const lane = videoTrackAt(e.clientY, v2TrackRef.current, v1TrackRef.current);
+        const canSwapLane = target.track === 'v1' || target.track === 'v2';
+        const nextTrack = canSwapLane && (lane === 'v1' || lane === 'v2') ? lane : target.track;
+        setDropTargetTrack(canSwapLane && (nextTrack === 'v1' || nextTrack === 'v2') ? nextTrack : null);
+
         const maxStart = Math.max(0, totalSec * 2);
         const newStart = Math.max(0, Math.min(maxStart, draggingItem.origStartSec + deltaSec));
-        const rounded = Math.round(newStart * 10) / 10;
-        const next = moveClipWithRipple(base, draggingItem.id, rounded);
+        const rounded = Math.round(newStart * 100) / 100;
+        const withTrack = nextTrack === target.track
+          ? base
+          : base.map((clip) => (clip.id === draggingItem.id ? { ...clip, track: nextTrack } : clip));
+        const next = unstackAllTracks(moveClipWithRipple(withTrack, draggingItem.id, rounded));
         previewClipsRef.current = next;
         setPreviewClips(next);
         setDraggingItem((prev) =>
@@ -437,7 +465,7 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
         if (!target) return;
 
         if (draggingItem.mode === 'trim-out') {
-          const nextDur = Math.max(0.4, Math.round((draggingItem.durationSec + deltaSec) * 10) / 10);
+          const nextDur = Math.max(0.4, Math.round((draggingItem.durationSec + deltaSec) * 100) / 100);
           const next = base.map((item) => (
             item.id === draggingItem.id
               ? { ...item, endSec: item.startSec + nextDur }
@@ -454,8 +482,8 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
         if (draggingItem.mode === 'trim-in') {
           const maxShift = draggingItem.durationSec - 0.4;
           const shift = Math.max(-draggingItem.origStartSec, Math.min(maxShift, deltaSec));
-          const nextStart = Math.round((draggingItem.origStartSec + shift) * 10) / 10;
-          const nextDur = Math.round((draggingItem.durationSec - shift) * 10) / 10;
+          const nextStart = Math.round((draggingItem.origStartSec + shift) * 100) / 100;
+          const nextDur = Math.round((draggingItem.durationSec - shift) * 100) / 100;
           const next = base.map((item) => (
             item.id === draggingItem.id
               ? { ...item, startSec: nextStart, endSec: nextStart + nextDur }
@@ -471,7 +499,7 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
 
         const maxStart = Math.max(0, totalSec - draggingItem.durationSec);
         const newStart = Math.max(0, Math.min(maxStart, draggingItem.origStartSec + deltaSec));
-        const rounded = Math.round(newStart * 10) / 10;
+        const rounded = Math.round(newStart * 100) / 100;
         const next = moveTimedRangeWithRipple(base, draggingItem.id, rounded);
         previewCalloutsRef.current = next;
         setPreviewCallouts(next);
@@ -482,6 +510,7 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
     };
 
     const handlePointerUp = () => {
+      setDropTargetTrack(null);
       if (draggingItem) {
         if (draggingItem.type === 'clip' && previewClipsRef.current) {
           d.replaceClips(previewClipsRef.current);
@@ -885,11 +914,19 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
               ))}
             </div>
 
-            <div className={`${s.trackBody} ${s.trackBodyVideo}`}>
+            <div
+              ref={v2TrackRef}
+              className={`${s.trackBody} ${s.trackBodyVideo}`}
+              data-drop-target={dropTargetTrack === 'v2' || undefined}
+            >
               {v2Clips.map((clip, index) => renderMixerClip(clip, index, 'still'))}
             </div>
 
-            <div className={`${s.trackBody} ${s.trackBodyVideo}`}>
+            <div
+              ref={v1TrackRef}
+              className={`${s.trackBody} ${s.trackBodyVideo}`}
+              data-drop-target={dropTargetTrack === 'v1' || undefined}
+            >
               {v1Clips.length > 0 ? (
                 v1Clips.map((clip, index) => renderMixerClip(clip, index, 'video'))
               ) : d.voiceoverSource ? (

@@ -208,6 +208,15 @@ const api = {
   }) => ipcRenderer.invoke('apply-video-timeline', payload),
   cleanScreencast: (payload: { input_path: string; prompt: string; dry_run?: boolean }) =>
     ipcRenderer.invoke('clean-screencast', payload),
+  eraseVideoRegion: (payload: {
+    input_path: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    start_sec?: number;
+    end_sec?: number;
+  }) => ipcRenderer.invoke('erase-video-region', payload) as Promise<{ file_path: string }>,
   analyzeVideo: (payload: {
     video_path: string;
     transcribe?: boolean;

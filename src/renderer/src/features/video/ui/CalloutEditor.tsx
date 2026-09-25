@@ -11,6 +11,8 @@ interface CalloutEditorProps {
   active?: boolean;
   compactChrome?: boolean;
   onPlacementModeChange?: (placing: boolean) => void;
+  onEraseRegion?: (box: { x: number; y: number; w: number; h: number }) => void;
+  erasing?: boolean;
 }
 
 const QUICK_PRESETS = [
@@ -26,9 +28,13 @@ export function CalloutEditor({
   active = true,
   compactChrome = false,
   onPlacementModeChange,
+  onEraseRegion,
+  erasing = false,
 }: CalloutEditorProps): ReactNode {
   const d = useDirector();
-  const [mode, setMode] = useState<'view' | 'add'>('view');
+  const [mode, setMode] = useState<'view' | 'add' | 'erase'>('view');
+  const [eraseBox, setEraseBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const eraseStart = useRef<{ x: number; y: number } | null>(null);
   const [calloutText, setCalloutText] = useState(QUICK_PRESETS[0]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const screenRef = useRef<HTMLDivElement | null>(null);
@@ -71,6 +77,15 @@ export function CalloutEditor({
     }
   };
 
+  const pointInFrame = (e: { clientX: number; clientY: number }) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    return {
+      x: Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)),
+      y: Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100)),
+    };
+  };
+
   const handleCanvasClick = (e: MouseEvent<HTMLDivElement>) => {
     if (!active || mode !== 'add' || !containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
@@ -107,7 +122,84 @@ export function CalloutEditor({
         >
           {children}
 
-          <div className={s.chrome}>
+          <div
+            className={s.overlayCanvas}
+            data-mode={mode}
+            onClick={handleCanvasClick}
+            onPointerDown={(e) => {
+              if (mode !== 'erase') return;
+              const point = pointInFrame(e);
+              if (!point) return;
+              eraseStart.current = point;
+              setEraseBox({ x: point.x, y: point.y, w: 0, h: 0 });
+            }}
+            onPointerMove={(e) => {
+              const start = eraseStart.current;
+              if (mode !== 'erase' || !start) return;
+              const point = pointInFrame(e);
+              if (!point) return;
+              setEraseBox({
+                x: Math.min(start.x, point.x),
+                y: Math.min(start.y, point.y),
+                w: Math.abs(point.x - start.x),
+                h: Math.abs(point.y - start.y),
+              });
+            }}
+            onPointerUp={() => {
+              const box = eraseBox;
+              eraseStart.current = null;
+              if (mode !== 'erase' || !box || box.w < 1 || box.h < 1) return;
+              const frame = containerRef.current?.getBoundingClientRect();
+              const video = containerRef.current?.querySelector('video');
+              let region = { x: box.x / 100, y: box.y / 100, w: box.w / 100, h: box.h / 100 };
+              if (frame && video && video.videoWidth > 0 && video.videoHeight > 0) {
+                const scale = Math.min(frame.width / video.videoWidth, frame.height / video.videoHeight);
+                const dispW = video.videoWidth * scale;
+                const dispH = video.videoHeight * scale;
+                const offX = (frame.width - dispW) / 2;
+                const offY = (frame.height - dispH) / 2;
+                const left = box.x / 100 * frame.width;
+                const top = box.y / 100 * frame.height;
+                region = {
+                  x: Math.max(0, Math.min(1, (left - offX) / dispW)),
+                  y: Math.max(0, Math.min(1, (top - offY) / dispH)),
+                  w: Math.max(0.01, Math.min(1, (box.w / 100 * frame.width) / dispW)),
+                  h: Math.max(0.01, Math.min(1, (box.h / 100 * frame.height) / dispH)),
+                };
+              }
+              onEraseRegion?.(region);
+              setEraseBox(null);
+              setMode('view');
+            }}
+          >
+            {eraseBox && eraseBox.w > 0 ? (
+              <span
+                className={s.eraseBox}
+                style={{ left: `${eraseBox.x}%`, top: `${eraseBox.y}%`, width: `${eraseBox.w}%`, height: `${eraseBox.h}%` }}
+              />
+            ) : null}
+            {d.showHints ? (
+              <HintOverlay
+                hints={editHints}
+                playhead={d.playhead}
+                playing={d.playing}
+                selectedId={d.selectedCallout}
+                editable={!d.playing && mode === 'view'}
+                onSelect={(id) => {
+                  d.setSelectedCallout(id);
+                  d.setSelectedClip(null);
+                }}
+                onMoveBox={(id, x, y) => {
+                  d.updateCallout(id, { boxX: x, boxY: y });
+                }}
+                onMoveTarget={(id, x, y) => {
+                  d.updateCallout(id, { targetX: x, targetY: y });
+                }}
+              />
+            ) : null}
+          </div>
+        </div>
+        <div className={s.chrome}>
             <div className={s.modeToggleGroup}>
               <button type="button" className={s.modeBtn} data-active={mode === 'view'} onClick={enterViewMode}>
                 Кадр
@@ -136,6 +228,16 @@ export function CalloutEditor({
             )}
             <button
               type="button"
+              className={s.modeBtn}
+              data-active={mode === 'erase'}
+              disabled={erasing}
+              title="Обведите кнопки в тот момент, где они видны. Сотрётся только этот кусок, не весь ролик."
+              onClick={() => setMode(mode === 'erase' ? 'view' : 'erase')}
+            >
+              {erasing ? 'Стираю…' : 'Стереть'}
+            </button>
+            <button
+              type="button"
               className={s.viewCtrlBtn}
               data-on={d.showHints}
               onClick={() => d.setShowHints(!d.showHints)}
@@ -147,33 +249,6 @@ export function CalloutEditor({
               {isFullscreen ? 'Свернуть' : 'Экран'}
             </button>
           </div>
-
-          <div
-            className={s.overlayCanvas}
-            data-mode={mode}
-            onClick={handleCanvasClick}
-          >
-            {d.showHints ? (
-              <HintOverlay
-                hints={editHints}
-                playhead={d.playhead}
-                playing={d.playing}
-                selectedId={d.selectedCallout}
-                editable={!d.playing && mode === 'view'}
-                onSelect={(id) => {
-                  d.setSelectedCallout(id);
-                  d.setSelectedClip(null);
-                }}
-                onMoveBox={(id, x, y) => {
-                  d.updateCallout(id, { boxX: x, boxY: y });
-                }}
-                onMoveTarget={(id, x, y) => {
-                  d.updateCallout(id, { targetX: x, targetY: y });
-                }}
-              />
-            ) : null}
-          </div>
-        </div>
       </div>
     </div>
   );

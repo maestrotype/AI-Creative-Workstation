@@ -509,6 +509,11 @@
   height: 72px;
 }
 
+.trackBodyVideo[data-drop-target='true'] {
+  background: color-mix(in srgb, var(--color-accent-subtle) 55%, var(--color-bg-surface));
+  box-shadow: inset 0 0 0 1px var(--color-accent-border);
+}
+
 .embedded .trackHeader {
   height: 40px;
 }
@@ -543,7 +548,7 @@
   display: none;
 }
 
-.clipBlock[data-narrow='true'][data-selected='true'] .clipDeleteBtn {
+.clipBlock[data-narrow='true']:hover .clipDeleteBtn {
   display: inline-flex;
 }
 
@@ -575,13 +580,12 @@
     0 2px 6px rgba(0, 0, 0, 0.25);
   will-change: left, width;
   transition:
-    left 0.38s cubic-bezier(0.22, 1, 0.36, 1),
-    width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.22s ease,
-    box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1),
-    outline-color 0.2s ease,
-    opacity 0.22s ease,
-    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+    left 0.12s ease,
+    width 0.12s ease,
+    filter 0.16s ease,
+    box-shadow 0.16s ease,
+    outline-color 0.16s ease,
+    opacity 0.16s ease;
 }
 
 /* Thumbnail image inside image clips — fills the clip block */
@@ -662,12 +666,12 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 10px;
-  z-index: 10;
+  width: 8px;
+  z-index: 6;
   cursor: ew-resize;
   touch-action: none;
   opacity: 0;
-  transition: opacity 0.18s ease, background 0.18s ease, width 0.18s ease;
+  transition: opacity 0.12s ease, background 0.12s ease;
 }
 
 .clipBlock:hover .clipTrim,
@@ -677,27 +681,15 @@
 
 .clipTrim[data-edge='in'] {
   left: 0;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.55), transparent);
-  border-left: 3px solid rgba(255, 255, 255, 0.95);
+  border-left: 2px solid rgba(255, 255, 255, 0.9);
   border-radius: 4px 0 0 4px;
 }
 
 .clipTrim[data-edge='out'] {
+  top: 18px;
   right: 0;
-  background: linear-gradient(270deg, rgba(255, 255, 255, 0.55), transparent);
-  border-right: 3px solid rgba(255, 255, 255, 0.95);
+  border-right: 2px solid rgba(255, 255, 255, 0.9);
   border-radius: 0 4px 4px 0;
-}
-
-/* Expand trim zone on hover for easier grabbing */
-.clipBlock:hover .clipTrim[data-edge='in'],
-.clipBlock[data-selected='true'] .clipTrim[data-edge='in'] {
-  width: 12px;
-}
-
-.clipBlock:hover .clipTrim[data-edge='out'],
-.clipBlock[data-selected='true'] .clipTrim[data-edge='out'] {
-  width: 12px;
 }
 
 .durationGroup {
@@ -996,48 +988,38 @@
 
 .clipDeleteBtn {
   position: absolute;
-  top: 50%;
-  right: 4px;
-  transform: translateY(-50%);
+  top: 2px;
+  right: 2px;
   display: none;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.75);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  font-size: 11px;
-  font-weight: bold;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.85);
+  border: none;
+  font-size: 10px;
+  line-height: 1;
   cursor: pointer;
-  flex-shrink: 0;
-  transition: background 0.15s ease, transform 0.15s ease;
-  z-index: 2;
+  z-index: 8;
 }
 
-.clipBlock:hover .clipDeleteBtn,
-.clipBlock[data-selected='true'] .clipDeleteBtn {
+.clipBlock:hover .clipDeleteBtn {
   display: inline-flex;
 }
 
 .clipDeleteBtn:hover {
   background: #ff4757;
-  border-color: #ff4757;
-  transform: translateY(-50%) scale(1.2);
+  color: #fff;
 }
 
 .clipDragging {
-  opacity: 0.95;
+  opacity: 0.96;
   cursor: grabbing !important;
   z-index: 8 !important;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55) !important;
-  outline: 2px solid #fff !important;
-  filter: brightness(1.22) !important;
-  transform: translateY(-1px);
-  transition:
-    box-shadow 0.22s ease,
-    filter 0.18s ease,
-    opacity 0.18s ease,
-    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.85) !important;
+  transition: none;
 }

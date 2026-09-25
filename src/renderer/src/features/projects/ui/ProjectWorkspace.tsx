@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { toAssetUrl } from '../../video/model/directorMedia';
 import { assembleShots, planToTimeline, productShotPresets } from '../../video/model/autoAssemble';
 import { writeLastProjectId } from '../model/handoff';
-import { composeClips, formatForPreset, newScene, normalizePreset, normalizeShotMotion, projectDuration, sceneHasMedia, shotFromGeneration, templateChapters, type FilmPreset, type ProjectDoc, type ProjectScene } from '../model/project';
+import { composeClips, formatForPreset, marketplaceFilmSeed, newScene, normalizePreset, normalizeShotMotion, projectDuration, sceneHasMedia, shotFromGeneration, type FilmPreset, type ProjectDoc, type ProjectScene } from '../model/project';
 import styles from './ProjectsPage.module.css';
 
 function ipcMessage(err: unknown): string {
@@ -51,6 +51,55 @@ function motionErrorMessage(err: unknown, t: (key: string) => string): string {
     return t('projects.need_product_still');
   }
   return msg;
+}
+
+function PlayableVideo({
+  path,
+  poster,
+  className,
+}: {
+  path: string;
+  poster?: string;
+  className?: string;
+}): ReactNode {
+  const [src, setSrc] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setSrc('');
+    const load = async () => {
+      try {
+        if (window.api?.ensureVideoPreview) {
+          const preview = await window.api.ensureVideoPreview(path);
+          if (!cancelled) setSrc(toAssetUrl(preview.path));
+          return;
+        }
+      } catch {
+        /* fall through to the original file */
+      }
+      if (!cancelled) setSrc(toAssetUrl(path));
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [path]);
+
+  if (!src) {
+    return <div className={className} aria-busy="true" />;
+  }
+
+  return (
+    <video
+      key={src}
+      className={className}
+      src={src}
+      poster={poster}
+      controls
+      preload="metadata"
+      playsInline
+    />
+  );
 }
 
 function formatClock(sec: number): string {
@@ -281,7 +330,7 @@ export function ProjectWorkspace(): ReactNode {
       const next = {
         ...loaded,
         preset: normalizePreset(loaded.preset),
-        brief: loaded.brief.trim() || t('projects.brief_default'),
+        brief: loaded.brief,
         scenes: loaded.scenes.map((scene) => ({
           ...newScene(scene.title),
           ...scene,
@@ -298,13 +347,9 @@ export function ProjectWorkspace(): ReactNode {
       if (next.productStillPath || (next.shots && next.shots.length > 0)) {
         setShowBroll(true);
       }
-      if (!loaded.brief.trim()) {
-        void persist(next);
-      } else {
-        setDoc(next);
-      }
+      setDoc(next);
     }).catch((err) => setError(ipcMessage(err)));
-  }, [projectId, t, persist]);
+  }, [projectId, t]);
 
   if (!doc) {
     return (
@@ -338,10 +383,14 @@ export function ProjectWorkspace(): ReactNode {
 
   const seedTemplateChapters = () => {
     const latest = docRef.current ?? doc;
+    const seed = marketplaceFilmSeed();
     void persist({
       ...latest,
-      brief: latest.brief.trim() || t('projects.brief_default'),
-      scenes: templateChapters(t),
+      preset: 'marketplace',
+      format: 'landscape',
+      brief: seed.brief,
+      scenes: seed.scenes,
+      voiceover: seed.voiceover,
     });
   };
 
@@ -787,13 +836,10 @@ export function ProjectWorkspace(): ReactNode {
               >
                 <div className={styles.thumb}>
                   {scene.clipPath ? (
-                    <video
+                    <PlayableVideo
                       className={styles.sceneVideo}
-                      src={toAssetUrl(scene.clipPath)}
+                      path={scene.clipPath}
                       poster={scene.stillPath ? toAssetUrl(scene.stillPath) : undefined}
-                      controls
-                      preload="metadata"
-                      playsInline
                     />
                   ) : scene.stillPath ? (
                     <img src={toAssetUrl(scene.stillPath)} alt="" />
@@ -923,7 +969,7 @@ export function ProjectWorkspace(): ReactNode {
       <footer className={styles.composeBar}>
         {doc.assembledPath ? (
           <div className={styles.assembledWrap}>
-            <video className={styles.assembled} src={toAssetUrl(doc.assembledPath)} controls playsInline />
+            <PlayableVideo className={styles.assembled} path={doc.assembledPath} />
           </div>
         ) : null}
         <div className={styles.composeButtons}>

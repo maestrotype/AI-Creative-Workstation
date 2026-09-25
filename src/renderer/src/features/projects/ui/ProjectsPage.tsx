@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { toAssetUrl } from '../../video/model/directorMedia';
-import { templateChapters, type ProjectSummary } from '../model/project';
+import { marketplaceFilmSeed, type ProjectSummary } from '../model/project';
 import { clearLastProjectId, readLastProjectId, writeLastProjectId } from '../model/handoff';
 import styles from './ProjectsPage.module.css';
 
@@ -52,14 +52,36 @@ export function ProjectsPage(): ReactNode {
     try {
       const doc = await window.api.createProject({
         name: t('projects.untitled'),
+        preset: 'youtube',
+      });
+      writeLastProjectId(doc.id);
+      navigate(`/projects/${doc.id}`);
+    } catch (err) {
+      setError(ipcMessage(err));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const createTemplate = async () => {
+    if (!window.api?.createProject || !window.api.saveProject) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const seed = marketplaceFilmSeed();
+      const doc = await window.api.createProject({
+        name: seed.name,
         preset: 'marketplace',
       });
-      const seeded = {
+      await window.api.saveProject({
         ...doc,
-        brief: t('projects.brief_default'),
-        scenes: templateChapters(t),
-      };
-      await window.api.saveProject(seeded);
+        name: seed.name,
+        preset: 'marketplace',
+        format: 'landscape',
+        brief: seed.brief,
+        scenes: seed.scenes,
+        voiceover: seed.voiceover,
+      });
       writeLastProjectId(doc.id);
       navigate(`/projects/${doc.id}`);
     } catch (err) {
@@ -91,6 +113,9 @@ export function ProjectsPage(): ReactNode {
           <Link className={styles.ghostBtn} to="/video">
             {t('projects.dub_existing')}
           </Link>
+          <button type="button" className={styles.ghostBtn} onClick={() => void createTemplate()} disabled={creating}>
+            {t('projects.new_template')}
+          </button>
           <button type="button" className={styles.newButton} onClick={() => void create()} disabled={creating}>
             {creating ? t('projects.creating') : t('projects.new_project')}
           </button>
@@ -113,6 +138,9 @@ export function ProjectsPage(): ReactNode {
       {items.length === 0 ? (
         <div className={styles.placeholder}>
           <p>{t('projects.empty')}</p>
+          <button type="button" className={styles.ghostBtn} onClick={() => void createTemplate()} disabled={creating}>
+            {t('projects.new_template')}
+          </button>
           <button type="button" className={styles.newButton} onClick={() => void create()} disabled={creating}>
             {t('projects.new_project')}
           </button>
