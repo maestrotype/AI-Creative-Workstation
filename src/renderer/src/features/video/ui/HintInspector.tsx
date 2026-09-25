@@ -5,15 +5,16 @@ import {
   hintTypeLabel,
   type Callout,
   type HintAnimIn,
+  type HintShape,
   type HintSize,
   type HintType,
 } from '../model/callout';
 import { formatClock } from '../model/directorTimeline';
-import { toAssetUrl } from '../model/directorMedia';
 import { useDirector } from './DirectorBoard';
 import s from './HintInspector.module.css';
 
-const TYPES: HintType[] = ['minimal', 'accent', 'card', 'sticker', 'pointer'];
+const TYPES: HintType[] = ['plain', 'dot', 'arrow'];
+const SHAPES: HintShape[] = ['rect', 'oval'];
 const SIZES: HintSize[] = ['s', 'm', 'l'];
 const ANIMS: HintAnimIn[] = ['none', 'fade', 'slide-up', 'pop', 'typewriter'];
 
@@ -37,6 +38,11 @@ export function HintInspector({ hint }: { hint: Callout }): ReactNode {
       text: hint.text,
       title: hint.title,
       type: hint.type,
+      shape: hint.shape,
+      boxX: Math.min(96, hint.boxX + 4),
+      boxY: Math.min(96, hint.boxY + 4),
+      boxW: hint.boxW,
+      boxH: hint.boxH,
       size: hint.size,
       animationIn: hint.animationIn,
       animationOut: hint.animationOut,
@@ -44,6 +50,8 @@ export function HintInspector({ hint }: { hint: Callout }): ReactNode {
       stickerUrl: hint.stickerUrl,
       stickerScale: hint.stickerScale,
       color: hint.color,
+      fill: hint.fill,
+      textColor: hint.textColor,
       theme: hint.theme,
       arrowStyle: hint.arrowStyle,
       pulse: hint.pulse,
@@ -71,16 +79,6 @@ export function HintInspector({ hint }: { hint: Callout }): ReactNode {
       </div>
 
       <div className={s.block}>
-        <label className={s.label}>Title (optional)</label>
-        <input
-          className={s.input}
-          value={hint.title || ''}
-          onChange={(e) => patch({ title: e.target.value || undefined })}
-          placeholder="Only for Card"
-        />
-      </div>
-
-      <div className={s.block}>
         <div className={s.label}>Type</div>
         <div className={s.chips}>
           {TYPES.map((type) => (
@@ -89,15 +87,91 @@ export function HintInspector({ hint }: { hint: Callout }): ReactNode {
               type="button"
               className={s.chip}
               data-on={hint.type === type}
-              onClick={() => patch({
-                type,
-                arrowStyle: type === 'pointer' ? 'straight' : 'none',
-                pulse: type === 'pointer',
-              })}
+              onClick={() => {
+                const far = Math.hypot(hint.boxX - hint.targetX, hint.boxY - hint.targetY) >= 10;
+                patch({
+                  type,
+                  arrowStyle: type === 'arrow' ? 'straight' : 'none',
+                  pulse: type === 'dot',
+                  ...(type === 'arrow' && !far ? {
+                    targetX: Math.max(4, Math.min(96, hint.boxX - 22)),
+                    targetY: Math.max(4, Math.min(96, hint.boxY - 16)),
+                  } : {}),
+                });
+              }}
             >
               {hintTypeLabel(type)}
             </button>
           ))}
+        </div>
+      </div>
+
+      <div className={s.block}>
+        <label className={s.label}>Title (optional)</label>
+        <input
+          className={s.input}
+          value={hint.title || ''}
+          onChange={(e) => patch({ title: e.target.value || undefined })}
+          placeholder="Optional subtitle"
+        />
+      </div>
+
+      <div className={s.block}>
+        <div className={s.label}>Look</div>
+        <div className={s.chips}>
+          {SHAPES.map((shape) => (
+            <button
+              key={shape}
+              type="button"
+              className={s.chip}
+              data-on={hint.shape === shape}
+              onClick={() => patch({ shape })}
+            >
+              {shape === 'rect' ? 'Rectangle' : 'Oval'}
+            </button>
+          ))}
+        </div>
+        <div className={s.lookRow}>
+          <label className={s.swatch}>
+            <span>Fill</span>
+            <input
+              className={s.color}
+              type="color"
+              aria-label="Background color"
+              value={hint.fill && hint.fill !== 'transparent' ? hint.fill : '#0f172a'}
+              onChange={(e) => patch({ fill: e.target.value })}
+            />
+          </label>
+          <label className={s.swatch}>
+            <span>Text</span>
+            <input
+              className={s.color}
+              type="color"
+              aria-label="Text color"
+              value={hint.textColor && /^#[0-9a-fA-F]{6}$/.test(hint.textColor) ? hint.textColor : '#f8fafc'}
+              onChange={(e) => patch({ textColor: e.target.value })}
+            />
+          </label>
+          {hint.type !== 'plain' ? (
+            <label className={s.swatch}>
+              <span>Line</span>
+              <input
+                className={s.color}
+                type="color"
+                aria-label="Line color"
+                value={hint.color && /^#[0-9a-fA-F]{6}$/.test(hint.color) ? hint.color : '#f2c14e'}
+                onChange={(e) => patch({ color: e.target.value })}
+              />
+            </label>
+          ) : null}
+          <button
+            type="button"
+            className={s.chip}
+            data-on={hint.fill === 'transparent'}
+            onClick={() => patch({ fill: hint.fill === 'transparent' ? undefined : 'transparent' })}
+          >
+            Transparent
+          </button>
         </div>
       </div>
 
@@ -184,27 +258,8 @@ export function HintInspector({ hint }: { hint: Callout }): ReactNode {
             />
           </label>
         </div>
-        <p className={s.hint}>Drag the overlay on preview, or edit X/Y here.</p>
+        <p className={s.hint}>Drag the label to move the whole hint. Drag the dot or arrow tip to aim it. Corners resize it.</p>
       </div>
-
-      {hint.type === 'sticker' ? (
-        <div className={s.block}>
-          <div className={s.label}>Sticker</div>
-          <button
-            type="button"
-            className={s.btnWide}
-            onClick={() => {
-              void (async () => {
-                const path = await window.api?.pickImage?.();
-                if (!path) return;
-                patch({ stickerUrl: toAssetUrl(path), type: 'sticker' });
-              })();
-            }}
-          >
-            {hint.stickerUrl ? 'Change sticker image' : 'Add sticker image'}
-          </button>
-        </div>
-      ) : null}
 
       <div className={s.actions}>
         <button type="button" className={s.btn} onClick={() => d.seekTo(hint.startSec)}>

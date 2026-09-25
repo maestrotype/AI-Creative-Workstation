@@ -75,10 +75,40 @@
   min-height: 4.5rem;
 }
 
-.chips {
+.chips,
+.colorRow {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
+}
+
+.color {
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--color-border-default);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.lookRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.swatch {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
 }
 
 .chip,

@@ -97,7 +97,8 @@ export function CalloutEditor({
       targetX: Math.round(x * 10) / 10,
       targetY: Math.round(y * 10) / 10,
       text: calloutText.trim() || QUICK_PRESETS[0],
-      type: 'pointer',
+      type: 'arrow',
+      shape: 'rect',
       arrowStyle: 'straight',
       size: 'm',
       animationIn: 'fade',
@@ -189,12 +190,8 @@ export function CalloutEditor({
                   d.setSelectedCallout(id);
                   d.setSelectedClip(null);
                 }}
-                onMoveBox={(id, x, y) => {
-                  d.updateCallout(id, { boxX: x, boxY: y });
-                }}
-                onMoveTarget={(id, x, y) => {
-                  d.updateCallout(id, { targetX: x, targetY: y });
-                }}
+                onChange={(id, patch) => d.updateCallout(id, patch, false)}
+                onGestureStart={(id) => d.updateCallout(id, {}, true)}
               />
             ) : null}
           </div>

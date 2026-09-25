@@ -258,7 +258,7 @@ type DirectorSnap = {
   exportSubtitles: () => void;
   callouts: Callout[];
   addCallout: (params: Partial<Callout> & { targetX: number; targetY: number }) => Callout;
-  updateCallout: (id: string, patch: Partial<Callout>) => void;
+  updateCallout: (id: string, patch: Partial<Callout>, history?: boolean) => void;
   removeCallout: (id: string) => void;
   selectedCallout: string | null;
   setSelectedCallout: (id: string | null) => void;
@@ -2559,7 +2559,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     return item;
   };
 
-  const updateCallout = (id: string, patch: Partial<Callout>) => {
+  const updateCallout = (id: string, patch: Partial<Callout>, history = true) => {
     const keys = Object.keys(patch);
     const structural = keys.some((k) => (
       k === 'startSec' || k === 'endSec' || k === 'targetX' || k === 'targetY'
@@ -2569,8 +2569,9 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     ));
     const styleOrDelete = keys.some((k) => (
       k === 'theme' || k === 'shape' || k === 'arrowStyle' || k === 'pulse' || k === 'title'
+      || k === 'fill' || k === 'color' || k === 'textColor'
     ));
-    if (structural || styleOrDelete) pushHistory();
+    if (history && (structural || styleOrDelete || keys.length === 0)) pushHistory();
     setVoiceover((prev) => ({
       ...prev,
       callouts: (prev.callouts ?? []).map((c) => (c.id === id ? { ...c, ...patch } : c)),

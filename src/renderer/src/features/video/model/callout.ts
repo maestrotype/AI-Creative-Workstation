@@ -1,7 +1,8 @@
 /** Film hint (C1). Kept as `Callout` for session compatibility. */
 
-export type HintType = 'minimal' | 'accent' | 'card' | 'sticker' | 'pointer';
+export type HintType = 'plain' | 'dot' | 'arrow';
 export type HintSize = 's' | 'm' | 'l' | 'auto';
+export type HintShape = 'rect' | 'oval';
 export type HintAnimIn = 'none' | 'fade' | 'slide-up' | 'pop' | 'typewriter';
 export type HintAnimOut = 'none' | 'fade';
 export type HintAnchor = 'center' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
@@ -31,10 +32,15 @@ export interface Callout {
   anchor: HintAnchor;
   stickerUrl?: string;
   stickerScale?: number;
+  /** Line and marker color. */
   color?: string;
+  /** Label text color. */
+  textColor?: string;
+  /** Label background. `transparent` clears the fill. */
+  fill?: string;
   /** Legacy fields — still read for migration / pointer line */
   theme: CalloutTheme;
-  shape?: 'rounded' | 'square' | 'pill' | 'circle';
+  shape: HintShape;
   fontStyle?: 'system' | 'sans' | 'mono' | 'serif';
   arrowStyle: 'curved' | 'straight' | 'none';
   pulse: boolean;
@@ -55,10 +61,22 @@ export function hintDuration(h: Pick<Callout, 'startSec' | 'endSec'>): number {
 }
 
 export function themeToType(theme: CalloutTheme, arrowStyle?: string): HintType {
-  if (arrowStyle && arrowStyle !== 'none') return 'pointer';
-  if (theme === 'dark') return 'minimal';
-  if (theme === 'info') return 'card';
-  return 'accent';
+  if (arrowStyle && arrowStyle !== 'none') return 'arrow';
+  if (theme === 'dark') return 'plain';
+  return 'dot';
+}
+
+function migrateType(raw: Partial<Callout>): HintType {
+  const type = raw.type as string | undefined;
+  if (type === 'plain' || type === 'dot' || type === 'arrow') return type;
+  if (type === 'pointer') return 'dot';
+  if (raw.arrowStyle && raw.arrowStyle !== 'none') return 'arrow';
+  return 'plain';
+}
+
+function migrateShape(shape?: string): HintShape {
+  if (shape === 'oval' || shape === 'pill' || shape === 'circle') return 'oval';
+  return 'rect';
 }
 
 export function normalizeCallout(raw: Partial<Callout> & { id?: string }): Callout {
@@ -67,8 +85,7 @@ export function normalizeCallout(raw: Partial<Callout> & { id?: string }): Callo
   const targetX = clampPct(raw.targetX ?? 50);
   const targetY = clampPct(raw.targetY ?? 50);
   const theme = raw.theme ?? 'accent';
-  const incomingArrow = raw.arrowStyle ?? 'none';
-  const type = raw.type ?? themeToType(theme, incomingArrow);
+  const type = raw.type ? migrateType(raw) : themeToType(theme, raw.arrowStyle);
 
   const isRight = targetX > 58;
   const isBottom = targetY > 68;
@@ -76,14 +93,15 @@ export function normalizeCallout(raw: Partial<Callout> & { id?: string }): Callo
   const defaultBoxY = isBottom ? Math.max(6, targetY - 18) : Math.min(80, targetY + 12);
   let boxX = clampPct(raw.boxX ?? defaultBoxX);
   let boxY = clampPct(raw.boxY ?? defaultBoxY);
-  if (Math.hypot(boxX - targetX, boxY - targetY) < 8) {
-    boxX = clampPct(defaultBoxX);
-    boxY = clampPct(defaultBoxY);
+  if (raw.boxX == null || raw.boxY == null) {
+    if (Math.hypot(boxX - targetX, boxY - targetY) < 8) {
+      boxX = clampPct(defaultBoxX);
+      boxY = clampPct(defaultBoxY);
+    }
   }
-  const wantsArrow = type !== 'sticker' && type !== 'minimal';
-  const arrowStyle = raw.arrowStyle === 'curved' || raw.arrowStyle === 'straight'
-    ? raw.arrowStyle
-    : wantsArrow ? 'straight' : 'none';
+  const arrowStyle = type === 'arrow' ? 'straight' : 'none';
+  const boxW = raw.boxW != null && Number.isFinite(raw.boxW) ? Math.max(8, Math.min(70, raw.boxW)) : undefined;
+  const boxH = raw.boxH != null && Number.isFinite(raw.boxH) ? Math.max(6, Math.min(50, raw.boxH)) : undefined;
 
   return {
     id: raw.id ?? `hint-${Date.now()}-${nextCalloutId++}`,
@@ -93,8 +111,8 @@ export function normalizeCallout(raw: Partial<Callout> & { id?: string }): Callo
     targetY,
     boxX,
     boxY,
-    boxW: raw.boxW,
-    boxH: raw.boxH,
+    boxW,
+    boxH,
     text: (raw.text || DEFAULT_TEXT).trim() || DEFAULT_TEXT,
     title: raw.title,
     type,
@@ -105,11 +123,15 @@ export function normalizeCallout(raw: Partial<Callout> & { id?: string }): Callo
     stickerUrl: raw.stickerUrl,
     stickerScale: raw.stickerScale ?? 1,
     color: raw.color,
+    textColor: typeof raw.textColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.textColor) ? raw.textColor : undefined,
+    fill: raw.fill === 'transparent' || (typeof raw.fill === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.fill))
+      ? raw.fill
+      : undefined,
     theme,
-    shape: raw.shape ?? 'rounded',
+    shape: migrateShape(raw.shape),
     fontStyle: raw.fontStyle ?? 'sans',
     arrowStyle,
-    pulse: raw.pulse ?? type === 'pointer',
+    pulse: type === 'dot',
   };
 }
 
@@ -140,19 +162,16 @@ export function normalizeCalloutList(list: unknown): Callout[] {
 
 export function hintTypeLabel(type: HintType): string {
   switch (type) {
-    case 'minimal': return 'Minimal';
-    case 'accent': return 'Accent';
-    case 'card': return 'Card';
-    case 'sticker': return 'Sticker';
-    case 'pointer': return 'Pointer';
+    case 'plain': return 'Простая';
+    case 'dot': return 'Точка';
+    case 'arrow': return 'Стрелка';
     default: return 'Hint';
   }
 }
 
-export function hintLaneTone(type: HintType): 'text' | 'card' | 'sticker' | 'pointer' {
-  if (type === 'sticker') return 'sticker';
-  if (type === 'pointer') return 'pointer';
-  if (type === 'card') return 'card';
+export function hintLaneTone(type: HintType): 'text' | 'card' | 'pointer' {
+  if (type === 'arrow') return 'card';
+  if (type === 'dot') return 'pointer';
   return 'text';
 }
 

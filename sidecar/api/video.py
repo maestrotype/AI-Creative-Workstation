@@ -453,8 +453,11 @@ class CalloutModel(BaseModel):
     size: str = "m"
     anchor: str = "center"
     color: Optional[str] = None
+    fill: Optional[str] = None
+    text_color: Optional[str] = None
     theme: Optional[str] = "accent"
     arrow_style: str = "none"
+    shape: Optional[str] = "rect"
     sticker_path: Optional[str] = None
     sticker_scale: float = 1.0
     box_w: Optional[float] = None
@@ -556,12 +559,14 @@ def _render_callout_overlay_png(callout: CalloutModel, video_w: int, video_h: in
 
     card_pad_x = 18
     card_pad_y = 12
-    card_w = max(180, min(video_w - bx - 20, tw + card_pad_x * 2))
-    card_h = th + card_pad_y * 2
+    card_w = int(video_w * (callout.box_w / 100.0)) if callout.box_w else max(120, tw + card_pad_x * 2)
+    card_h = int(video_h * (callout.box_h / 100.0)) if callout.box_h else th + card_pad_y * 2
+    card_w = max(80, min(video_w - 8, card_w))
+    card_h = max(36, min(video_h - 8, card_h))
+    left = max(0, min(video_w - card_w, bx - card_w // 2))
+    top = max(0, min(video_h - card_h, by - card_h // 2))
 
-    start_cx = bx + (card_w if bx < tx else 0)
-    start_cy = by + card_h // 2
-    accent_color = (212, 168, 75, 255)
+    accent_color = (242, 193, 78, 255)
     if callout.color and re.fullmatch(r"#[0-9a-fA-F]{6}", callout.color):
         accent_color = tuple(int(callout.color[i:i + 2], 16) for i in (1, 3, 5)) + (255,)
     if callout.theme == "success":
@@ -569,26 +574,64 @@ def _render_callout_overlay_png(callout: CalloutModel, video_w: int, video_h: in
     elif callout.theme == "warning":
         accent_color = (245, 158, 11, 255)
 
-    if callout.type == "pointer" or callout.arrow_style != "none":
-        draw.line([(start_cx, start_cy), (tx, ty)], fill=(0, 0, 0, 180), width=5)
-        draw.line([(start_cx, start_cy), (tx, ty)], fill=accent_color, width=3)
-        draw.ellipse([(tx - 9, ty - 9), (tx + 9, ty + 9)], fill=accent_color[:-1] + (70,), outline=accent_color, width=2)
-        draw.ellipse([(tx - 4, ty - 4), (tx + 4, ty + 4)], fill=accent_color)
-
-    r = 10
-    if callout.type == "minimal":
-        draw.rounded_rectangle([(bx, by), (bx + card_w, by + card_h)], radius=r, fill=(8, 10, 14, 185))
+    kind = callout.type if callout.type in ("plain", "dot", "arrow") else (
+        "arrow" if callout.arrow_style != "none" else "dot" if callout.type == "pointer" else "plain"
+    )
+    oval = (callout.shape or "rect") == "oval"
+    radius = min(card_w, card_h) // 2 if oval else 8
+    if callout.fill == "transparent":
+        fill = (0, 0, 0, 0)
+    elif callout.fill and re.fullmatch(r"#[0-9a-fA-F]{6}", callout.fill):
+        fill = tuple(int(callout.fill[i:i + 2], 16) for i in (1, 3, 5)) + (230,)
     else:
-        draw.rounded_rectangle([(bx - 2, by - 2), (bx + card_w + 2, by + card_h + 2)], radius=r, fill=(0, 0, 0, 80))
-        draw.rounded_rectangle([(bx, by), (bx + card_w, by + card_h)], radius=r, fill=(24, 24, 27, 235), outline=accent_color, width=2)
-        if callout.type in ("accent", "card", "pointer"):
-            draw.rounded_rectangle([(bx, by), (bx + 6, by + card_h)], radius=r, fill=accent_color)
+        fill = (15, 23, 42, 210) if kind == "plain" else (15, 23, 42, 235)
+    outline = None if kind == "plain" or callout.fill == "transparent" else accent_color
+    draw.rounded_rectangle(
+        [(left, top), (left + card_w, top + card_h)],
+        radius=radius,
+        fill=fill,
+        outline=outline,
+        width=3 if outline else 1,
+    )
 
-    text_y = by + card_pad_y
+    if kind == "dot":
+        draw.ellipse([(tx - 14, ty - 14), (tx + 14, ty + 14)], fill=accent_color[:-1] + (90,))
+        draw.ellipse([(tx - 8, ty - 8), (tx + 8, ty + 8)], fill=accent_color, outline=(255, 255, 255, 255), width=2)
+    elif kind == "arrow":
+        cx = left + card_w / 2
+        cy = top + card_h / 2
+        dx = tx - cx
+        dy = ty - cy
+        length = max(1.0, (dx * dx + dy * dy) ** 0.5)
+        if oval:
+            scale = 1.0 / max(0.001, ((dx / (card_w / 2)) ** 2 + (dy / (card_h / 2)) ** 2) ** 0.5)
+        else:
+            scale = 1.0 / max(0.001, max(abs(dx) / (card_w / 2), abs(dy) / (card_h / 2)))
+        scale = min(scale, 0.92)
+        x1 = cx + dx * scale
+        y1 = cy + dy * scale
+        x2 = tx - dx / length * 16
+        y2 = ty - dy / length * 16
+        draw.line([(x1, y1), (x2, y2)], fill=(0, 0, 0, 160), width=7)
+        draw.line([(x1, y1), (x2, y2)], fill=accent_color, width=4)
+        ux, uy = dx / length, dy / length
+        px, py = -uy, ux
+        head = 18
+        draw.polygon([
+            (tx, ty),
+            (tx - ux * head + px * 8, ty - uy * head + py * 8),
+            (tx - ux * head - px * 8, ty - uy * head - py * 8),
+        ], fill=accent_color)
+
+    text_x = left + max(8, (card_w - tw) // 2)
+    text_y = top + max(6, (card_h - th) // 2)
     if callout.title:
-        draw.text((bx + card_pad_x, text_y - title_box[1]), callout.title, font=title_font, fill=accent_color)
+        draw.text((text_x, text_y - title_box[1]), callout.title, font=title_font, fill=accent_color)
         text_y += title_h
-    draw.multiline_text((bx + card_pad_x, text_y - box[1]), text, font=font, fill=(255, 255, 255, 255), spacing=4)
+    ink = (255, 255, 255, 255)
+    if callout.text_color and re.fullmatch(r"#[0-9a-fA-F]{6}", callout.text_color):
+        ink = tuple(int(callout.text_color[i:i + 2], 16) for i in (1, 3, 5)) + (255,)
+    draw.multiline_text((text_x, text_y - box[1]), text, font=font, fill=ink, spacing=4)
 
     img.save(out_path)
 

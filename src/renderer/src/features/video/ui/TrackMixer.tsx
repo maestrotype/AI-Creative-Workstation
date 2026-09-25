@@ -773,7 +773,7 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
                 targetX: 50,
                 targetY: 42,
                 text: 'Нажмите сюда',
-                type: 'accent',
+                type: 'arrow',
                 size: 'm',
                 animationIn: 'fade',
                 animationOut: 'fade',

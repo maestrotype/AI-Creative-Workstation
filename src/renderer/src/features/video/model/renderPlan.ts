@@ -36,7 +36,10 @@ export interface RenderPlan {
     size: string;
     anchor: string;
     color?: string;
+    fill?: string;
+    text_color?: string;
     theme: string;
+    shape?: string;
     arrow_style: string;
     sticker_path?: string;
     sticker_scale?: number;
@@ -107,7 +110,10 @@ export function buildRenderPlan(args: {
           size: hint.size,
           anchor: hint.anchor,
           color: hint.color,
+          fill: hint.fill,
+          text_color: hint.textColor,
           theme: hint.theme,
+          shape: hint.shape,
           arrow_style: hint.arrowStyle,
           sticker_path: diskPathFromAssetUrl(hint.stickerUrl),
           sticker_scale: hint.stickerScale,

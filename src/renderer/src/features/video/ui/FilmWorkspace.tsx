@@ -203,18 +203,18 @@ export function FilmWorkspace({
             className={s.ghost}
             disabled={!d.canUndo}
             onClick={d.undo}
-            title="Undo (⌘Z / Ctrl+Z)"
+            title={t('video.dir_undo_hint')}
           >
-            Undo
+            {t('video.dir_undo')}
           </button>
           <button
             type="button"
             className={s.ghost}
             disabled={!d.canRedo}
             onClick={d.redo}
-            title="Redo (⇧⌘Z / Ctrl+Y)"
+            title={t('video.dir_redo_hint')}
           >
-            Redo
+            {t('video.dir_redo')}
           </button>
           <button
             type="button"
