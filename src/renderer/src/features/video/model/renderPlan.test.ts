@@ -35,14 +35,14 @@ describe('buildRenderPlan', () => {
         boxX: 25,
         boxY: 35,
         text: 'Checkout',
-        type: 'card',
+        type: 'card' as 'plain',
       })],
       overlayPos: { v2: { x: 70, y: 10 } },
     });
 
     expect([plan.width, plan.height]).toEqual([1080, 1920]);
     expect(plan.clips[0].volume).toBe(0.7);
-    expect(plan.callouts?.[0].type).toBe('card');
+    expect(plan.callouts?.[0].type).toBe('plain');
     expect(plan.overlay_positions.v2).toEqual({ x: 70, y: 10 });
   });
 });

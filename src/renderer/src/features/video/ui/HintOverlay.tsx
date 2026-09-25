@@ -7,22 +7,78 @@ import {
 } from '../model/callout';
 import s from './HintOverlay.module.css';
 
-function labelPoint(hint: Callout): { x: number; y: number } {
-  const dx = hint.boxX - hint.targetX;
-  const dy = hint.boxY - hint.targetY;
-  if (Math.hypot(dx, dy) >= 8) return { x: hint.boxX, y: hint.boxY };
-  const x = hint.targetX > 58 ? hint.targetX - 26 : Math.min(74, hint.targetX + 18);
-  const y = hint.targetY > 68 ? hint.targetY - 18 : Math.min(80, hint.targetY + 12);
-  return {
-    x: Math.max(4, Math.min(96, x)),
-    y: Math.max(6, Math.min(92, y)),
+type Handle = 'nw' | 'ne' | 'sw' | 'se';
+
+type Drag =
+  | {
+    kind: 'move';
+    id: string;
+    startX: number;
+    startY: number;
+    boxX: number;
+    boxY: number;
+    targetX: number;
+    targetY: number;
+  }
+  | {
+    kind: 'target';
+    id: string;
+    startX: number;
+    startY: number;
+    targetX: number;
+    targetY: number;
+  }
+  | {
+    kind: 'resize';
+    id: string;
+    handle: Handle;
+    startX: number;
+    startY: number;
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
   };
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n));
 }
 
-function showsArrow(hint: Callout): boolean {
-  if (hint.type === 'sticker') return hint.arrowStyle !== 'none';
-  if (hint.type === 'minimal') return hint.arrowStyle !== 'none';
-  return true;
+function arrowGeometry(
+  hint: Callout,
+  w: number,
+  h: number,
+): { x1: number; y1: number; x2: number; y2: number; head: string } | null {
+  if (hint.type !== 'arrow' || w < 8 || h < 8) return null;
+  const cx = (hint.boxX / 100) * w;
+  const cy = (hint.boxY / 100) * h;
+  const tx = (hint.targetX / 100) * w;
+  const ty = (hint.targetY / 100) * h;
+  const dx = tx - cx;
+  const dy = ty - cy;
+  const len = Math.hypot(dx, dy);
+  if (len < 10) return null;
+  const ux = dx / len;
+  const uy = dy / len;
+  const hw = Math.max(18, ((hint.boxW ?? 16) / 100) * w / 2);
+  const hh = Math.max(12, ((hint.boxH ?? 8) / 100) * h / 2);
+  const edge = hint.shape === 'oval'
+    ? 1 / Math.sqrt((dx / hw) ** 2 + (dy / hh) ** 2 || 1)
+    : 1 / Math.max(Math.abs(dx) / hw, Math.abs(dy) / hh);
+  const scale = Math.min(edge, 0.94);
+  const head = 13;
+  const wing = 5;
+  const px = -uy;
+  const py = ux;
+  const baseX = tx - ux * head;
+  const baseY = ty - uy * head;
+  return {
+    x1: cx + dx * scale + ux * 2,
+    y1: cy + dy * scale + uy * 2,
+    x2: tx - ux * (head - 2),
+    y2: ty - uy * (head - 2),
+    head: `${tx},${ty} ${baseX + px * wing},${baseY + py * wing} ${baseX - px * wing},${baseY - py * wing}`,
+  };
 }
 
 export function HintOverlay({
@@ -32,8 +88,8 @@ export function HintOverlay({
   selectedId,
   editable,
   onSelect,
-  onMoveBox,
-  onMoveTarget,
+  onChange,
+  onGestureStart,
 }: {
   hints: Callout[];
   playhead: number;
@@ -41,56 +97,35 @@ export function HintOverlay({
   selectedId: string | null;
   editable: boolean;
   onSelect: (id: string) => void;
-  onMoveBox: (id: string, x: number, y: number) => void;
-  onMoveTarget: (id: string, x: number, y: number) => void;
+  onChange: (id: string, patch: Partial<Callout>) => void;
+  onGestureStart: (id: string) => void;
 }): ReactNode {
-  const dragRef = useRef<{
-    id: string;
-    part: 'box' | 'target';
-    startX: number;
-    startY: number;
-    origX: number;
-    origY: number;
-  } | null>(null);
+  const dragRef = useRef<Drag | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const [size, setSize] = useState({ w: 1, h: 1 });
+  const boxRefs = useRef(new Map<string, HTMLDivElement>());
+  const [frame, setFrame] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return undefined;
     const measure = () => {
-      const own = root.getBoundingClientRect();
-      const box = own.width > 8 && own.height > 8
-        ? own
-        : root.parentElement?.getBoundingClientRect();
-      if (!box || box.width < 8 || box.height < 8) return;
-      setSize({ w: box.width, h: box.height });
+      const box = root.getBoundingClientRect();
+      if (box.width > 8 && box.height > 8) setFrame({ w: box.width, h: box.height });
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(root);
-    if (root.parentElement) observer.observe(root.parentElement);
     return () => observer.disconnect();
   }, []);
 
-  const onPointerDown = (
-    e: ReactPointerEvent,
-    hint: Callout,
-    part: 'box' | 'target',
-    origin: { x: number; y: number },
-  ) => {
-    if (!editable || hint.id !== selectedId) return;
+  const begin = (e: ReactPointerEvent, drag: Drag, hintId: string) => {
+    if (!editable) return;
     e.stopPropagation();
     e.preventDefault();
+    onSelect(hintId);
+    onGestureStart(hintId);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    dragRef.current = {
-      id: hint.id,
-      part,
-      startX: e.clientX,
-      startY: e.clientY,
-      origX: origin.x,
-      origY: origin.y,
-    };
+    dragRef.current = drag;
   };
 
   const onPointerMove = (e: ReactPointerEvent) => {
@@ -100,12 +135,50 @@ export function HintOverlay({
     const rect = root.getBoundingClientRect();
     const dx = ((e.clientX - drag.startX) / Math.max(1, rect.width)) * 100;
     const dy = ((e.clientY - drag.startY) / Math.max(1, rect.height)) * 100;
-    const x = Math.max(2, Math.min(98, drag.origX + dx));
-    const y = Math.max(2, Math.min(98, drag.origY + dy));
-    const nextX = Math.round(x * 10) / 10;
-    const nextY = Math.round(y * 10) / 10;
-    if (drag.part === 'target') onMoveTarget(drag.id, nextX, nextY);
-    else onMoveBox(drag.id, nextX, nextY);
+    if (drag.kind === 'target') {
+      onChange(drag.id, {
+        targetX: Math.round(clamp(drag.targetX + dx, 1, 99) * 10) / 10,
+        targetY: Math.round(clamp(drag.targetY + dy, 1, 99) * 10) / 10,
+      });
+      return;
+    }
+    if (drag.kind === 'move') {
+      onChange(drag.id, {
+        boxX: Math.round(clamp(drag.boxX + dx, 2, 98) * 10) / 10,
+        boxY: Math.round(clamp(drag.boxY + dy, 2, 98) * 10) / 10,
+        targetX: Math.round(clamp(drag.targetX + dx, 1, 99) * 10) / 10,
+        targetY: Math.round(clamp(drag.targetY + dy, 1, 99) * 10) / 10,
+      });
+      return;
+    }
+    let left = drag.left;
+    let top = drag.top;
+    let right = drag.right;
+    let bottom = drag.bottom;
+    if (drag.handle.includes('e')) right = drag.right + dx;
+    if (drag.handle.includes('w')) left = drag.left + dx;
+    if (drag.handle.includes('s')) bottom = drag.bottom + dy;
+    if (drag.handle.includes('n')) top = drag.top + dy;
+    if (right - left < 10) {
+      if (drag.handle.includes('w')) left = right - 10;
+      else right = left + 10;
+    }
+    if (bottom - top < 6) {
+      if (drag.handle.includes('n')) top = bottom - 6;
+      else bottom = top + 6;
+    }
+    left = clamp(left, 0, 90);
+    top = clamp(top, 0, 90);
+    right = clamp(right, left + 10, 100);
+    bottom = clamp(bottom, top + 6, 100);
+    const boxW = right - left;
+    const boxH = bottom - top;
+    onChange(drag.id, {
+      boxX: Math.round((left + boxW / 2) * 10) / 10,
+      boxY: Math.round((top + boxH / 2) * 10) / 10,
+      boxW: Math.round(boxW * 10) / 10,
+      boxH: Math.round(boxH * 10) / 10,
+    });
   };
 
   const onPointerUp = () => {
@@ -123,50 +196,34 @@ export function HintOverlay({
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
     >
-      <svg className={s.leaders} viewBox={`0 0 ${size.w} ${size.h}`} aria-hidden>
-        <defs>
-          <marker id="hint-arrow" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
-            <path d="M0,0 L9,4.5 L0,9 Z" fill="#f2c14e" />
-          </marker>
-        </defs>
-        {size.w > 8 && size.h > 8 ? hints.map((hint) => {
-          if (!showsArrow(hint)) return null;
-          const box = labelPoint(hint);
-          const x1 = (box.x / 100) * size.w;
-          const y1 = (box.y / 100) * size.h;
-          const x2 = (hint.targetX / 100) * size.w;
-          const y2 = (hint.targetY / 100) * size.h;
-          const dx = x2 - x1;
-          const dy = y2 - y1;
-          const len = Math.hypot(dx, dy) || 1;
-          const startPad = Math.min(42, len * 0.42);
-          const endPad = Math.min(10, len * 0.15);
-          return (
-            <line
-              key={hint.id}
-              x1={x1 + (dx / len) * startPad}
-              y1={y1 + (dy / len) * startPad}
-              x2={x2 - (dx / len) * endPad}
-              y2={y2 - (dy / len) * endPad}
-              className={s.leader}
-              markerEnd="url(#hint-arrow)"
-            />
-          );
-        }) : null}
-      </svg>
+      {frame.w > 8 ? (
+        <svg className={s.leaders} viewBox={`0 0 ${frame.w} ${frame.h}`} aria-hidden>
+          {hints.map((hint) => {
+            const line = arrowGeometry(hint, frame.w, frame.h);
+            if (!line) return null;
+            const lineColor = hint.color || '#f2c14e';
+            return (
+              <g key={hint.id} className={s.arrow}>
+                <line
+                  x1={line.x1}
+                  y1={line.y1}
+                  x2={line.x2}
+                  y2={line.y2}
+                  stroke={lineColor}
+                  strokeWidth={1.75}
+                  strokeLinecap="round"
+                />
+                <polygon points={line.head} fill={lineColor} />
+              </g>
+            );
+          })}
+        </svg>
+      ) : null}
       {hints.map((hint) => {
         const selected = selectedId === hint.id;
         const phase = playing ? hintAnimPhase(hint, playhead) : 'hold';
         if (playing && phase === 'idle') return null;
-        const box = labelPoint(hint);
         const sizeClass = hint.size === 's' ? s.sizeS : hint.size === 'l' ? s.sizeL : s.sizeM;
-        const typeClass = {
-          minimal: s.typeMinimal,
-          accent: s.typeAccent,
-          card: s.typeCard,
-          sticker: s.typeSticker,
-          pointer: s.typePointer,
-        }[hint.type];
         const animClass = playing
           ? (phase === 'in'
             ? ({
@@ -181,56 +238,91 @@ export function HintOverlay({
               : '')
           : '';
         const style: CSSProperties = {
-          left: `${box.x}%`,
-          top: `${box.y}%`,
-          ...(hint.color ? { ['--hint-color' as string]: hint.color } : {}),
+          left: `${hint.boxX}%`,
+          top: `${hint.boxY}%`,
+          ...(hint.boxW ? { width: `${hint.boxW}%` } : {}),
+          ...(hint.boxH ? { height: `${hint.boxH}%` } : {}),
+          ['--hint-line' as string]: hint.color || '#f2c14e',
+          ['--hint-ink' as string]: hint.textColor || '#f8fafc',
+          ...(hint.fill && hint.fill !== 'transparent' ? { ['--hint-fill' as string]: hint.fill } : {}),
         };
+        const showMark = hint.type === 'dot' || hint.type === 'arrow';
 
         return (
           <div key={hint.id}>
-            {showsArrow(hint) ? (
+            {showMark ? (
               <button
                 type="button"
-                className={s.pin}
+                className={hint.type === 'arrow' ? s.tip : s.dot}
                 data-selected={selected}
-                style={{ left: `${hint.targetX}%`, top: `${hint.targetY}%` }}
-                title="Место, на которое указывает подсказка"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelect(hint.id);
+                data-pulse={hint.type === 'dot' || undefined}
+                style={{
+                  left: `${hint.targetX}%`,
+                  top: `${hint.targetY}%`,
+                  ...(hint.type === 'dot' ? { background: hint.color || '#f2c14e' } : {}),
                 }}
-                onPointerDown={(e) => onPointerDown(e, hint, 'target', { x: hint.targetX, y: hint.targetY })}
+                title={hint.type === 'arrow' ? 'Куда указывает стрелка' : 'Точка на кадре'}
+                onPointerDown={(e) => begin(e, {
+                  kind: 'target',
+                  id: hint.id,
+                  startX: e.clientX,
+                  startY: e.clientY,
+                  targetX: hint.targetX,
+                  targetY: hint.targetY,
+                }, hint.id)}
               />
             ) : null}
             <div
-              className={`${s.hint} ${typeClass} ${sizeClass} ${animClass}`}
+              ref={(node) => {
+                if (node) boxRefs.current.set(hint.id, node);
+                else boxRefs.current.delete(hint.id);
+              }}
+              className={`${s.hint} ${s[hint.type === 'plain' ? 'typePlain' : hint.type === 'dot' ? 'typeDot' : 'typeArrow']} ${sizeClass} ${animClass}`}
               data-selected={selected}
               data-phase={phase}
-              data-anchor={hint.anchor}
+              data-shape={hint.shape}
+              data-fill={hint.fill === 'transparent' ? 'transparent' : undefined}
+              data-sized={hint.boxW || hint.boxH ? 'true' : undefined}
               style={style}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelect(hint.id);
-              }}
-              onPointerDown={(e) => onPointerDown(e, hint, 'box', box)}
+              onPointerDown={(e) => begin(e, {
+                kind: 'move',
+                id: hint.id,
+                startX: e.clientX,
+                startY: e.clientY,
+                boxX: hint.boxX,
+                boxY: hint.boxY,
+                targetX: hint.targetX,
+                targetY: hint.targetY,
+              }, hint.id)}
             >
-              {hint.type === 'sticker' && hint.stickerUrl ? (
-                <img
-                  className={s.stickerImg}
-                  src={hint.stickerUrl}
-                  alt=""
-                  style={{ transform: `scale(${hint.stickerScale ?? 1})` }}
-                  draggable={false}
+              <div className={s.body}>
+                {hint.title ? <div className={s.title}>{hint.title}</div> : null}
+                <div className={s.text}>{hint.text}</div>
+              </div>
+              {editable && selected ? (['nw', 'ne', 'sw', 'se'] as Handle[]).map((handle) => (
+                <span
+                  key={handle}
+                  className={`${s.handle} ${s[`handle_${handle}`]}`}
+                  onPointerDown={(e) => {
+                    const el = boxRefs.current.get(hint.id);
+                    const root = rootRef.current;
+                    if (!el || !root) return;
+                    const frame = root.getBoundingClientRect();
+                    const b = el.getBoundingClientRect();
+                    begin(e, {
+                      kind: 'resize',
+                      id: hint.id,
+                      handle,
+                      startX: e.clientX,
+                      startY: e.clientY,
+                      left: ((b.left - frame.left) / frame.width) * 100,
+                      top: ((b.top - frame.top) / frame.height) * 100,
+                      right: ((b.right - frame.left) / frame.width) * 100,
+                      bottom: ((b.bottom - frame.top) / frame.height) * 100,
+                    }, hint.id);
+                  }}
                 />
-              ) : null}
-              {hint.type !== 'sticker' || !hint.stickerUrl ? (
-                <div className={s.body}>
-                  {hint.type === 'card' && hint.title ? (
-                    <div className={s.title}>{hint.title}</div>
-                  ) : null}
-                  <div className={s.text}>{hint.text}</div>
-                </div>
-              ) : null}
+              )) : null}
             </div>
           </div>
         );
