@@ -1,0 +1,63 @@
+{
+  "film_id": "8cd095b2-7f44-4e38-ac81-709d5080ad7a",
+  "name": "Демо проект",
+  "assembled_path": "/Users/andriidanichkin/Documents/Canvas/Projects/8cd095b2-7f44-4e38-ac81-709d5080ad7a/1790368429273-eefae847.mp4",
+  "analysis_source_path": "/Users/andriidanichkin/Documents/Canvas/Projects/8cd095b2-7f44-4e38-ac81-709d5080ad7a/1790368429273-eefae847.mp4",
+  "duration_sec": 62.222,
+  "v1_chapters": [
+    {
+      "title": "Запись экрана 2026-09-25 в 12.07.13.mov",
+      "start": 0.0,
+      "end": 28.233333,
+      "bin_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/drafts/erase-66d3d082cc98.mp4",
+      "bin_name": "Запись экрана 2026-09-25 в 12.07.13.mov"
+    },
+    {
+      "title": "Запись экрана 2026-09-25 в 12.11.00.mov",
+      "start": 28.233333,
+      "end": 62.2,
+      "bin_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/drafts/erase-ddd105a4c0fc.mp4",
+      "bin_name": "Запись экрана 2026-09-25 в 12.11.00.mov"
+    }
+  ],
+  "warnings": [
+    "VISION_MODEL_MISSING"
+  ],
+  "whisper_available": true,
+  "transcript": {
+    "segments": [],
+    "language": "en",
+    "full_text": ""
+  },
+  "ffmpeg_scenes": [
+    {
+      "index": 0,
+      "start": 0,
+      "end": 18.688
+    },
+    {
+      "index": 1,
+      "start": 18.688,
+      "end": 37.288
+    },
+    {
+      "index": 2,
+      "start": 37.288,
+      "end": 44.121
+    },
+    {
+      "index": 3,
+      "start": 44.121,
+      "end": 62.222
+    }
+  ],
+  "export_settings": {
+    "preset": "youtube-1080p",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "audioPolicy": "duck",
+    "burnInHints": true,
+    "burnInCaptions": true
+  }
+}

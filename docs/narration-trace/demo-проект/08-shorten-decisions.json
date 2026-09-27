@@ -1,0 +1,67 @@
+{
+  "rule": "DirectorBoard.applyScriptVoiceover: shorten if probed TTS duration > windowSec * 1.12",
+  "ipc": "shorten-script → sidecar /api/script/shorten → script_llm.shorten_spoken",
+  "this_run": "No segment crossed the threshold — SHORTENED SCRIPT == RAW SCRIPT text.",
+  "segments": [
+    {
+      "index": 0,
+      "window_sec": 9.34,
+      "speech_sec": 5.286667,
+      "threshold_sec": 10.461,
+      "would_shorten": false,
+      "target_sec_if_shorten": 7.939,
+      "text": "В каталоге у карточки видна цена, новинку можно открыть. Так шаблон показывает товары.",
+      "audio_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/vo-1790493565-000.wav",
+      "visual_summary": "В каталоге у карточки видна цена, новинку можно открыть. Так шаблон показывает товары.",
+      "purpose": ""
+    },
+    {
+      "index": 1,
+      "window_sec": 9.35,
+      "speech_sec": 5.009333,
+      "threshold_sec": 10.472,
+      "would_shorten": false,
+      "target_sec_if_shorten": 7.948,
+      "text": "Ниже блок с брендами, показывающий доверие покупателей к этим маркам на витрине.",
+      "audio_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/vo-1790493565-001.wav",
+      "visual_summary": "Ниже блок с брендами. Шаблон показывает, кому уже доверяют на этой витрине.",
+      "purpose": ""
+    },
+    {
+      "index": 2,
+      "window_sec": 18.6,
+      "speech_sec": 7.526667,
+      "threshold_sec": 20.832,
+      "would_shorten": false,
+      "target_sec_if_shorten": 15.81,
+      "text": "В каталоге у карточки видна цена, новинку можно открыть. Шаблон позволяет детально изучать товары.",
+      "audio_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/vo-1790493565-002.wav",
+      "visual_summary": "В каталоге у карточки видна цена, новинку можно открыть. Так шаблон показывает товары.",
+      "purpose": ""
+    },
+    {
+      "index": 3,
+      "window_sec": 6.83,
+      "speech_sec": 4.604,
+      "threshold_sec": 7.65,
+      "would_shorten": false,
+      "target_sec_if_shorten": 5.805,
+      "text": "На главной открывается коллекция: товар показан объёмно, его можно рассмотреть.",
+      "audio_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/vo-1790493565-003.wav",
+      "visual_summary": "На главной открывается коллекция: товар показан объёмно, его можно рассмотреть. Так шаблон встречает покупателя.",
+      "purpose": ""
+    },
+    {
+      "index": 4,
+      "window_sec": 18.1,
+      "speech_sec": 6.950667,
+      "threshold_sec": 20.272,
+      "would_shorten": false,
+      "target_sec_if_shorten": 15.385,
+      "text": "В каталоге у карточки видна цена, новинку можно открыть. Шаблон демонстрирует товары с подробной информацией.",
+      "audio_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/vo-1790493565-004.wav",
+      "visual_summary": "В каталоге у карточки видна цена, новинку можно открыть. Так шаблон показывает товары.",
+      "purpose": ""
+    }
+  ]
+}

@@ -1,0 +1,122 @@
+You are writing a voiceover that walks through a screen recording of a website template.
+The goal is to explain what the template can do, by describing what is happening in the video.
+
+User notes: Демо Angular 3D Ecommerce для маркетплейса
+
+Замени авторскую озвучку. Минута картины — это несколько реплик по ходу кадра, не одна фраза на всю главу. Пиши то, что видно и что меняется, опираясь на разбор кадров и на слова автора. Черновик главы — смысл, не текст для копирования.
+Product brief (context only — never claim a feature that is not visible):
+Angular 3D Ecommerce — магазин на Angular 17, API на NestJS, PostgreSQL и 3D на Three.js.
+Для кого: покупатели на CodeCanyon и Gumroad, агентства и фрилансеры.
+Что показать:
+1. Это не лендинг: витрина, каталог, карточка, корзина, заказы и админка.
+2. Покупатель крутит GLB на карточке и на Product Stage. Демо-модели уже в комплекте.
+3. Темы витрины: Light, Dark, Glass. В админке ещё Dark Glass. Языки: EN, UA, RU.
+4. Stripe боевой, LiqPay для региона, PayPal в интерфейсе помечен как mock.
+5. В админке: дашборд, товары, заказы, пользователи, секции витрины, SEO.
+6. Фото с удалением фона через Remove.bg по ключу, загрузка GLB, Docker Compose и документация.
+Секреты, ключи и .env в кадре не показывать.
+
+Video duration: 62.2s
+Language: Russian
+Speaking rate target: ~130 wpm. A minute of picture needs about a minute of speech, split across the beats — not one sentence.
+
+Speech beats:
+Speech beats — return ONE spoken segment per beat, with the same start_sec and end_sec.
+A minute of picture is several beats. Never cover 40+ seconds with one slogan.
+Hit the target word count: two to four sentences. Name the page, what the cursor does, and the template ability.
+You may name visible controls (catalog, 3D, cart, price, filters) in natural speech.
+Visible / User / UI / Actions / Author said are the facts. Do not invent other screens. Do not write a shop ad.
+BEAT 0 0.0s–9.3s (9.3s, write about 17 words, hard max 19)
+  Chapter: Запись экрана 2026-09-25 в 12.07.13.mov
+  Show: Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, EN, Shop, New in.
+  Visible: Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, EN, Shop, New in.
+  User: —
+  UI: 3D, EN, Shop, New in, Brands, ADMIN, Contacts, Categories
+  Actions: —
+  Author said: —
+  Selling point: —
+BEAT 1 9.3s–18.7s (9.4s, write about 17 words, hard max 19)
+  Chapter: Запись экрана 2026-09-25 в 12.07.13.mov
+  Show: Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, New in, Shop, Contacts.
+  Visible: Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, New in, Shop, Contacts.
+  User: —
+  UI: 3D, New in, Shop, Contacts, Categories, ADMIN, ® EN, Brands
+  Actions: —
+  Author said: —
+  Selling point: —
+BEAT 2 18.7s–28.0s (9.3s, write about 17 words, hard max 19)
+  Chapter: Запись экрана 2026-09-25 в 12.07.13.mov
+  Show: Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, Categories, Shop, Contacts.
+  Visible: Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, Categories, Shop, Contacts.
+  User: —
+  UI: 3D, Categories, Shop, Contacts, ADMIN, Đ EN, Brands, New in
+  Actions: —
+  Author said: —
+  Selling point: —
+BEAT 3 28.0s–37.3s (9.3s, write about 17 words, hard max 19)
+  Chapter: Запись экрана 2026-09-25 в 12.11.00.mov
+  Show: Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, ADMIN, Shop, New in.
+  Visible: Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, ADMIN, Shop, New in.
+  User: —
+  UI: 3D, ADMIN, Shop, New in, Brands, Categories, Contacts, Đ EN
+  Actions: —
+  Author said: —
+  Selling point: —
+BEAT 4 37.3s–44.1s (6.8s, write about 13 words, hard max 14)
+  Chapter: Запись экрана 2026-09-25 в 12.11.00.mov
+  Show: Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, New in, # EN, Categories.
+  Visible: Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, New in, # EN, Categories.
+  User: —
+  UI: 3D, New in, # EN, Categories, Shop, Brands, ADMIN, Contacts
+  Actions: —
+  Author said: —
+  Selling point: —
+BEAT 5 44.1s–53.2s (9.1s, write about 17 words, hard max 18)
+  Chapter: Запись экрана 2026-09-25 в 12.11.00.mov
+  Show: Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, 8 магазині, Новинки, Брен,.
+  Visible: Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, 8 магазині, Новинки, Брен,.
+  User: —
+  UI: 3D, 8 магазині, Новинки, Брен,, Домой, @ RU, АДМИНИСТРАТОР, Категории
+  Actions: —
+  Author said: —
+  Selling point: —
+BEAT 6 53.2s–62.2s (9.0s, write about 17 words, hard max 18)
+  Chapter: Запись экрана 2026-09-25 в 12.11.00.mov
+  Show: Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, 8 магазині, Новинки, АДМИНИСТРАТОР.
+  Visible: Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, 8 магазині, Новинки, АДМИНИСТРАТОР.
+  User: —
+  UI: 3D, 8 магазині, Новинки, АДМИНИСТРАТОР, Брен,, Категории, Домой, EN
+  Actions: —
+  Author said: —
+  Selling point: —
+
+
+Return ONLY JSON:
+{
+  "segments": [
+    {
+      "start_sec": 0,
+      "end_sec": 5,
+      "text": "spoken words",
+      "role": "hook",
+      "purpose": "which template capability this beat shows",
+      "speak": true
+    }
+  ]
+}
+
+Rules:
+- Return exactly 7 segments when beats are listed — one per beat, same start_sec and end_sec.
+- Each segment is a short spoken paragraph (2–4 sentences) a presenter would say over THAT slice of the recording.
+- First say what is happening on this page (catalog, 3D card, cart, admin, theme switch). Then say which template ability that moment shows.
+- You MAY name visible controls and panels in natural speech. Do not recite a raw OCR dump or a price list.
+- Never start with "На экране отображается" or "Появляется надпись".
+- Do not write a slogan or an ad for the goods in the shop. Do not invent a different product.
+- Every sentence must end. Do not stop mid-phrase.
+- Speak only about what Visible / User / UI / Actions / Author said show. Do not invent screens that are not listed.
+- Neighboring beats must follow the recording: what changed, and what new ability that change shows.
+- Reach about the target word count. One short slogan for a long beat is a bug. Stay under that beat's hard max (92% of the beat at 130 wpm).
+- roles: hook | body | outro | cta
+- Spoken "text" and "purpose" MUST be only in Russian. Never Chinese, never mixed scripts.
+- Cover every beat through the end of the recording.
+- No stage directions, no "Scene 1", no commands like "покажи" / "tell the client".
