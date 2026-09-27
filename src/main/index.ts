@@ -2136,7 +2136,12 @@ function setupIpc() {
     parts: Array<{ file_path: string; start_sec: number }>;
     total_sec?: number;
     output_name?: string;
-  }) => sidecarJson('/api/audio/voiceover-track', payload, 5 * 60 * 1000));
+  }) => {
+    const data = await sidecarJson('/api/audio/voiceover-track', payload, 5 * 60 * 1000);
+    const mixed = data.file_path;
+    if (typeof mixed === 'string' && mixed.trim()) rememberPickedMedia(mixed);
+    return data;
+  });
 
   ipcMain.handle('enhance-audio', async (_, payload: {
     input_path: string;
@@ -2603,7 +2608,8 @@ function createWindow(): void {
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
-      sandbox: false
+      sandbox: false,
+      autoplayPolicy: 'no-user-gesture-required',
     }
   });
 
