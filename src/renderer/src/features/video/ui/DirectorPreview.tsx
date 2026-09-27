@@ -64,6 +64,8 @@ export function DirectorPreview({
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
   const playheadRef = useRef(playhead);
   playheadRef.current = playhead;
+  const prevSeekNonceRef = useRef(seekNonce);
+  const wasPlayingRef = useRef(playing);
   const [decodeError, setDecodeError] = useState<string | null>(null);
 
   const layout = useMemo(() => effectiveTrackLayout(clips, trackLayout), [clips, trackLayout]);
@@ -127,6 +129,11 @@ export function DirectorPreview({
     .filter((c) => c.track.startsWith('t') && c.text && playhead >= c.startSec && playhead < c.startSec + c.durationSec);
 
   useEffect(() => {
+    const seekChanged = seekNonce !== prevSeekNonceRef.current;
+    const playStarted = playing && !wasPlayingRef.current;
+    const syncTimeline = !playing || seekChanged || playStarted;
+    prevSeekNonceRef.current = seekNonce;
+    wasPlayingRef.current = playing;
     const attach = (
       el: HTMLMediaElement | null,
       url: string | null,
@@ -146,16 +153,22 @@ export function DirectorPreview({
         }
         return;
       }
-      const mediaT = mediaTimeForClip(clip, playheadRef.current);
       const same = el.src === url || el.currentSrc === url;
       if (!same) el.src = url;
       const apply = () => {
-        if (Math.abs(el.currentTime - mediaT) > 0.08) el.currentTime = mediaT;
-        if (shouldPlay) void el.play().catch(() => undefined);
-        else el.pause();
+        if (syncTimeline || !same) {
+          const mediaT = mediaTimeForClip(clip, playheadRef.current);
+          if (Math.abs(el.currentTime - mediaT) > 0.08) el.currentTime = mediaT;
+        }
+        if (shouldPlay) {
+          if (el.paused) void el.play().catch(() => undefined);
+        } else el.pause();
       };
-      if (el.readyState >= 1 && same) apply();
-      else el.addEventListener('loadeddata', apply, { once: true });
+      if (el.readyState >= 2 && same) apply();
+      else {
+        el.addEventListener('loadeddata', apply, { once: true });
+        el.addEventListener('canplay', apply, { once: true });
+      }
     };
 
     const narrationActive = audioClips.some((item) => item.clip && !item.clip.muted);
@@ -174,7 +187,14 @@ export function DirectorPreview({
 
     for (const { id, clip } of audioClips) {
       const bin = binFor(clip, bins);
-      attach(audioRefs.current[id], playbackUrl(bin, blobs), clip, playing && active, Boolean(clip?.muted), clip?.volume ?? 1);
+      attach(
+        audioRefs.current[id],
+        playbackUrl(bin, blobs),
+        clip,
+        playing && active,
+        Boolean(clip?.muted),
+        clip?.volume ?? 1,
+      );
     }
   }, [
     effectiveMainClip?.id,
@@ -188,6 +208,7 @@ export function DirectorPreview({
     seekNonce,
     bins,
     blobs,
+    playhead,
     pipOverlays.map((o) => o.clip.id).join('|'),
     audioClips.map((a) => `${a.clip?.id}:${a.clip?.muted ? 1 : 0}:${a.clip?.volume ?? 1}`).join('|'),
   ]);

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
+import { audioClipKind } from '../../assets/model/audioClipKind';
 import { useDirector } from './DirectorBoard';
 import { mediaMime, toAssetUrl } from '../model/directorMedia';
 import styles from './VideoPage.module.css';
@@ -31,6 +32,9 @@ export function VoiceSampleSetup(): ReactNode {
       ...d.bins.filter((b) => b.kind === 'audio').map((b) => ({ path: b.path, name: b.name })),
     ]) {
       if (!item.path || seen.has(item.path)) continue;
+      const fileName = item.name.split(/[/\\]/).pop() || item.name;
+      const kind = audioClipKind(fileName);
+      if (kind === 'voiceover' || kind === 'generated') continue;
       seen.add(item.path);
       out.push(item);
     }

@@ -1669,12 +1669,19 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         sourceInSec: 0,
         label: item.name,
         autoLength: true,
+        muted: false,
+        volume: 1,
       };
       queuedId = clip.id;
       return [...prev, clip];
     });
     if (queuedId) setSelectedClip(queuedId);
     setSelectedBin(item.id);
+    try {
+      await window.api?.readMediaFile?.(remembered);
+    } catch {
+      /* preview will retry via asset:// */
+    }
   };
 
   const refreshVoiceTools = async () => {
@@ -2281,9 +2288,12 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
 
     setVoiceoverApplyBusy(true);
     setVoiceoverApplyError(null);
+    const replaceSourceAudio = exportSettings.audioPolicy === 'replace';
     setClips((prev) => prev
       .filter((c) => c.track !== 'a1')
-      .map((c) => (c.track === 'v1' ? { ...c, muted: true } : c)));
+      .map((c) => (
+        c.track === 'v1' && replaceSourceAudio ? { ...c, muted: true } : c
+      )));
 
     if (voiceoverApplyPollRef.current) clearInterval(voiceoverApplyPollRef.current);
     voiceoverApplyPollRef.current = setInterval(() => {
@@ -2406,7 +2416,10 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           );
         }
       }
-      if (window.api.mixVoiceoverTrack && parts.length) {
+      if (!parts.length) {
+        throw new Error(t('video.vo_voice_apply_fail'));
+      }
+      if (window.api.mixVoiceoverTrack) {
         setVoiceoverApplyProgress({
           current: parts.length,
           total: parts.length,
@@ -2420,6 +2433,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           output_name: `voiceover-${scopeIdRef.current || 'film'}`,
         });
         await ingestAudioPathAt(mixed.file_path, 0, 'AI narration');
+        setSeekNonce((n) => n + 1);
       }
       if (speechUpdates.length) {
         setVoiceover((prev) => {
@@ -2444,6 +2458,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         total: voicedSegments.length,
         detail: t('video.vo_voice_apply_done'),
       });
+      seekTo(playheadRef.current);
     } catch (err) {
       setVoiceoverApplyError(ipcMessage(err, t('video.vo_voice_apply_fail')));
     } finally {
