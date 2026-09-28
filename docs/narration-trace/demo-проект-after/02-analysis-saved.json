@@ -1,0 +1,516 @@
+{
+  "source_path": "/Users/andriidanichkin/Documents/Canvas/Projects/8cd095b2-7f44-4e38-ac81-709d5080ad7a/1790368429273-eefae847.mp4",
+  "duration_sec": 62.222,
+  "scenes": [
+    {
+      "index": 0,
+      "start": 0.0,
+      "end": 18.688
+    },
+    {
+      "index": 1,
+      "start": 18.688,
+      "end": 37.288
+    },
+    {
+      "index": 2,
+      "start": 37.288,
+      "end": 44.121
+    },
+    {
+      "index": 3,
+      "start": 44.121,
+      "end": 62.222
+    }
+  ],
+  "scene_analysis": [
+    {
+      "index": 0,
+      "start": 0.0,
+      "end": 9.344,
+      "duration": 9.344,
+      "visual_summary": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "screen_type": "catalog",
+      "objects": [
+        "Saddle Crossbody",
+        "3D модель сумки",
+        "3D модель обуви",
+        "3D модель одежды",
+        "3D модель автомобилей",
+        "3D модель людей",
+        "кнопки 'Add to Cart' и 'View Details'"
+      ],
+      "visible_product": "Saddle Crossbody",
+      "actions": [
+        "переход на страницу категорий",
+        "просмотр 3D-модели сумки"
+      ],
+      "ui_elements": [
+        "3D модель сумки",
+        "3D модель обуви",
+        "3D модель одежды",
+        "3D модель автомобилей",
+        "3D модель людей",
+        "кнопки 'Add to Cart' и 'View Details'",
+        "кнопки навигации по категориям"
+      ],
+      "product_features": [
+        "3D-представление товаров",
+        "возможность добавления товара в корзину",
+        "возможность просмотра подробностей товара"
+      ],
+      "user_doing": "просматривает 3D-модель сумки и выбирает нужную категорию для просмотра товаров",
+      "changes_from_previous": "переход с главной страницы на страницу категорий",
+      "demonstrated_feature": "3D-представление товаров",
+      "importance": "high",
+      "narration_recommended": false,
+      "narration_goal": "",
+      "pause_ok": false,
+      "confidence": 0.95,
+      "frame_paths": [
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-000-0.jpg",
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-000-1.jpg",
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-000-2.jpg"
+      ],
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-000-1.jpg",
+      "caption": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "source": "vlm",
+      "frames_sent": 3,
+      "vision_model": "qwen2.5vl:7b"
+    },
+    {
+      "index": 1,
+      "start": 9.344,
+      "end": 18.688,
+      "duration": 9.344,
+      "visual_summary": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "screen_type": "catalog",
+      "objects": [
+        "Saddle Crossbody",
+        "3D Store logo",
+        "Home",
+        "Shop",
+        "Categories",
+        "Contacts",
+        "New in",
+        "Brands",
+        "Search icon",
+        "Cart icon",
+        "Language icon",
+        "Admin icon",
+        "Categories menu",
+        "Brands menu",
+        "Contact form",
+        "Email address",
+        "Phone number",
+        "Quick links",
+        "Categories list",
+        "Product details"
+      ],
+      "visible_product": "Saddle Crossbody",
+      "actions": [
+        "click"
+      ],
+      "ui_elements": [
+        "3D Store logo",
+        "Home",
+        "Shop",
+        "Categories",
+        "Contacts",
+        "New in",
+        "Brands",
+        "Search icon",
+        "Cart icon",
+        "Language icon",
+        "Admin icon",
+        "Categories menu",
+        "Brands menu",
+        "Contact form",
+        "Email address",
+        "Phone number",
+        "Quick links",
+        "Categories list",
+        "Product details"
+      ],
+      "product_features": [
+        "3D view",
+        "Categories list",
+        "Contact form",
+        "Просмотр товаров в 3D-формате и выбор категории для просмотра товаров."
+      ],
+      "user_doing": "Пользователь кликает на категорию 'Bags' для просмотра товаров в этой категории.",
+      "changes_from_previous": "Появление категории 'Bags' в меню категорий.",
+      "demonstrated_feature": "Просмотр товаров в 3D-формате и выбор категории для просмотра товаров.",
+      "importance": "medium",
+      "narration_recommended": false,
+      "narration_goal": "",
+      "pause_ok": false,
+      "confidence": 0.9,
+      "frame_paths": [
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-001-0.jpg",
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-001-1.jpg",
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-001-2.jpg"
+      ],
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-001-1.jpg",
+      "caption": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "source": "vlm",
+      "frames_sent": 3,
+      "vision_model": "qwen2.5vl:7b"
+    },
+    {
+      "index": 2,
+      "start": 18.688,
+      "end": 27.988,
+      "duration": 9.3,
+      "visual_summary": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "screen_type": "catalog",
+      "objects": [
+        "товар на кадре или пусто",
+        "3D Store",
+        "Home",
+        "Shop",
+        "Categories",
+        "Contacts",
+        "New in",
+        "Brands",
+        "Categories",
+        "Shoes",
+        "Clothing",
+        "Bags",
+        "Cars",
+        "BPLA",
+        "people"
+      ],
+      "visible_product": "товар на кадре или пусто",
+      "actions": [
+        "переход"
+      ],
+      "ui_elements": [
+        "3D Store",
+        "Home",
+        "Shop",
+        "Categories",
+        "Contacts",
+        "New in",
+        "Brands",
+        "Categories",
+        "Shoes",
+        "Clothing",
+        "Bags",
+        "Cars",
+        "BPLA",
+        "people"
+      ],
+      "product_features": [
+        "3D-формат товаров",
+        "категории товаров"
+      ],
+      "user_doing": "переход на страницу категорий",
+      "changes_from_previous": "переход на страницу категорий",
+      "demonstrated_feature": "категории товаров",
+      "importance": "medium",
+      "narration_recommended": false,
+      "narration_goal": "",
+      "pause_ok": false,
+      "confidence": 0.9,
+      "frame_paths": [
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-002-0.jpg",
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-002-1.jpg",
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-002-2.jpg"
+      ],
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-002-1.jpg",
+      "caption": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "source": "vlm",
+      "frames_sent": 3,
+      "vision_model": "qwen2.5vl:7b"
+    },
+    {
+      "index": 3,
+      "start": 27.988,
+      "end": 37.288,
+      "duration": 9.3,
+      "visual_summary": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "screen_type": "catalog",
+      "objects": [
+        "товар на кадре или пусто",
+        "3D Store логотип",
+        "Home",
+        "Shop",
+        "Categories",
+        "Contacts",
+        "New in",
+        "Brands",
+        "Search icon",
+        "Cart icon",
+        "Language icon",
+        "Admin icon",
+        "Brand logos",
+        "Quick Links",
+        "Categories",
+        "Support"
+      ],
+      "visible_product": "товар на кадре или пусто",
+      "actions": [
+        "переход на страницу категорий"
+      ],
+      "ui_elements": [
+        "3D Store логотип",
+        "Home",
+        "Shop",
+        "Categories",
+        "Contacts",
+        "New in",
+        "Brands",
+        "Search icon",
+        "Cart icon",
+        "Language icon",
+        "Admin icon",
+        "Brand logos",
+        "Quick Links",
+        "Categories",
+        "Support"
+      ],
+      "product_features": [
+        "3D-формат товаров",
+        "категории товаров",
+        "возможность просмотра товаров в 3D-формате"
+      ],
+      "user_doing": "переход на страницу категорий",
+      "changes_from_previous": "изменение экрана с предыдущего кадра, где был список брендов, на страницу категорий с 3D-товарами",
+      "demonstrated_feature": "возможность просмотра товаров в 3D-формате",
+      "importance": "medium",
+      "narration_recommended": false,
+      "narration_goal": "объяснить переход на страницу категорий с 3D-товарами",
+      "pause_ok": false,
+      "confidence": 0.8,
+      "frame_paths": [
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-003-0.jpg",
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-003-1.jpg",
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-003-2.jpg"
+      ],
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-003-1.jpg",
+      "caption": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "source": "vlm",
+      "frames_sent": 3,
+      "vision_model": "qwen2.5vl:7b"
+    },
+    {
+      "index": 4,
+      "start": 37.288,
+      "end": 44.121,
+      "duration": 6.833,
+      "visual_summary": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "screen_type": "catalog",
+      "objects": [
+        "товар на кадре или пусто",
+        "3D-изображение сумки",
+        "список категорий"
+      ],
+      "visible_product": "товар на кадре или пусто",
+      "actions": [
+        "переход на страницу категорий"
+      ],
+      "ui_elements": [
+        "3D-изображение сумки",
+        "список категорий",
+        "кнопка 'SHOP NOW'",
+        "кнопка 'Categories'",
+        "кнопка 'Contacts'",
+        "кнопка 'New in'",
+        "кнопка 'Brands'",
+        "кнопка 'Home'",
+        "кнопка 'Shop'",
+        "кнопка 'Admin'",
+        "кнопка 'EN'",
+        "кнопка 'Dark'"
+      ],
+      "product_features": [
+        "3D-изображение товаров",
+        "список категорий",
+        "возможность перехода на страницу категорий"
+      ],
+      "user_doing": "переход на страницу категорий",
+      "changes_from_previous": "изменение экрана с предыдущего кадра, где был домашний экран",
+      "demonstrated_feature": "возможность перехода на страницу категорий",
+      "importance": "medium",
+      "narration_recommended": false,
+      "narration_goal": "",
+      "pause_ok": false,
+      "confidence": 0.9,
+      "frame_paths": [
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-004-0.jpg",
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-004-1.jpg",
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-004-2.jpg"
+      ],
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-004-1.jpg",
+      "caption": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "source": "vlm",
+      "frames_sent": 3,
+      "vision_model": "qwen2.5vl:7b"
+    },
+    {
+      "index": 5,
+      "start": 44.121,
+      "end": 53.172,
+      "duration": 9.051,
+      "visual_summary": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "screen_type": "catalog",
+      "objects": [
+        "пусто",
+        "3D Store logo",
+        "Categories menu",
+        "Home",
+        "Shop",
+        "Contacts",
+        "New in",
+        "Brands",
+        "Search icon",
+        "Cart icon",
+        "Language switch",
+        "Admin button"
+      ],
+      "visible_product": "пусто",
+      "actions": [
+        "переход на страницу категорий"
+      ],
+      "ui_elements": [
+        "3D Store logo",
+        "Categories menu",
+        "Home",
+        "Shop",
+        "Contacts",
+        "New in",
+        "Brands",
+        "Search icon",
+        "Cart icon",
+        "Language switch",
+        "Admin button"
+      ],
+      "product_features": [
+        "3D-формат товаров",
+        "категории товаров",
+        "возможность перехода на страницу категорий магазина"
+      ],
+      "user_doing": "переход на страницу категорий",
+      "changes_from_previous": "изменение экрана с предыдущего кадра, где был список категорий, на текущий кадр с отображением списка категорий",
+      "demonstrated_feature": "возможность перехода на страницу категорий магазина",
+      "importance": "medium",
+      "narration_recommended": false,
+      "narration_goal": "",
+      "pause_ok": false,
+      "confidence": 0.8,
+      "frame_paths": [
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-005-0.jpg",
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-005-1.jpg",
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-005-2.jpg"
+      ],
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-005-1.jpg",
+      "caption": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "source": "vlm",
+      "frames_sent": 3,
+      "vision_model": "qwen2.5vl:7b"
+    },
+    {
+      "index": 6,
+      "start": 53.172,
+      "end": 62.222,
+      "duration": 9.05,
+      "visual_summary": "Пользователь перешел на страницу товара в 3D-формате, где виден список категорий. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "screen_type": "product",
+      "objects": [
+        "сумка",
+        "3D модель сумки",
+        "список категорий"
+      ],
+      "visible_product": "сумка",
+      "actions": [
+        "переход на страницу товара",
+        "просмотр 3D-модели сумки"
+      ],
+      "ui_elements": [
+        "3D модель сумки",
+        "список категорий",
+        "кнопка 'В корзину'",
+        "кнопка 'Переглянути деталі'"
+      ],
+      "product_features": [
+        "3D-модель",
+        "кнопка добавления в корзину",
+        "кнопка просмотра деталей",
+        "3D-модель товара"
+      ],
+      "user_doing": "просматривает 3D-модель сумки и выбирает нужную категорию",
+      "changes_from_previous": "изменение экрана на страницу товара с 3D-моделью и кнопками для добавления в корзину и просмотра деталей",
+      "demonstrated_feature": "3D-модель товара",
+      "importance": "medium",
+      "narration_recommended": false,
+      "narration_goal": "",
+      "pause_ok": false,
+      "confidence": 0.9,
+      "frame_paths": [
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-006-0.jpg",
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-006-1.jpg",
+        "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-006-2.jpg"
+      ],
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-006-1.jpg",
+      "caption": "Пользователь перешел на страницу товара в 3D-формате, где виден список категорий. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "source": "vlm",
+      "frames_sent": 3,
+      "vision_model": "qwen2.5vl:7b"
+    }
+  ],
+  "visual_notes": [
+    {
+      "time": 4.672,
+      "scene_index": 0,
+      "caption": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "source": "vlm",
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-000-1.jpg"
+    },
+    {
+      "time": 14.016,
+      "scene_index": 1,
+      "caption": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "source": "vlm",
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-001-1.jpg"
+    },
+    {
+      "time": 23.338,
+      "scene_index": 2,
+      "caption": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "source": "vlm",
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-002-1.jpg"
+    },
+    {
+      "time": 32.638,
+      "scene_index": 3,
+      "caption": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "source": "vlm",
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-003-1.jpg"
+    },
+    {
+      "time": 40.704,
+      "scene_index": 4,
+      "caption": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "source": "vlm",
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-004-1.jpg"
+    },
+    {
+      "time": 48.647,
+      "scene_index": 5,
+      "caption": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "source": "vlm",
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-005-1.jpg"
+    },
+    {
+      "time": 57.697,
+      "scene_index": 6,
+      "caption": "Пользователь перешел на страницу товара в 3D-формате, где виден список категорий. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "source": "vlm",
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-8893487415c38053/win-006-1.jpg"
+    }
+  ],
+  "warnings": [],
+  "visual_quality": "vlm",
+  "vision_model": "qwen2.5vl:7b"
+}

@@ -303,7 +303,7 @@ function StageAnalyze(): ReactNode {
       <p className={vp.hintTight}>{d.t('video.pipe_v1_screencast_hint')}</p>
       <SourceRow />
       <div className={vp.toolRow}>
-        {ctx ? (
+        {ctx && !busy && !ctx.warnings?.includes('VISION_MODEL_MISSING') && !ctx.warnings?.includes('VISION_CAPTION_FAILED') ? (
           <span className={vp.voAnalyzeReady}>{d.t('video.vo_analyze_ready')}</span>
         ) : (
           <button type="button" className={vp.toolPrimary} onClick={d.analyzeVoiceover} disabled={!canAnalyze}>
@@ -388,8 +388,8 @@ function StageAnalyze(): ReactNode {
           ) : (
             <p className={vp.hintTight}>{d.t('video.pipe_visual_empty')}</p>
           )}
-          {ctx.warnings?.includes('VISION_MODEL_MISSING') ? (
-            <p className={vp.hintTight}>{d.t('video.pipe_vision_missing')}</p>
+          {!busy && (ctx.warnings?.includes('VISION_MODEL_MISSING') || ctx.warnings?.includes('VISION_CAPTION_FAILED')) ? (
+            <p className={vp.error}>{d.t('video.pipe_vision_missing')}</p>
           ) : null}
           {ctx.transcript.segments.length > 0 ? (
             <details className={vp.voDetails}>

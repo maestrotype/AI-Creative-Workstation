@@ -1,0 +1,31 @@
+{
+  "note": "RAW SCRIPT after event-merge. TTS remains downstream.",
+  "spoken_text": [
+    {
+      "start_sec": 0.0,
+      "end_sec": 9.34,
+      "text": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате."
+    },
+    {
+      "start_sec": 9.34,
+      "end_sec": 53.17,
+      "text": "Пользователь просматривает список товаров в выбранной категории 'Bags' с возможностью взаимодействия с товарами в 3D-формате."
+    },
+    {
+      "start_sec": 53.17,
+      "end_sec": 62.22,
+      "text": "Пользователь переходит на страницу товара, где виден 3D-модель сумки с кнопками для добавления в корзину и просмотра деталей."
+    }
+  ],
+  "meta": {
+    "tone": "directed",
+    "language": "ru",
+    "words_per_min": 130,
+    "provider": "ollama",
+    "model": "qwen2.5:14b",
+    "scene_count": 7,
+    "planner": "chapters",
+    "visual_quality": "vlm",
+    "vision_model": "qwen2.5vl:7b"
+  }
+}

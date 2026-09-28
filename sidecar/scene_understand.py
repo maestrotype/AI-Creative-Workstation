@@ -21,18 +21,32 @@ from ollama_rt import KEEP_ALIVE_WARM, unload_model as _unload_ollama_model
 OLLAMA_URL = "http://127.0.0.1:11434"
 VISION_MODEL_HINTS = (
     "qwen2.5vl",
+    "qwen2.5-vl",
     "qwen2-vl",
     "qwen3-vl",
     "llava",
     "llama3.2-vision",
     "minicpm-v",
     "moondream",
-    "gemma3",
     "granite3.2-vision",
     "bakllava",
 )
 MAX_WINDOWS = 36
 ProgressFn = Optional[Callable[[str, int, str], None]]
+
+
+def is_vision_model(name: str) -> bool:
+    """True only for image-capable Ollama names. Text qwen2.5:14b must not match."""
+    low = (name or "").strip().lower()
+    if not low:
+        return False
+    if any(hint in low for hint in VISION_MODEL_HINTS):
+        return True
+    if "vision" in low:
+        return True
+    if re.search(r"(?:^|[:\-/])vl(?:[:\-/]|$)", low):
+        return True
+    return False
 
 
 def _ffmpeg_bin() -> Optional[str]:
@@ -46,15 +60,16 @@ def detect_vision_model() -> Optional[str]:
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
         return None
     models = [str(item.get("name") or "") for item in data.get("models") or [] if item.get("name")]
-    for m in models:
-        lower = m.lower()
-        if "14b" in lower and any(hint in lower for hint in VISION_MODEL_HINTS):
+    vision = [m for m in models if is_vision_model(m)]
+    if not vision:
+        return None
+    for m in vision:
+        if "14b" in m.lower():
             return m
-    for m in models:
-        lower = m.lower()
-        if any(hint in lower for hint in VISION_MODEL_HINTS):
+    for m in vision:
+        if "7b" in m.lower():
             return m
-    return None
+    return vision[0]
 
 
 def _extract_json(text: str) -> dict[str, Any] | None:
@@ -205,47 +220,64 @@ def _ask_vlm(
     if not images:
         return None
     ru = language.startswith("ru")
-    prev = previous_summary.strip() or ("(none)" if not ru else "(нет)")
+    prev = re.sub(r"\s+", " ", (previous_summary or "").strip())[:160]
+    prev = prev or ("(none)" if not ru else "(нет)")
     if ru:
-        ask = f"""Кадры по порядку из ОДНОГО куска скринкаста ecommerce-шаблона (начало / середина / конец).
-Предыдущий кусок: {prev}
+        ask = f"""Кадры ПО ПОРЯДКУ из одного куска скринкаста (начало / середина / конец). Это запись экрана, не статичный постер.
+Коротко о предыдущем куске (не копируй этот текст): {prev}
+
+Сравни ТОЛЬКО эти кадры между собой: что открылось, куда кликнули, что прокрутили, крутится ли 3D, сменился ли экран.
+Если кадр сменился — narration_recommended=true и pause_ok=false.
+pause_ok=true только когда это тот же экран и нового действия нет.
+Ссылка «ADMIN» в шапке сама по себе не значит, что открыта админка.
 
 Верни ТОЛЬКО JSON:
 {{
-  "visual_summary": "1-2 предложения: какой экран и что происходит",
-  "objects": ["..."],
-  "actions": ["клик / скролл / поворот 3D / набор текста / переход"],
-  "ui_elements": ["видимые подписи, кнопки, панели"],
-  "product_features": ["только то, что видно: каталог, 3D-вьюер, админка..."],
-  "user_doing": "что делает курсор/пользователь",
-  "changes_from_previous": "что изменилось с прошлого куска",
+  "visual_summary": "2-3 предложения: какой экран и что ИЗМЕНИЛОСЬ / что делает пользователь",
+  "screen_type": "home|catalog|product|cart|checkout|admin|other",
+  "objects": ["видимые объекты"],
+  "visible_product": "товар на кадре или пусто",
+  "actions": ["клик / скролл / поворот 3D / переход / смена языка / в корзину"],
+  "ui_elements": ["подписи, кнопки, панели, которые реально видны"],
+  "product_features": ["только продемонстрированные возможности UI"],
+  "user_doing": "что делает курсор или зритель в этом куске",
+  "changes_from_previous": "что изменилось с прошлого куска; пусто если тот же кадр",
+  "demonstrated_feature": "какую возможность шаблона этот кусок реально показывает, или пусто",
   "importance": "high" | "medium" | "low" | "skip",
   "narration_recommended": true,
-  "narration_goal": "зачем говорить (hook / show feature / transition / cta) или пусто",
+  "narration_goal": "зачем говорить, или пусто",
   "pause_ok": false,
   "confidence": 0.0
 }}
-Правила: не выдумывай функции, которых нет на кадрах. pause_ok=true для логотипа, пустого перехода, повтора того же экрана. narration_recommended=false если говорить не о чем."""
+Не выдумывай экраны и функции. pause_ok=true и narration_recommended=false, если кусок — повтор, логотип или пустой переход."""
     else:
-        ask = f"""Frames in time order from ONE screencast beat (start / middle / end) of an ecommerce template.
-Previous beat: {prev}
+        ask = f"""Frames IN TIME ORDER from one screencast slice (start / middle / end). This is a screen recording, not a poster.
+Previous slice (do not copy this text): {prev}
+
+Compare ONLY these frames: what opened, what was clicked, what scrolled, whether 3D moved, whether the page changed.
+If the page changed: narration_recommended=true and pause_ok=false.
+pause_ok=true only when it is the same screen and nothing new happened.
+A header link that says ADMIN does not mean the admin dashboard is open.
 
 Return ONLY JSON:
 {{
-  "visual_summary": "1-2 sentences: which screen and what happens",
-  "objects": ["..."],
-  "actions": ["click / scroll / 3D orbit / typing / navigation"],
-  "ui_elements": ["visible labels, buttons, panels"],
-  "product_features": ["only what is visible"],
-  "user_doing": "what the cursor/user is doing",
-  "changes_from_previous": "what changed vs the previous beat",
+  "visual_summary": "2-3 sentences: which screen and what CHANGED / what the user did",
+  "screen_type": "home|catalog|product|cart|checkout|admin|other",
+  "objects": ["visible objects"],
+  "visible_product": "product on screen or empty",
+  "actions": ["click / scroll / 3D orbit / navigate / language switch / add to cart"],
+  "ui_elements": ["labels, buttons, panels actually visible"],
+  "product_features": ["only UI capabilities demonstrated here"],
+  "user_doing": "what the cursor or viewer does in this slice",
+  "changes_from_previous": "what changed vs the previous slice; empty if same shot",
+  "demonstrated_feature": "which template ability this slice actually shows, or empty",
   "importance": "high" | "medium" | "low" | "skip",
   "narration_recommended": true,
-  "narration_goal": "why speak (hook / show feature / transition / cta) or empty",
+  "narration_goal": "why speak, or empty",
   "pause_ok": false,
   "confidence": 0.0
 }}
-Do not invent features. pause_ok=true for logos, empty transitions, repeated identical UI. narration_recommended=false if there is nothing worth saying."""
+Do not invent screens. pause_ok=true and narration_recommended=false for repeats, logos, or empty transitions."""
 
     payload = json.dumps(
         {
@@ -298,18 +330,32 @@ def _normalize_analysis(raw: dict[str, Any] | None, window: Dict[str, Any]) -> D
     thumb = (window.get("frame_paths") or [None])[min(1, max(0, len(window.get("frame_paths") or []) - 1))]
     if not thumb:
         thumb = window.get("frame_path")
+    user = str(data.get("user_doing") or data.get("cursor_action") or "").strip()
+    features = _as_list(data.get("product_features"))
+    demonstrated = str(data.get("demonstrated_feature") or "").strip()
+    if demonstrated and demonstrated not in features:
+        features.append(demonstrated)
+    product = str(data.get("visible_product") or "").strip()
+    if product.lower() in {"товар на кадре или пусто", "пусто", "empty", "n/a", "none", "-"}:
+        product = ""
+    objects = _as_list(data.get("objects"))
+    if product and product not in objects:
+        objects.insert(0, product)
     return {
         "index": int(window.get("index", 0)),
         "start": round(start, 3),
         "end": round(end, 3),
         "duration": round(max(0.0, end - start), 3),
         "visual_summary": summary,
-        "objects": _as_list(data.get("objects")),
+        "screen_type": str(data.get("screen_type") or "").strip(),
+        "objects": objects,
+        "visible_product": product,
         "actions": _as_list(data.get("actions")),
         "ui_elements": _as_list(data.get("ui_elements")),
-        "product_features": _as_list(data.get("product_features")),
-        "user_doing": str(data.get("user_doing") or "").strip(),
+        "product_features": features,
+        "user_doing": user,
         "changes_from_previous": str(data.get("changes_from_previous") or "").strip(),
+        "demonstrated_feature": demonstrated,
         "importance": importance,
         "narration_recommended": bool(narrate),
         "narration_goal": str(data.get("narration_goal") or "").strip(),
@@ -358,10 +404,13 @@ def analyze_visual_scenes(
             percent = 28 + int((n / max(total, 1)) * 22)
             on_progress("visual", percent, f"Keyframe {n + 1}/{total}")
         item = _normalize_analysis(parsed, window)
+        item["frames_sent"] = len(window.get("frame_paths") or []) if model else 0
+        item["vision_model"] = model or ""
         if not model:
-            item["narration_recommended"] = item["duration"] >= 2.5
-            item["pause_ok"] = item["duration"] < 2.5
-            item["importance"] = "medium" if item["narration_recommended"] else "low"
+            item["narration_recommended"] = False
+            item["pause_ok"] = True
+            item["importance"] = "low"
+            item["source"] = "keyframe"
         analyses.append(item)
         if item["visual_summary"]:
             prev_summary = item["visual_summary"]

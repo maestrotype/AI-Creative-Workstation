@@ -29,6 +29,10 @@ export interface SceneAnalysis {
   confidence?: number;
   frame_path?: string;
   caption?: string;
+  screen_type?: string;
+  visible_product?: string;
+  demonstrated_feature?: string;
+  source?: string;
 }
 
 export interface VideoAnalysisContext {
@@ -51,6 +55,8 @@ export interface VideoAnalysisContext {
   warnings?: string[];
   whisper_available?: boolean;
   cache_path?: string;
+  visual_quality?: 'vlm' | 'degraded';
+  vision_model?: string;
 }
 
 export function formatTimecode(sec: number): string {

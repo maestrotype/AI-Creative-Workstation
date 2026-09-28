@@ -13,8 +13,10 @@ import { FromIdeaPanel } from './FromIdeaPanel';
 import { FromRecordingPanel } from './FromRecordingPanel';
 import s from './FilmWorkspace.module.css';
 
-const TIMELINE_RESERVE = 340;
-const FRAME_MIN = 180;
+const TIMELINE_PREF = 268;
+const TIMELINE_MIN = 176;
+const FRAME_MIN = 220;
+const SPLITTER = 8;
 const COLUMN_KEY = 'acw-film-columns';
 const MEDIA_MIN = 200;
 const MEDIA_MAX = 420;
@@ -78,28 +80,20 @@ export function FilmWorkspace({
     if (!root) return undefined;
     const measure = () => {
       const toolbar = root.querySelector('header')?.clientHeight ?? 40;
-      const stage = root.querySelector('[data-stage]') as HTMLElement | null;
-      const column = stage?.querySelector('[data-preview]') as HTMLElement | null;
-      const columnW = column?.clientWidth || Math.max(320, root.clientWidth - 460);
-      const available = root.clientHeight - toolbar - 6;
-      const reserve = Math.min(TIMELINE_RESERVE, Math.max(220, available * 0.48));
-      const ratio = d.filmFormat === 'shorts' ? 16 / 9 : 9 / 16;
-      const natural = columnW * ratio;
-      const maxH = Math.max(FRAME_MIN, available - reserve);
-      const autoH = Math.min(natural, maxH);
+      const available = root.clientHeight - toolbar - SPLITTER;
+      const maxStage = Math.max(FRAME_MIN, available - TIMELINE_MIN);
+      const autoStage = clamp(available - TIMELINE_PREF, FRAME_MIN, maxStage);
       const nextH = frameOverride == null
-        ? autoH
-        : Math.min(natural, Math.max(FRAME_MIN, frameOverride));
-      const nextW = Math.min(columnW, nextH / ratio);
+        ? autoStage
+        : clamp(frameOverride, FRAME_MIN, maxStage);
       setFrameH((prev) => (Math.abs(prev - nextH) < 0.5 ? prev : nextH));
       root.style.setProperty('--frame-h', `${Math.round(nextH)}px`);
-      root.style.setProperty('--frame-w', `${Math.round(nextW)}px`);
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(root);
     return () => observer.disconnect();
-  }, [d.filmFormat, frameOverride]);
+  }, [frameOverride]);
 
   useEffect(() => {
     if (!splitting) return undefined;
@@ -170,7 +164,7 @@ export function FilmWorkspace({
       ref={rootRef}
       className={s.root}
       style={{
-        gridTemplateRows: 'auto var(--frame-h, 360px) 6px minmax(0, 1fr)',
+        gridTemplateRows: 'auto var(--frame-h, 420px) 8px minmax(0, 1fr)',
       }}
     >
       <header className={s.toolbar}>
@@ -353,7 +347,8 @@ export function FilmWorkspace({
       <div
         className={s.splitHandle}
         onPointerDown={onSplitPointerDown}
-        title="Потяните, чтобы изменить высоту превью / таймлайна"
+        title="Потяните, чтобы изменить высоту превью и таймлайна. Двойной щелчок — подогнать автоматически."
+        onDoubleClick={() => setFrameOverride(null)}
         role="separator"
         aria-orientation="horizontal"
         aria-valuenow={Math.round(frameH)}

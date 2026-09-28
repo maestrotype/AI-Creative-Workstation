@@ -73,7 +73,7 @@ export function VoiceoverSection(): ReactNode {
       ) : null}
 
       <div className={styles.toolRow}>
-        {ctx ? (
+        {ctx && !d.voiceoverBusy && !ctx.warnings?.includes('VISION_MODEL_MISSING') && !ctx.warnings?.includes('VISION_CAPTION_FAILED') ? (
           <span className={styles.voAnalyzeReady}>{d.t('video.vo_analyze_ready')}</span>
         ) : (
           <button
@@ -123,6 +123,9 @@ export function VoiceoverSection(): ReactNode {
               words: ctx.transcript.full_text.split(/\s+/).filter(Boolean).length,
             })}
           </p>
+          {!d.voiceoverBusy && (ctx.warnings?.includes('VISION_MODEL_MISSING') || ctx.warnings?.includes('VISION_CAPTION_FAILED')) ? (
+            <p className={styles.error}>{d.t('video.pipe_vision_missing')}</p>
+          ) : null}
           {ctx.warnings?.includes('WHISPER_NOT_INSTALLED') ? (
             <p className={styles.hintTight}>{d.t('video.vo_whisper_missing')}</p>
           ) : null}

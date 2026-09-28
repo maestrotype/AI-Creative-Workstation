@@ -635,6 +635,9 @@ BEAT_SEC = 8.0
 MAX_BEAT_SEC = 10.0
 MAX_BEATS_PER_CHAPTER = 8
 MAX_BEATS = 48
+# One spoken line covers the picture it sits on. Longer than this is a chapter, not a moment.
+NARRATION_SLICE_SEC = 6.5
+NARRATION_KEEP_SEC = 12.0
 _SLOGAN_RX = re.compile(
     r"так (шаблон|покупатель)|блок с брендами|видна цена, новинку|"
     r"that is how the template|brands block",
@@ -1059,11 +1062,10 @@ def _summary_needs_ocr(text: str) -> bool:
 
 
 def _with_frame_captions(video_context: dict[str, Any], language: str = "ru") -> dict[str, Any]:
+    """Attach OCR labels as evidence. Never invent a VLM summary from painted text."""
+    del language
     rows = [row for row in (video_context.get("scene_analysis") or []) if isinstance(row, dict)]
     if not rows:
-        return video_context
-    stale = [row for row in rows if _summary_needs_ocr(str(row.get("visual_summary") or ""))]
-    if not stale:
         return video_context
     from frame_ocr import read_frames
 
@@ -1075,31 +1077,15 @@ def _with_frame_captions(video_context: dict[str, Any], language: str = "ru") ->
         item = dict(row)
         labels = _ocr_labels(found.get(str(row.get("frame_path") or ""), []))
         if labels:
+            item["ocr_labels"] = labels[:16]
             ui = list(item.get("ui_elements") or [])
             for label in labels:
                 if label not in ui:
                     ui.append(label)
-            item["ui_elements"] = ui[:10]
-        summary = _screen_summary(found.get(str(row.get("frame_path") or ""), []), language)
-        old = str(item.get("visual_summary") or "")
-        if summary and _summary_needs_ocr(old):
-            item["visual_summary"] = summary
-            item["caption"] = summary
-            item["source"] = "ocr"
-            item["narration_recommended"] = True
-            item["pause_ok"] = False
+            item["ui_elements"] = ui[:12]
         next_rows.append(item)
     ctx = dict(video_context)
     ctx["scene_analysis"] = next_rows
-    ctx["visual_notes"] = [
-        {
-            "time": (float(row.get("start", 0)) + float(row.get("end", 0))) / 2,
-            "caption": row.get("visual_summary") or "",
-            "frame_path": row.get("frame_path"),
-            "source": row.get("source") or "keyframe",
-        }
-        for row in next_rows
-    ]
     warnings = list(ctx.get("warnings") or [])
     if "FRAME_TEXT_READ" not in warnings:
         warnings.append("FRAME_TEXT_READ")
@@ -1152,51 +1138,138 @@ def _split_long_beats(beats: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _has_vlm_picture(row: dict[str, Any]) -> bool:
+    return str(row.get("source") or "") == "vlm" and bool(str(row.get("visual_summary") or "").strip())
+
+
+def _summary_key(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip().lower())[:160]
+
+
+def _generic_transition(text: str) -> bool:
+    low = re.sub(r"\s+", " ", (text or "").strip().lower())
+    if not low:
+        return True
+    if low in {"click", "клик", "переход"}:
+        return True
+    if re.fullmatch(r"переход( на страницу категорий)?\.?", low):
+        return True
+    if low.startswith("изменение экрана"):
+        return True
+    return False
+
+
+def _has_new_visual_fact(row: dict[str, Any], prev: dict[str, Any]) -> bool:
+    change = str(row.get("changes_from_previous") or "")
+    user = str(row.get("user_doing") or "")
+    if _generic_transition(change) and _generic_transition(user):
+        return False
+    already = " ".join(
+        [
+            " ".join(prev.get("visuals") or []),
+            str(prev.get("user") or ""),
+            str(prev.get("change") or ""),
+            str(prev.get("product") or ""),
+        ]
+    ).lower()
+    incoming = " ".join([user, change, str(row.get("visible_product") or "")]).lower()
+    new_tokens = set(re.findall(r"[a-zа-яёіїєґ0-9]{4,}", incoming)) - set(
+        re.findall(r"[a-zа-яёіїєґ0-9]{4,}", already)
+    )
+    return len(new_tokens) >= 3
+
+
+def _labels_in_span(rows: list[dict[str, Any]], start: float, end: float) -> list[str]:
+    labels: list[str] = []
+    for row in rows:
+        left = float(row.get("start", 0))
+        right = float(row.get("end", left))
+        if min(end, right) - max(start, left) <= 0.2:
+            continue
+        for label in list(row.get("ocr_labels") or row.get("ui_elements") or []):
+            text = str(label).strip()
+            if text and text not in labels:
+                labels.append(text)
+    return labels[:12]
+
+
+def _visual_quality(video_context: dict[str, Any]) -> str:
+    quality = str(video_context.get("visual_quality") or "").strip()
+    if quality:
+        return quality
+    warnings = list(video_context.get("warnings") or [])
+    if "VISION_MODEL_MISSING" in warnings or "VISION_CAPTION_FAILED" in warnings:
+        return "degraded"
+    if any(_has_vlm_picture(row) for row in _analysis_rows(video_context)):
+        return "vlm"
+    return "unknown"
+
+
+def _event_signal(row: dict[str, Any]) -> bool:
+    """A described screen change is a beat even if the VLM also set pause_ok."""
+    summary = str(row.get("visual_summary") or "").strip()
+    change = str(row.get("changes_from_previous") or "").strip()
+    user = str(row.get("user_doing") or "").strip()
+    actions = [str(item).strip() for item in (row.get("actions") or []) if str(item).strip()]
+    if str(row.get("importance") or "").lower() == "skip" and not summary:
+        return False
+    described = bool(summary and (change or user or actions or row.get("narration_recommended")))
+    if row.get("pause_ok") and not row.get("narration_recommended") and not described:
+        return False
+    if not row.get("narration_recommended") and not change and not summary:
+        return False
+    return bool(summary or user or actions or change)
+
+
 def _beats_from_analysis(video_context: dict[str, Any], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """One spoken beat per picture slice. Same screen may continue, but not for a whole minute."""
+    """Meaningful visual events, not one spoken line per analysis window."""
     beats: list[dict[str, Any]] = []
     for row in rows:
         start = float(row.get("start", 0))
         end = float(row.get("end", start))
-        if end <= start:
+        if end <= start or not _event_signal(row):
             continue
         summary = str(row.get("visual_summary") or "").strip()
+        change = str(row.get("changes_from_previous") or "").strip()
         said = _said_in_window(video_context, start, end)
-        ui = list(row.get("ui_elements") or [])[:8]
+        ui = list(row.get("ocr_labels") or row.get("ui_elements") or [])[:8]
         actions = list(row.get("actions") or [])[:6]
         user = str(row.get("user_doing") or "").strip()
         same_picture = (
             beats
             and summary
-            and beats[-1]["visuals"] == [summary]
-            and (end - float(beats[-1]["start"])) <= MAX_BEAT_SEC
+            and beats[-1]["visuals"]
+            and (end - float(beats[-1]["start"])) <= NARRATION_KEEP_SEC
+            and _summary_key(beats[-1]["visuals"][0]) == _summary_key(summary)
+            and str(beats[-1].get("screen_type") or "") == str(row.get("screen_type") or "")
+            and not _has_new_visual_fact(row, beats[-1])
         )
         if same_picture:
             beats[-1]["end"] = round(end, 2)
-            if said and said not in beats[-1]["said"]:
-                beats[-1]["said"] = f"{beats[-1]['said']} {said}".strip()
-            for label in ui:
-                if label not in beats[-1]["ui"]:
-                    beats[-1]["ui"].append(label)
+            if user and user not in (beats[-1].get("user") or ""):
+                beats[-1]["user"] = f"{beats[-1].get('user') or ''} {user}".strip()
             continue
         beats.append(_decorate_beat(video_context, {
             "start": round(start, 2),
             "end": round(end, 2),
             "chapter_index": int(row.get("index", 0)),
             "chapter_title": "",
-            "intent": summary,
+            "intent": str(row.get("demonstrated_feature") or row.get("narration_goal") or summary),
             "draft_slice": "",
             "visuals": [summary] if summary else [],
             "user": user,
             "ui": ui,
             "actions": actions,
             "said": said,
+            "screen_type": str(row.get("screen_type") or ""),
+            "change": change,
+            "product": str(row.get("visible_product") or ""),
         }))
-    return _split_long_beats(beats)
+    return beats
 
 
 def _speech_beats(video_context: dict[str, Any]) -> list[dict[str, Any]]:
-    """Picture slices a host can actually talk through. A minute is several beats."""
+    """Visual events a host can talk about. Analysis windows are not speech slots."""
     duration = float(video_context.get("duration_sec") or 60)
     chapters = _chapter_rows(video_context)
     spans = chapters or [{
@@ -1208,10 +1281,8 @@ def _speech_beats(video_context: dict[str, Any]) -> list[dict[str, Any]]:
         "said": "",
     }]
     rows = _analysis_rows(video_context)
-    if any(str(row.get("visual_summary") or "").strip() for row in rows):
-        picture = _beats_from_analysis(video_context, rows)
-        if len(picture) <= MAX_BEATS:
-            return picture
+    if any(_has_vlm_picture(row) for row in rows):
+        picture = _fit_narration_windows(_beats_from_analysis(video_context, rows), rows)
         return picture[:MAX_BEATS]
     beats: list[dict[str, Any]] = []
     for chapter_index, chapter in enumerate(spans):
@@ -1219,51 +1290,20 @@ def _speech_beats(video_context: dict[str, Any]) -> list[dict[str, Any]]:
         end = float(chapter.get("end", start))
         if end <= start:
             continue
-        span = end - start
-        count = 1 if span <= 10 else min(MAX_BEATS_PER_CHAPTER, max(2, int(round(span / BEAT_SEC))))
-        slices = _split_span(start, end, count)
-        draft_bits = _sentences(str(chapter.get("draft") or ""))
-        for slice_index, (left, right) in enumerate(slices):
-            visuals: list[str] = []
-            users: list[str] = []
-            ui: list[str] = []
-            actions: list[str] = []
-            for row in rows:
-                row_start = float(row.get("start", 0))
-                row_end = float(row.get("end", row_start))
-                midpoint = (row_start + row_end) / 2
-                if not (left <= midpoint < right or (slice_index == count - 1 and left <= midpoint <= right)):
-                    continue
-                summary = str(row.get("visual_summary") or "").strip()
-                if summary and summary not in visuals:
-                    visuals.append(summary)
-                doing = str(row.get("user_doing") or "").strip()
-                if doing and doing not in users:
-                    users.append(doing)
-                for token in list(row.get("ui_elements") or []) + list(row.get("actions") or []):
-                    label = str(token).strip()
-                    if not label:
-                        continue
-                    bucket = ui if token in (row.get("ui_elements") or []) else actions
-                    if label not in bucket:
-                        bucket.append(label)
-            draft_slice = ""
-            if draft_bits:
-                draft_slice = draft_bits[slice_index] if slice_index < len(draft_bits) else ""
-            beats.append({
-                "start": round(left, 2),
-                "end": round(right, 2),
-                "chapter_index": chapter_index,
-                "chapter_title": str(chapter.get("title") or ""),
-                "intent": str(chapter.get("intent") or ""),
-                "draft_slice": draft_slice,
-                "visuals": visuals[:4],
-                "user": "; ".join(users[:3]),
-                "ui": ui[:6],
-                "actions": actions[:6],
-                "said": _said_in_window(video_context, left, right),
-            })
-    beats = _split_long_beats(beats)
+        beats.append({
+            "start": round(start, 2),
+            "end": round(end, 2),
+            "chapter_index": chapter_index,
+            "chapter_title": str(chapter.get("title") or ""),
+            "intent": str(chapter.get("intent") or ""),
+            "draft_slice": str(chapter.get("draft") or ""),
+            "visuals": [],
+            "user": "",
+            "ui": _labels_in_span(rows, start, end),
+            "actions": [],
+            "said": _said_in_window(video_context, start, end),
+            "degraded": True,
+        })
     if len(beats) <= MAX_BEATS:
         return beats
     # Long films: keep coverage, but don't ask the model for a beat every few seconds.
@@ -1288,31 +1328,85 @@ def _speech_beats(video_context: dict[str, Any]) -> list[dict[str, Any]]:
     return merged[:MAX_BEATS]
 
 
+def _row_at(rows: list[dict[str, Any]], time_sec: float) -> dict[str, Any] | None:
+    for row in rows:
+        start = float(row.get("start", 0))
+        end = float(row.get("end", start))
+        if start - 0.05 <= time_sec <= end + 0.05:
+            return row
+    return None
+
+
+def _fit_narration_windows(
+    beats: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep each spoken line on the few seconds of picture it describes."""
+    fitted: list[dict[str, Any]] = []
+    for beat in beats:
+        start = float(beat["start"])
+        end = float(beat["end"])
+        span = end - start
+        if span <= NARRATION_KEEP_SEC:
+            fitted.append(beat)
+            continue
+        count = max(2, int(round(span / NARRATION_SLICE_SEC)))
+        step = span / count
+        for index in range(count):
+            left = start + index * step
+            right = end if index == count - 1 else start + (index + 1) * step
+            piece = dict(beat)
+            piece["start"] = round(left, 2)
+            piece["end"] = round(right, 2)
+            row = _row_at(rows, (left + right) / 2)
+            if row:
+                summary = str(row.get("visual_summary") or "").strip()
+                if summary:
+                    piece["visuals"] = [summary]
+                user = str(row.get("user_doing") or "").strip()
+                if user:
+                    piece["user"] = user
+                piece["change"] = str(row.get("changes_from_previous") or "").strip()
+                screen = str(row.get("screen_type") or "").strip()
+                if screen:
+                    piece["screen_type"] = screen
+                product = str(row.get("visible_product") or "").strip()
+                if product:
+                    piece["product"] = product
+                labels = [str(item).strip() for item in (row.get("ocr_labels") or row.get("ui_elements") or []) if str(item).strip()]
+                if labels:
+                    piece["ui"] = labels[:8]
+                actions = [str(item).strip() for item in (row.get("actions") or []) if str(item).strip()]
+                if actions:
+                    piece["actions"] = actions[:6]
+            fitted.append(piece)
+    return fitted
+
+
 def _beat_block(beats: list[dict[str, Any]], target_wpm: int) -> str:
     if not beats:
         return ""
+    del target_wpm
     lines = [
-        "Speech beats — return ONE spoken segment per beat, with the same start_sec and end_sec.",
-        "A minute of picture is several beats. Never cover 40+ seconds with one slogan.",
-        "Hit the target word count: two to four sentences. Name the page, what the cursor does, and the template ability.",
-        "You may name visible controls (catalog, 3D, cart, price, filters) in natural speech.",
-        "Visible / User / UI / Actions / Author said are the facts. Do not invent other screens. Do not write a shop ad.",
+        "Visual events in timeline order. Each EVENT is the exact timeline range one spoken line will cover.",
+        "Write at most one sentence about what is happening in that range. Do not cover a whole chapter in one line.",
+        "If this event repeats the previous screen and nothing new happened, set speak to false.",
+        "OCR labels are evidence of painted text, not a description of the action.",
+        "Do not invent screens. Do not write a generic shop slogan.",
     ]
     for index, beat in enumerate(beats):
         window = max(0.4, float(beat["end"]) - float(beat["start"]))
-        budget = _max_words_for_window(window, target_wpm)
-        target = max(10, int(round(budget * BEAT_FILL)))
         lines.append(
-            f"BEAT {index} {float(beat['start']):.1f}s–{float(beat['end']):.1f}s "
-            f"({window:.1f}s, write about {target} words, hard max {budget})\n"
-            f"  Chapter: {beat.get('chapter_title') or '—'}\n"
-            f"  Show: {beat.get('intent') or '—'}\n"
-            f"  Visible: {'; '.join(beat.get('visuals') or []) or '—'}\n"
+            f"EVENT {index} {float(beat['start']):.1f}s–{float(beat['end']):.1f}s ({window:.1f}s)\n"
+            f"  Screen: {beat.get('screen_type') or '—'}\n"
+            f"  Happening: {'; '.join(beat.get('visuals') or []) or '—'}\n"
+            f"  Change: {beat.get('change') or '—'}\n"
             f"  User: {beat.get('user') or '—'}\n"
-            f"  UI: {', '.join(beat.get('ui') or []) or '—'}\n"
+            f"  Product: {beat.get('product') or '—'}\n"
             f"  Actions: {', '.join(beat.get('actions') or []) or '—'}\n"
-            f"  Author said: {beat.get('said') or '—'}\n"
-            f"  Selling point: {beat.get('draft_slice') or '—'}"
+            f"  Visible text (OCR): {', '.join(beat.get('ui') or []) or '—'}\n"
+            f"  Feature shown: {beat.get('intent') or '—'}\n"
+            f"  Author said: {beat.get('said') or '—'}"
         )
     return "\n".join(lines) + "\n"
 
@@ -1333,19 +1427,10 @@ def _narrate_from_beat(
     project_context: str = "",
     seed: str = "",
 ) -> str:
+    del project_context
     window = max(0.4, float(beat["end"]) - float(beat["start"]))
-    target = max(12, int(round(_max_words_for_window(window, wpm) * BEAT_FILL)))
     visual = " ".join(str(item).strip() for item in (beat.get("visuals") or []) if str(item).strip())
-    facts = " ".join([
-        visual,
-        str(beat.get("user") or ""),
-        " ".join(str(item) for item in (beat.get("ui") or [])),
-        " ".join(str(item) for item in (beat.get("actions") or [])),
-        str(beat.get("intent") or ""),
-    ])
-    screen = _classify_screen(facts)
     parts: list[str] = []
-    rotate = int(round(max(0.0, float(beat.get("start") or 0)) / MAX_BEAT_SEC))
 
     def add(sentence: str) -> None:
         cleaned = re.sub(r"\s+", " ", (sentence or "").strip())
@@ -1353,35 +1438,25 @@ def _narrate_from_beat(
             return
         if cleaned[-1] not in ".!?":
             cleaned += "."
+        if _SLOGAN_RX.search(cleaned):
+            return
         blob = " ".join(parts).lower()
         if cleaned.lower() in blob:
             return
         parts.append(cleaned)
 
-    bank = _capability_lines(screen, language)
-    bank = bank[rotate % len(bank):] + bank[:rotate % len(bank)]
-    add(bank[0])
     seed_line = _draft_usable(seed, language)
-    if seed_line and not _too_thin_for_window(seed_line, min(window, 6), wpm):
+    if seed_line:
         add(seed_line)
-    if visual and not _SLOGAN_RX.search(visual) and _readable_speech(visual if visual[-1:] in ".!?" else f"{visual}."):
+        return _clip_to_budget(" ".join(parts), window, wpm)
+    if visual:
         add(visual)
-    add(_action_line(str(beat.get("user") or ""), list(beat.get("actions") or []), language))
-    for line in bank[1:]:
-        if len(" ".join(parts).split()) >= target:
-            break
-        add(line)
-    add(_ui_line(list(beat.get("ui") or []), language))
-    draft = _draft_usable(str(beat.get("draft_slice") or ""), language)
-    if draft and len(" ".join(parts).split()) < target:
-        add(draft)
-    if len(" ".join(parts).split()) < target:
-        extra = _capability_lines("store", language)
-        extra = extra[rotate % len(extra):] + extra[:rotate % len(extra)]
-        for line in extra:
-            if len(" ".join(parts).split()) >= target:
-                break
-            add(line)
+    user = str(beat.get("user") or "").strip()
+    if user:
+        add(user)
+    change = str(beat.get("change") or "").strip()
+    if change:
+        add(change)
     return _clip_to_budget(" ".join(parts), window, wpm)
 
 
@@ -1394,7 +1469,7 @@ def _expand_from_beat(
 ) -> str:
     window = max(0.4, float(beat["end"]) - float(beat["start"]))
     spoken = _spoken_in_language(re.sub(r"\s+", " ", (text or "").strip()), language)
-    if spoken and _readable_speech(spoken) and not _too_thin_for_window(spoken, window, wpm):
+    if spoken and _readable_speech(spoken) and not _SLOGAN_RX.search(spoken):
         return _clip_to_budget(spoken, window, wpm)
     return _narrate_from_beat(beat, language, wpm, project_context, seed=spoken)
 
@@ -1436,6 +1511,10 @@ def _align_segments_to_beats(
         end = float(beat["end"])
         text = " ".join(str(seg.get("text") or "").strip() for seg in owned[index]).strip()
         if not text:
+            prev = (aligned[-1].get("visual_summary") or "") if aligned else ""
+            current = "; ".join(beat.get("visuals") or [])
+            if prev and _summary_key(prev) == _summary_key(current) and _generic_transition(str(beat.get("change") or "")):
+                continue
             text = str(beat.get("draft_slice") or "").strip()
         text = _spoken_in_language(text, language)
         text = _expand_from_beat(text, beat, language, target_wpm, project_context)
@@ -1529,48 +1608,27 @@ def _build_director_prompt(
     project_context: str,
 ) -> str:
     duration = float(video_context.get("duration_sec") or 0)
-    rows = _analysis_rows(video_context)
     lang_label = "Russian" if language.startswith("ru") else "English"
-    blocks = []
-    for i, row in enumerate(rows):
-        start = float(row.get("start", 0))
-        end = float(row.get("end", start))
-        window = max(0.4, end - start)
-        budget = _max_words_for_window(window, target_wpm)
-        speak = "NARRATE" if row.get("narration_recommended") else "NO_NARRATION"
-        if row.get("pause_ok") and not row.get("narration_recommended"):
-            speak = "PAUSE"
-        feats = ", ".join(row.get("product_features") or []) or "—"
-        ui = ", ".join(row.get("ui_elements") or []) or "—"
-        actions = ", ".join(row.get("actions") or []) or "—"
-        blocks.append(
-            f"BEAT {i} [{speak}] {start:.1f}s–{end:.1f}s ({window:.1f}s, max ~{budget} words)\n"
-            f"  Visible: {row.get('visual_summary') or '(no caption)'}\n"
-            f"  User: {row.get('user_doing') or '—'}\n"
-            f"  UI: {ui}\n"
-            f"  Actions: {actions}\n"
-            f"  Features on screen: {feats}\n"
-            f"  Change: {row.get('changes_from_previous') or '—'}\n"
-            f"  Goal: {row.get('narration_goal') or '—'}\n"
-            f"  Importance: {row.get('importance') or 'medium'}"
-        )
     ctx = (project_context or "").strip()
     context_block = f"Product brief (context only — never claim a feature that is not visible):\n{ctx[:2500]}\n" if ctx else ""
     beats = _speech_beats(video_context)
     beat_block = _beat_block(beats, target_wpm)
     chapter_block = "" if beat_block else _chapter_block(video_context, target_wpm)
-    listed = beat_block or (chr(10).join(blocks) or "(no beats)")
-    beat_count = len(beats) or len(blocks)
-    return f"""You are writing a voiceover that walks through a screen recording of a website template.
-The goal is to explain what the template can do, by describing what is happening in the video.
+    listed = beat_block or "(no visual events)"
+    degraded = _visual_quality(video_context) == "degraded"
+    quality_note = (
+        "VISUAL UNDERSTANDING IS DEGRADED. Frames were not read by a vision model. "
+        "Do not invent a walkthrough. Name only OCR text as painted labels. Prefer fewer segments.\n"
+        if degraded else
+        "Visual events below come from a vision model that compared start/mid/end frames.\n"
+    )
+    return f"""You write a voiceover for a screen recording. Tell the viewer what is happening and which demonstrated UI ability that shows.
 
 User notes: {prompt or '(none)'}
-{context_block}{chapter_block}
-Video duration: {duration:.1f}s
+{context_block}{chapter_block}{quality_note}Video duration: {duration:.1f}s
 Language: {lang_label}
-Speaking rate target: ~{target_wpm} wpm. A minute of picture needs about a minute of speech, split across the beats — not one sentence.
 
-Speech beats:
+Visual events:
 {listed}
 
 Return ONLY JSON:
@@ -1581,27 +1639,23 @@ Return ONLY JSON:
       "end_sec": 5,
       "text": "spoken words",
       "role": "hook",
-      "purpose": "which template capability this beat shows",
+      "purpose": "why this moment is spoken",
       "speak": true
     }}
   ]
 }}
 
 Rules:
-- Return exactly {beat_count} segments when beats are listed — one per beat, same start_sec and end_sec.
-- Each segment is a short spoken paragraph (2–4 sentences) a presenter would say over THAT slice of the recording.
-- First say what is happening on this page (catalog, 3D card, cart, admin, theme switch). Then say which template ability that moment shows.
-- You MAY name visible controls and panels in natural speech. Do not recite a raw OCR dump or a price list.
-- Never start with "На экране отображается" or "Появляется надпись".
-- Do not write a slogan or an ad for the goods in the shop. Do not invent a different product.
-- Every sentence must end. Do not stop mid-phrase.
-- Speak only about what Visible / User / UI / Actions / Author said show. Do not invent screens that are not listed.
-- Neighboring beats must follow the recording: what changed, and what new ability that change shows.
-- Reach about the target word count. One short slogan for a long beat is a bug. Stay under that beat's hard max ({SPEAK_WINDOW_RATIO:.0%} of the beat at {target_wpm} wpm).
+- Each event is about 5–8 seconds of the timeline. The line is spoken over that range only.
+- Say what happened in that range (opened a card, switched to 3D, scrolled, added to cart).
+- If the screen did not change, set speak to false instead of repeating the previous line.
+- OCR labels prove painted text only. A header word ADMIN does not mean the admin dashboard is open.
+- Do not invent screens or features that are not in Happening / Change / User / Feature shown.
+- Product brief may explain a visible ability. It must not add unseen screens.
+- Avoid empty filler: «здесь мы видим», «discover», «experience», «everything you need».
+- Every sentence must end. Language: {lang_label} only.
 - roles: hook | body | outro | cta
-- Spoken "text" and "purpose" MUST be only in {lang_label}. Never Chinese, never mixed scripts.
-- Cover every beat through the end of the recording.
-- No stage directions, no "Scene 1", no commands like "покажи" / "tell the client".
+- No stage directions, no "Scene 1", no commands like "покажи".
 """
 
 
@@ -1780,6 +1834,8 @@ def generate_voiceover_script(
                         "model": str(meta.get("model") or ollama_model),
                         "scene_count": len(rows),
                         "planner": planner,
+                        "visual_quality": _visual_quality(video_context),
+                        "vision_model": video_context.get("vision_model"),
                     },
                 }
 
@@ -1799,6 +1855,8 @@ def generate_voiceover_script(
                 "scene_count": len(rows),
                 "planner": "chapters",
                 "duration_sec": duration,
+                "visual_quality": _visual_quality(video_context),
+                "vision_model": video_context.get("vision_model"),
             },
         }
 
@@ -1812,6 +1870,8 @@ def generate_voiceover_script(
             "scene_count": len(rows),
             "planner": "visual_director",
             "duration_sec": duration,
+            "visual_quality": _visual_quality(video_context),
+            "vision_model": video_context.get("vision_model"),
         },
     }
 

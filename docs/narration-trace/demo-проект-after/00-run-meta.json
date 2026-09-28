@@ -1,0 +1,48 @@
+{
+  "film_id": "8cd095b2-7f44-4e38-ac81-709d5080ad7a",
+  "name": "Демо проект",
+  "video_path": "/Users/andriidanichkin/Documents/Canvas/Projects/8cd095b2-7f44-4e38-ac81-709d5080ad7a/1790368429273-eefae847.mp4",
+  "detected_vision_model": "qwen2.5vl:7b",
+  "analysis_vision_model": "qwen2.5vl:7b",
+  "visual_quality": "vlm",
+  "warnings": [],
+  "from_cache": false,
+  "cache_version": 6,
+  "frames_sent": [
+    {
+      "index": 0,
+      "frames_sent": 3,
+      "source": "vlm"
+    },
+    {
+      "index": 1,
+      "frames_sent": 3,
+      "source": "vlm"
+    },
+    {
+      "index": 2,
+      "frames_sent": 3,
+      "source": "vlm"
+    },
+    {
+      "index": 3,
+      "frames_sent": 3,
+      "source": "vlm"
+    },
+    {
+      "index": 4,
+      "frames_sent": 3,
+      "source": "vlm"
+    },
+    {
+      "index": 5,
+      "frames_sent": 3,
+      "source": "vlm"
+    },
+    {
+      "index": 6,
+      "frames_sent": 3,
+      "source": "vlm"
+    }
+  ]
+}

@@ -32,6 +32,8 @@ class ScriptMetaOut(BaseModel):
     model: Optional[str] = None
     planner: Optional[str] = None
     scene_count: Optional[int] = None
+    visual_quality: Optional[str] = None
+    vision_model: Optional[str] = None
 
 
 class ScriptGenerateRequest(BaseModel):
