@@ -164,8 +164,9 @@ export function DirectorPreview({
           if (el.paused) void el.play().catch(() => undefined);
         } else el.pause();
       };
-      if (el.readyState >= 2 && same) apply();
+      if (el.readyState >= 1) apply();
       else {
+        el.addEventListener('loadedmetadata', apply, { once: true });
         el.addEventListener('loadeddata', apply, { once: true });
         el.addEventListener('canplay', apply, { once: true });
       }

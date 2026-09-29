@@ -308,6 +308,210 @@ class EventBeatTests(unittest.TestCase):
         self.assertIn("Turn it in 3D", prompt)
         self.assertIn("EVENT 0", prompt)
 
+    def test_screen_caption_is_not_spoken_and_not_replaced_by_the_frame_note(self):
+        from script_llm import _align_segments_to_beats
+
+        caption = "Пользователь перешел на следующую страницу магазина."
+        beats = [
+            {
+                "start": 0, "end": 9, "visuals": [caption], "user": caption, "ui": [],
+                "actions": [], "change": "переход", "draft_slice": "", "features": ["список разделов"],
+            },
+        ]
+        aligned = _align_segments_to_beats(
+            [{"start_sec": 0, "end_sec": 9, "text": caption, "speak": True}],
+            beats, "ru", 130, "",
+        )
+        self.assertEqual(aligned, [])
+
+    def test_repeated_fact_is_dropped_and_a_new_capability_is_kept(self):
+        from script_llm import _align_segments_to_beats
+
+        first = "Сетка разделов помогает выбрать нужную группу товаров."
+        repeat = "Сетка разделов снова помогает выбрать нужную группу товаров."
+        nxt = "Карточка показывает цену и даёт повернуть товар перед заказом."
+        beats = [
+            {"start": 0, "end": 9, "visuals": ["разделы"], "user": "", "ui": [], "actions": [], "change": "", "draft_slice": ""},
+            {"start": 9, "end": 18, "visuals": ["разделы"], "user": "", "ui": [], "actions": [], "change": "", "draft_slice": ""},
+            {"start": 18, "end": 27, "visuals": ["карточка"], "user": "", "ui": [], "actions": [], "change": "", "draft_slice": ""},
+        ]
+        segments = [
+            {"start_sec": 0, "end_sec": 9, "text": first},
+            {"start_sec": 9, "end_sec": 18, "text": repeat},
+            {"start_sec": 18, "end_sec": 27, "text": nxt},
+        ]
+        aligned = _align_segments_to_beats(segments, beats, "ru", 130, "")
+        self.assertEqual([item["text"] for item in aligned], [first if first.endswith(".") else first + ".", nxt if nxt.endswith(".") else nxt + "."])
+        self.assertEqual(aligned[0]["start_sec"], 0)
+        self.assertEqual(aligned[1]["start_sec"], 18)
+
+    def test_navigation_is_not_the_fact_and_a_command_is_dropped(self):
+        from script_llm import _align_segments_to_beats, _moment_to_tell
+
+        moment = _moment_to_tell(
+            {"features": ["переход на следующую страницу", "показ брендов", "переход"], "product": ""},
+            [],
+        )
+        self.assertEqual(moment["primary"], "показ брендов")
+        repeated = _moment_to_tell(
+            {"features": ["показ брендов"], "product": ""},
+            ["Раздел показывает бренды магазина и их товары."],
+        )
+        self.assertIsNone(repeated)
+        moved = _moment_to_tell(
+            {"features": ["3D модель товара"], "product": "обувь"},
+            ["Объёмная модель показывает сумку со всех сторон."],
+        )
+        self.assertEqual(moved["primary"], "3D модель товара")
+        beats = [{
+            "start": 0, "end": 8, "visuals": ["кадр"], "user": "", "ui": [],
+            "actions": [], "change": "", "draft_slice": "",
+            "features": ["показ брендов"],
+        }]
+        aligned = _align_segments_to_beats(
+            [{"start_sec": 0, "end_sec": 8, "text": "Переходите между страницами магазина."}],
+            beats, "ru", 130, "",
+        )
+        self.assertEqual(aligned, [])
+
+    def test_caption_salvage_keeps_the_action_and_drops_the_page_frame(self):
+        from script_llm import _salvage_caption
+
+        compared = _salvage_caption(
+            "На странице раздела вы можете сравнить две модели и сохранить выбор.",
+            {"primary": "сравнение моделей"},
+        )
+        self.assertTrue(compared.lower().startswith("можно "))
+        self.assertNotIn("на странице", compared.lower())
+        listed = _salvage_caption(
+            "Эта страница подборки позволяет сузить список.",
+            {"primary": "сужение списка"},
+        )
+        self.assertTrue(listed.lower().startswith("сужение списка позволяет"))
+        priced = _salvage_caption(
+            "На странице витрины теперь отображается стоимость позиции.",
+            {"primary": "показ стоимости"},
+        )
+        self.assertTrue(priced.lower().startswith("можно увидеть"))
+        self.assertIn("стоимость", priced.lower())
+        self.assertNotIn("—", priced)
+        from script_llm import _repair_opening
+        self.assertTrue(
+            _repair_opening("Отображения новых позиций и обновления меню можно изучить модель.").lower().startswith("можно изучить")
+        )
+        self.assertTrue(
+            _repair_opening("В разделе подборки с фильтром можно сузить список.").lower().startswith("в разделе")
+        )
+
+    def test_a_line_occupies_its_speech_and_the_next_waits(self):
+        from script_llm import _accept_tour_line, _place_by_speech
+
+        placed = _place_by_speech([
+            {"anchor_sec": 0, "text": "Каталог начинается с разделов.", "estimated_sec": 4.5},
+            {"anchor_sec": 9, "text": "Дальше видны марки.", "estimated_sec": 4},
+        ])
+        self.assertEqual(placed[0]["end_sec"], 4.5)
+        self.assertLess(placed[0]["end_sec"], 9)
+        self.assertEqual(placed[1]["start_sec"], 9)
+        overlap = _place_by_speech([
+            {"anchor_sec": 0, "text": "Длинная реплика занимает больше окна.", "estimated_sec": 12},
+            {"anchor_sec": 9, "text": "Следующая мысль.", "estimated_sec": 4},
+        ])
+        self.assertEqual(overlap[1]["start_sec"], 12)
+        self.assertEqual(
+            _accept_tour_line(
+                "Возможность выбора товаров по категориям позволяет вам выбирать товары по категориям.",
+                {"primary": "выбор по категориям", "product": "", "section": "категории", "also": []},
+                [],
+                "ru",
+            ),
+            "",
+        )
+        self.assertEqual(
+            _accept_tour_line(
+                "Теперь перейдите к странице брендов, где можно выбрать товары от известных брендов.",
+                {"primary": "показ брендов", "product": "", "section": "бренды", "also": []},
+                [],
+                "ru",
+            ),
+            "Можно выбрать товары от известных брендов.",
+        )
+        self.assertEqual(
+            _accept_tour_line(
+                "Каталог открывается, позволяя сразу.",
+                {"primary": "каталог товаров", "product": "", "section": "разделы", "also": []},
+                [],
+                "ru",
+            ),
+            "",
+        )
+
+    def test_related_events_become_one_thought_not_a_caption_each(self):
+        from script_llm import _accept_tour_line, _compose_unit_line, _narrative_units, _unit_capabilities
+
+        beats = [
+            {"start": 0, "end": 4, "screen_type": "catalog", "features": ["отображение категорий товаров", "переход на страницу"], "product": "", "change": ""},
+            {"start": 4, "end": 8, "screen_type": "catalog", "features": ["3D модель товара"], "product": "сумка", "change": ""},
+            {"start": 8, "end": 12, "screen_type": "catalog", "features": ["кнопка Add to Cart"], "product": "сумка", "change": ""},
+            {"start": 20, "end": 28, "screen_type": "contact", "features": ["форма сообщения"], "product": "", "change": ""},
+        ]
+        units = _narrative_units(beats)
+        self.assertEqual(len(units), 2)
+        self.assertEqual(units[0]["end"], 12)
+        self.assertEqual(units[1]["start"], 20)
+        caps = _unit_capabilities(units[0]["beats"], [])
+        self.assertGreaterEqual(len(caps), 2)
+        self.assertNotIn("переход на страницу", caps)
+        self.assertEqual(
+            _accept_tour_line(
+                "Можно увидеть 3D модель товара.",
+                {"primary": caps[0], "also": caps[1:], "product": "сумка", "section": "", "capabilities": caps},
+                [],
+                "ru",
+            ),
+            "",
+        )
+        line = _compose_unit_line(caps)
+        self.assertGreaterEqual(len(line.split()), 6)
+        self.assertFalse(line.lower().startswith("можно увидеть"))
+        drill = _narrative_units([
+            {"start": 44, "end": 53, "screen_type": "catalog", "features": ["просмотр коллекции"], "product": ""},
+            {"start": 53, "end": 62, "screen_type": "product", "features": ["3D-представление товара"], "product": "сумка"},
+        ])
+        self.assertEqual(len(drill), 2)
+        sneaker = _narrative_units([
+            {"start": 18.69, "end": 27.99, "screen_type": "catalog", "features": ["просмотр товара"], "product": "кроссовок"},
+            {"start": 27.99, "end": 37.29, "screen_type": "catalog", "features": ["3D модель кроссовка"], "product": "кроссовок"},
+        ])
+        self.assertEqual(len(sneaker), 2)
+        self.assertTrue(_compose_unit_line(["переход между категориями", "3D модель кроссовка"]).startswith("Покупатель может переходить"))
+
+    def test_prompt_asks_for_a_tour_and_prefers_the_demonstrated_action(self):
+        ctx = {
+            "duration_sec": 10,
+            "visual_quality": "vlm",
+            "scene_analysis": [
+                {
+                    "index": 0,
+                    "start": 0,
+                    "end": 10,
+                    "visual_summary": "A product card is open.",
+                    "source": "vlm",
+                    "actions": ["rotate the item"],
+                    "product_features": ["printed price"],
+                    "demonstrated_feature": "rotate the item",
+                    "screen_type": "product",
+                    "narration_recommended": True,
+                    "ocr_labels": ["Price"],
+                }
+            ],
+        }
+        prompt = _build_director_prompt(ctx, "", "en", 130, "")
+        self.assertIn("what the viewer learns", prompt.lower())
+        self.assertIn("prefer an action over a label", prompt.lower())
+        self.assertIn("rotate the item", prompt)
+        self.assertLess(prompt.lower().index("rotate the item"), prompt.lower().index("price"))
+
 
 class NormalizeMissingVlmTests(unittest.TestCase):
     def test_empty_window_is_not_recommended_speech(self):

@@ -17,11 +17,6 @@ function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-function targetWords(startSec: number, endSec: number): number {
-  const windowSec = Math.max(0.4, endSec - startSec);
-  return Math.max(10, Math.round(windowSec * 130 / 60 * 0.72 * 0.85));
-}
-
 export function VoiceoverScriptEditor(): ReactNode {
   const d = useDirector();
   const script = d.voiceover.script;
@@ -62,18 +57,6 @@ export function VoiceoverScriptEditor(): ReactNode {
         <>
           <p className={styles.voScriptStatus}>
             {d.t('video.vo_script_saved', { count: script.segments.length })}
-            {analysis && script.segments.length !== analysis.scenes.length ? (
-              <>
-                {' · '}
-                <span className={styles.voScriptWarn}>
-                  {d.t('video.vo_script_scene_warn', {
-                    segments: script.segments.length,
-                    scenes: analysis.scenes.length,
-                  })}
-                </span>
-              </>
-            ) : null}
-            {' · '}
             {script.meta.provider === 'ollama'
               ? d.t('video.vo_script_provider_ollama')
               : d.t('video.vo_script_provider_fallback')}
@@ -97,8 +80,7 @@ export function VoiceoverScriptEditor(): ReactNode {
           <div className={styles.voScriptCards}>
             {script.segments.map((seg, index) => {
               const words = wordCount(seg.text);
-              const target = targetWords(seg.start_sec, seg.end_sec);
-              const thin = words < Math.round(target * 0.6);
+              const spoken = seg.speech_sec ?? seg.estimated_sec;
               return (
                 <article key={`${seg.start_sec}-${index}`} className={styles.voScriptCard}>
                   <header className={styles.voScriptCardHead}>
@@ -106,8 +88,9 @@ export function VoiceoverScriptEditor(): ReactNode {
                       {formatTimecode(seg.start_sec)} – {formatTimecode(seg.end_sec)}
                     </span>
                     <span className={styles.voScriptRole}>{seg.role}</span>
-                    <span className={styles.voScriptWords} data-thin={thin || undefined}>
-                      {words} / ~{target}
+                    <span className={styles.voScriptWords}>
+                      {words}
+                      {spoken != null && spoken > 0 ? ` · ${Math.round(spoken * 10) / 10} с` : ''}
                     </span>
                   </header>
                   <textarea

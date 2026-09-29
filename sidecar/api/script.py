@@ -22,6 +22,7 @@ class ScriptSegmentOut(BaseModel):
     purpose: str = ""
     visual_summary: str = ""
     estimated_sec: float = 0.0
+    anchor_sec: Optional[float] = None
 
 
 class ScriptMetaOut(BaseModel):

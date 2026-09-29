@@ -395,8 +395,15 @@ export function trimRunawayAudioClips(clips: TimelineClip[]): TimelineClip[] {
 }
 
 export function clipAtTime(clips: TimelineClip[], track: TrackId, t: number): TimelineClip | null {
-  const hits = clips.filter((c) => c.track === track && t >= c.startSec && t < c.startSec + c.durationSec);
-  return hits.at(-1) ?? null;
+  const onTrack = clips.filter((c) => c.track === track);
+  const hits = onTrack.filter((c) => t >= c.startSec && t < c.startSec + c.durationSec);
+  if (hits.length) return hits.at(-1) ?? null;
+  // Parked on an out-point (including the end of the film) still shows that clip.
+  const parked = onTrack
+    .map((clip) => ({ clip, end: clip.startSec + clip.durationSec }))
+    .filter(({ end }) => t >= end && t - end <= 0.35)
+    .sort((a, b) => b.end - a.end)[0];
+  return parked?.clip ?? null;
 }
 
 export function mediaTimeForClip(clip: TimelineClip, t: number): number {

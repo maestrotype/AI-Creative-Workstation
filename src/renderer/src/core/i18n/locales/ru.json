@@ -580,6 +580,7 @@
     "pipe_fix_applying": "Сохраняю…",
     "pipe_fix_saved": "Сохранено: {{rule}}. Вернитесь на шаг «Голос» и переозвучьте.",
     "pipe_estimate": "речь ≈{{est}} с / окно {{window}} с",
+    "pipe_speech_sec": "речь {{sec}} с",
     "pipe_measured": "речь {{sec}} с / окно {{window}} с",
     "pipe_tempo": "ускорено {{pct}}%",
     "pipe_estimate_over": "Текст длиннее окна сцены — речь может не поместиться. Сократите текст.",

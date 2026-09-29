@@ -85,7 +85,13 @@ export function clipDisplayName(
   // Audio: lane role beats filename / hash labels.
   if (bin?.kind === 'audio' || clip.track.startsWith('a')) {
     if (clip.track === 'a2') return compact ? 'Music' : 'Music';
-    if (clip.track === 'a1') return compact ? 'Nar' : 'Narration';
+    if (clip.track === 'a1') {
+      const label = (clip.label || '').trim();
+      if (label && !/^(ai\s+)?narration$/i.test(label)) {
+        return compact && label.length > 8 ? label.slice(0, 7) : label;
+      }
+      return compact ? 'Nar' : 'Narration';
+    }
     return 'Audio';
   }
 
@@ -95,8 +101,14 @@ export function clipDisplayName(
     return 'Still';
   }
 
-  // Footage without an AI purpose.
-  if (bin?.kind === 'video') return compact ? 'Up' : 'Uploaded';
+  // Footage: the recording name, not a generic "Uploaded".
+  if (bin?.kind === 'video') {
+    const human = humanizeFileStem(clip.label || bin.name || '');
+    if (human && !isWeakClipTitle(human)) {
+      return compact ? human.slice(0, 8) : (human.length > 24 ? `${human.slice(0, 22)}…` : human);
+    }
+    return compact ? 'Up' : 'Uploaded';
+  }
 
   const fromLabel = humanizeFileStem(clip.label || '');
   if (fromLabel && !isWeakClipTitle(fromLabel)) {
@@ -126,7 +138,13 @@ export function mediaBinDisplayName(
     return 'Still';
   }
   if (bin.kind === 'audio') return 'Audio';
-  if (bin.kind === 'video') return 'Uploaded';
+  if (bin.kind === 'video') {
+    const human = humanizeFileStem(bin.name);
+    if (human && !isWeakClipTitle(human)) {
+      return human.length > 32 ? `${human.slice(0, 30)}…` : human;
+    }
+    return 'Uploaded';
+  }
   const human = humanizeFileStem(bin.name);
   if (human && !isWeakClipTitle(human)) return human;
   return bin.kind === 'image' ? 'Still' : 'Media';

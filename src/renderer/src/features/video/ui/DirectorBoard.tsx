@@ -1643,9 +1643,10 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     addBin('audio', remembered, dur, 'a1', known);
   };
 
-  const ingestAudioPathAt = async (path: string, startSec: number, label?: string) => {
+  const ingestAudioPathAt = async (path: string, startSec: number, label?: string, spanSec?: number) => {
     const remembered = (await window.api?.rememberDroppedMedia?.(path)) ?? path;
     const { dur, known } = await probeDuration(remembered, 'audio');
+    const timelineDur = spanSec && spanSec > 0.4 ? spanSec : dur;
     const item: BinItem = {
       id: newId('bin'),
       kind: 'audio',
@@ -1658,25 +1659,21 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     };
     setBins((prev) => [...prev, item]);
     setTrackLayout((layout) => ensureTrackVisible(layout, 'a1'));
-    let queuedId: string | null = null;
     setClips((prev) => {
       const clip: TimelineClip = {
         id: newId('clip'),
         binId: item.id,
         track: 'a1',
         startSec: Math.max(0, startSec),
-        durationSec: dur,
+        durationSec: timelineDur,
         sourceInSec: 0,
         label: item.name,
         autoLength: true,
         muted: false,
         volume: 1,
       };
-      queuedId = clip.id;
       return [...prev, clip];
     });
-    if (queuedId) setSelectedClip(queuedId);
-    setSelectedBin(item.id);
     try {
       await window.api?.readMediaFile?.(remembered);
     } catch {
@@ -2178,14 +2175,30 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         ollama_model: scriptModel,
       });
       const script: VoiceoverScript = {
-        segments: result.segments,
-        meta: result.meta,
+        segments: result.segments.map((seg) => ({
+          ...seg,
+          audio_path: undefined,
+          speech_sec: undefined,
+        })),
+        meta: {
+          ...result.meta,
+          script_version: Date.now(),
+        },
       };
-      setVoiceover((prev) => ({
-        ...prev,
+      const nextSession = {
+        ...voiceoverRef.current,
         script,
-        status: 'scripted',
-      }));
+        status: 'scripted' as const,
+      };
+      voiceoverRef.current = nextSession;
+      setVoiceover(nextSession);
+      setClips((prev) => prev.filter((clip) => clip.track !== 'a1'));
+      setVoiceoverProgress({
+        stage: 'voice',
+        percent: 55,
+        detail: 'Сценарий записан. Старая дорожка снята, озвучиваю эту версию…',
+      });
+      await applyScriptVoiceover();
     } catch (err) {
       const msg = ipcMessage(err, t('video.vo_script_fail'));
       setScriptError(
@@ -2263,7 +2276,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   };
 
   const applyScriptVoiceover = async () => {
-    const script = voiceover.script;
+    const script = voiceoverRef.current.script;
     if (!script?.segments.length) {
       setVoiceoverApplyError(t('video.vo_voice_need_script'));
       return;
@@ -2369,71 +2382,37 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         speech_sec: number;
         text: string;
         audio_path: string;
+        start_sec: number;
+        end_sec: number;
       }> = [];
 
+      let speechCursor = 0;
       for (let i = 0; i < parts.length; i += 1) {
         const part = parts[i];
         const scriptIndex = partScriptIndexes[i];
         const entry = voicedSegments.find((item) => item.scriptIndex === scriptIndex);
         if (!entry) continue;
-        const windowSec = Math.max(0.8, entry.seg.end_sec - entry.seg.start_sec);
-        let filePath = part.file_path;
-        let spoken = entry.seg.text.trim();
-        let probed = await probeDuration(filePath, 'audio');
-        if (probed.dur > windowSec * 1.12 && window.api.shortenScript && window.api.synthesizeVoice) {
-          setVoiceoverApplyProgress({
-            current: i + 1,
-            total: parts.length,
-            detail: t('video.vo_voice_shorten', { n: i + 1 }),
-          });
-          const shorter = await window.api.shortenScript({
-            text: spoken,
-            target_sec: Math.max(1, windowSec * 0.85),
-            language: 'ru',
-            target_wpm: script.meta.words_per_min || 130,
-            visual_summary: entry.seg.visual_summary || '',
-            purpose: entry.seg.purpose || '',
-          });
-          if (shorter.text.trim()) {
-            spoken = shorter.text.trim();
-            const redone = await window.api.synthesizeVoice({ text: spoken });
-            filePath = redone.file_path;
-            probed = await probeDuration(filePath, 'audio');
-          }
-        }
+        const filePath = part.file_path;
+        const spoken = entry.seg.text.trim();
+        const probed = await probeDuration(filePath, 'audio');
+        const anchor = entry.seg.anchor_sec ?? entry.seg.start_sec;
+        const start = Math.max(anchor, speechCursor);
+        const end = Math.round((start + probed.dur) * 100) / 100;
+        speechCursor = end;
         speechUpdates.push({
           scriptIndex,
           speech_sec: probed.dur,
           text: spoken,
           audio_path: filePath,
+          start_sec: Math.round(start * 100) / 100,
+          end_sec: end,
         });
-        part.file_path = filePath;
-        if (!window.api.mixVoiceoverTrack) {
-          await ingestAudioPathAt(
-            filePath,
-            part.start_sec,
-            t('video.vo_voice_clip_label', { n: i + 1 }),
-          );
-        }
+        const role = String(entry.seg.role || 'body').toLowerCase();
+        const roleLabel = role === 'hook' ? 'Hook' : role === 'cta' ? 'CTA' : role === 'outro' ? 'Outro' : 'Body';
+        await ingestAudioPathAt(filePath, start + timelineOffset, roleLabel);
       }
       if (!parts.length) {
         throw new Error(t('video.vo_voice_apply_fail'));
-      }
-      if (window.api.mixVoiceoverTrack) {
-        setVoiceoverApplyProgress({
-          current: parts.length,
-          total: parts.length,
-          detail: 'Собираем единую дорожку озвучки…',
-        });
-        const mixed = await window.api.mixVoiceoverTrack({
-          parts,
-          total_sec: Math.max(totalRef.current, ...parts.map((part) => (
-            part.start_sec + (part.max_duration_sec ?? 0)
-          ))),
-          output_name: `voiceover-${scopeIdRef.current || 'film'}`,
-        });
-        await ingestAudioPathAt(mixed.file_path, 0, 'AI narration');
-        setSeekNonce((n) => n + 1);
       }
       if (speechUpdates.length) {
         setVoiceover((prev) => {
@@ -2444,6 +2423,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
             return {
               ...seg,
               text: row.text,
+              start_sec: row.start_sec,
+              end_sec: row.end_sec,
               speech_sec: row.speech_sec,
               speech_tempo: 1,
               audio_path: row.audio_path,
@@ -2483,7 +2464,13 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       const measured = await probeDuration(result.file_path, 'audio');
       const nextSegments = script.segments.map((item, itemIndex) => (
         itemIndex === index
-          ? { ...item, audio_path: result.file_path, speech_sec: measured.dur, speech_tempo: 1 }
+          ? {
+              ...item,
+              audio_path: result.file_path,
+              speech_sec: measured.dur,
+              speech_tempo: 1,
+              end_sec: Math.round((item.start_sec + measured.dur) * 100) / 100,
+            }
           : item
       ));
       setVoiceover((prev) => ({
@@ -2492,26 +2479,12 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         script: prev.script ? { ...prev.script, segments: nextSegments } : prev.script,
       }));
 
-      const voiced = nextSegments.filter((item) => item.audio_path);
-      if (window.api.mixVoiceoverTrack && voiced.length) {
-        const hostClip = clipsRef.current
-          .filter((clip) => clip.track === 'v1' && (!voiceoverRef.current.sourceBinId || clip.binId === voiceoverRef.current.sourceBinId))
-          .sort((a, b) => a.startSec - b.startSec)[0];
-        const offset = hostClip ? Math.max(0, hostClip.startSec - hostClip.sourceInSec) : 0;
-        const mixed = await window.api.mixVoiceoverTrack({
-          parts: voiced.map((item) => ({
-            file_path: item.audio_path!,
-            start_sec: item.start_sec + offset,
-            max_duration_sec: Math.max(0.5, item.end_sec - item.start_sec),
-          })),
-          total_sec: totalRef.current,
-          output_name: `voiceover-${scopeIdRef.current || 'film'}`,
-        });
-        setClips((prev) => prev.filter((clip) => clip.track !== 'a1'));
-        await ingestAudioPathAt(mixed.file_path, 0, 'AI narration');
-      } else {
-        await ingestAudioPathAt(result.file_path, segment.start_sec, `Narration ${index + 1}`);
-      }
+      const role = String(segment.role || 'body').toLowerCase();
+      const roleLabel = role === 'hook' ? 'Hook' : role === 'cta' ? 'CTA' : role === 'outro' ? 'Outro' : 'Body';
+      setClips((prev) => prev.filter((clip) => !(
+        clip.track === 'a1' && Math.abs(clip.startSec - segment.start_sec) < 0.35
+      )));
+      await ingestAudioPathAt(result.file_path, segment.start_sec, roleLabel);
       setVoiceoverApplyProgress({ current: 1, total: 1, detail: 'Сегмент обновлён' });
     } catch (err) {
       setVoiceoverApplyError(ipcMessage(err, 'Не удалось обновить сегмент озвучки'));
