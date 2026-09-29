@@ -1,0 +1,428 @@
+{
+  "after_ocr_scene_analysis": [
+    {
+      "index": 0,
+      "start": 0.0,
+      "end": 9.344,
+      "visual_summary": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "screen_type": "catalog",
+      "user_doing": "просматривает 3D-модель сумки и выбирает нужную категорию для просмотра товаров",
+      "actions": [
+        "переход на страницу категорий",
+        "просмотр 3D-модели сумки"
+      ],
+      "ui_elements": [
+        "3D модель сумки",
+        "3D модель обуви",
+        "3D модель одежды",
+        "3D модель автомобилей",
+        "3D модель людей",
+        "кнопки 'Add to Cart' и 'View Details'",
+        "кнопки навигации по категориям",
+        "3D",
+        "EN",
+        "Shop",
+        "New in",
+        "Brands"
+      ],
+      "ocr_labels": [
+        "3D",
+        "EN",
+        "Shop",
+        "New in",
+        "Brands",
+        "ADMIN",
+        "Contacts",
+        "Categories",
+        "Saddle Crossbody",
+        "Turn it in 3D",
+        "to orbit, then add to cart",
+        "View Details",
+        "Add to Cart",
+        "noyen tnemoteroroanecrolwnec",
+        "Velocity Court Sneaker",
+        "Weekend Tote"
+      ],
+      "source": "vlm",
+      "frames_sent": 3,
+      "narration_recommended": false
+    },
+    {
+      "index": 1,
+      "start": 9.344,
+      "end": 18.688,
+      "visual_summary": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "screen_type": "catalog",
+      "user_doing": "Пользователь кликает на категорию 'Bags' для просмотра товаров в этой категории.",
+      "actions": [
+        "click"
+      ],
+      "ui_elements": [
+        "3D Store logo",
+        "Home",
+        "Shop",
+        "Categories",
+        "Contacts",
+        "New in",
+        "Brands",
+        "Search icon",
+        "Cart icon",
+        "Language icon",
+        "Admin icon",
+        "Categories menu"
+      ],
+      "ocr_labels": [
+        "3D",
+        "New in",
+        "Shop",
+        "Contacts",
+        "Categories",
+        "ADMIN",
+        "® EN",
+        "Brands",
+        "Trusted by Leading Brands",
+        "SUPPORT",
+        "QUICK LINKS",
+        "Store",
+        "Help Center",
+        "people",
+        "Explore fashion with a new dimension",
+        "Shipping"
+      ],
+      "source": "vlm",
+      "frames_sent": 3,
+      "narration_recommended": false
+    },
+    {
+      "index": 2,
+      "start": 18.688,
+      "end": 27.988,
+      "visual_summary": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "screen_type": "catalog",
+      "user_doing": "переход на страницу категорий",
+      "actions": [
+        "переход"
+      ],
+      "ui_elements": [
+        "3D Store",
+        "Home",
+        "Shop",
+        "Categories",
+        "Contacts",
+        "New in",
+        "Brands",
+        "Categories",
+        "Shoes",
+        "Clothing",
+        "Bags",
+        "Cars"
+      ],
+      "ocr_labels": [
+        "3D",
+        "Categories",
+        "Shop",
+        "Contacts",
+        "ADMIN",
+        "Đ EN",
+        "Brands",
+        "New in",
+        "JUST LANDED",
+        "New This Season",
+        "VIEW PRODUCT",
+        "Javasenpivolalu"
+      ],
+      "source": "vlm",
+      "frames_sent": 3,
+      "narration_recommended": false
+    },
+    {
+      "index": 3,
+      "start": 27.988,
+      "end": 37.288,
+      "visual_summary": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "screen_type": "catalog",
+      "user_doing": "переход на страницу категорий",
+      "actions": [
+        "переход на страницу категорий"
+      ],
+      "ui_elements": [
+        "3D Store логотип",
+        "Home",
+        "Shop",
+        "Categories",
+        "Contacts",
+        "New in",
+        "Brands",
+        "Search icon",
+        "Cart icon",
+        "Language icon",
+        "Admin icon",
+        "Brand logos"
+      ],
+      "ocr_labels": [
+        "3D",
+        "ADMIN",
+        "Shop",
+        "New in",
+        "Brands",
+        "Categories",
+        "Contacts",
+        "Đ EN",
+        "CAMPAIGN FILM",
+        "Move in 3D",
+        "A cinematic look at this season's silhouettes, textures, and sound",
+        "Our story",
+        "Shop the film"
+      ],
+      "source": "vlm",
+      "frames_sent": 3,
+      "narration_recommended": false
+    },
+    {
+      "index": 4,
+      "start": 37.288,
+      "end": 44.121,
+      "visual_summary": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "screen_type": "catalog",
+      "user_doing": "переход на страницу категорий",
+      "actions": [
+        "переход на страницу категорий"
+      ],
+      "ui_elements": [
+        "3D-изображение сумки",
+        "список категорий",
+        "кнопка 'SHOP NOW'",
+        "кнопка 'Categories'",
+        "кнопка 'Contacts'",
+        "кнопка 'New in'",
+        "кнопка 'Brands'",
+        "кнопка 'Home'",
+        "кнопка 'Shop'",
+        "кнопка 'Admin'",
+        "кнопка 'EN'",
+        "кнопка 'Dark'"
+      ],
+      "ocr_labels": [
+        "3D",
+        "New in",
+        "# EN",
+        "Categories",
+        "Shop",
+        "Brands",
+        "ADMIN",
+        "Contacts",
+        "Store",
+        "Your Name",
+        "YOUR EMAIL",
+        "Have questions? We'd love to hear from you",
+        "info@3dstore.com",
+        "Subject",
+        "YOUR MESSAGE",
+        "123 Fashion Street, NY 10001"
+      ],
+      "source": "vlm",
+      "frames_sent": 3,
+      "narration_recommended": false
+    },
+    {
+      "index": 5,
+      "start": 44.121,
+      "end": 53.172,
+      "visual_summary": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "screen_type": "catalog",
+      "user_doing": "переход на страницу категорий",
+      "actions": [
+        "переход на страницу категорий"
+      ],
+      "ui_elements": [
+        "3D Store logo",
+        "Categories menu",
+        "Home",
+        "Shop",
+        "Contacts",
+        "New in",
+        "Brands",
+        "Search icon",
+        "Cart icon",
+        "Language switch",
+        "Admin button",
+        "3D"
+      ],
+      "ocr_labels": [
+        "3D",
+        "8 магазині",
+        "Новинки",
+        "Брен,",
+        "Домой",
+        "@ RU",
+        "АДМИНИСТРАТОР",
+        "Категории",
+        "Откройте для себя",
+        "нашу коллекцию",
+        "NEW STYLE",
+        "Оцените покупки в 3D с нашей коллекцией",
+        "премиум-класса",
+        "КУПИТЬ СЕЙЧАС"
+      ],
+      "source": "vlm",
+      "frames_sent": 3,
+      "narration_recommended": false
+    },
+    {
+      "index": 6,
+      "start": 53.172,
+      "end": 62.222,
+      "visual_summary": "Пользователь перешел на страницу товара в 3D-формате, где виден список категорий. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.",
+      "screen_type": "product",
+      "user_doing": "просматривает 3D-модель сумки и выбирает нужную категорию",
+      "actions": [
+        "переход на страницу товара",
+        "просмотр 3D-модели сумки"
+      ],
+      "ui_elements": [
+        "3D модель сумки",
+        "список категорий",
+        "кнопка 'В корзину'",
+        "кнопка 'Переглянути деталі'",
+        "3D",
+        "8 магазині",
+        "Новинки",
+        "АДМИНИСТРАТОР",
+        "Брен,",
+        "Категории",
+        "Домой",
+        "EN"
+      ],
+      "ocr_labels": [
+        "3D",
+        "8 магазині",
+        "Новинки",
+        "АДМИНИСТРАТОР",
+        "Брен,",
+        "Категории",
+        "Домой",
+        "EN",
+        "RU",
+        "UA",
+        "СУМКИ",
+        "ЖИВОЙ КАТАЛОГ",
+        "Седельная сумка",
+        "Поверни в 3D",
+        "Сумки, одежда и обувь из магазина - крутите",
+        "В корзину"
+      ],
+      "source": "vlm",
+      "frames_sent": 3,
+      "narration_recommended": false
+    }
+  ],
+  "speech_beats": [
+    {
+      "start": 0.0,
+      "end": 9.34,
+      "chapter_index": 0,
+      "chapter_title": "Запись экрана 2026-09-25 в 12.07.13.mov",
+      "intent": "3D-представление товаров",
+      "draft_slice": "",
+      "visuals": [
+        "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров."
+      ],
+      "user": "просматривает 3D-модель сумки и выбирает нужную категорию для просмотра товаров",
+      "ui": [
+        "3D",
+        "EN",
+        "Shop",
+        "New in",
+        "Brands",
+        "ADMIN",
+        "Contacts",
+        "Categories"
+      ],
+      "actions": [
+        "переход на страницу категорий",
+        "просмотр 3D-модели сумки"
+      ],
+      "said": "",
+      "screen_type": "catalog",
+      "change": "переход с главной страницы на страницу категорий",
+      "product": "Saddle Crossbody"
+    },
+    {
+      "start": 9.34,
+      "end": 53.17,
+      "chapter_index": 1,
+      "chapter_title": "Запись экрана 2026-09-25 в 12.07.13.mov",
+      "intent": "Просмотр товаров в 3D-формате и выбор категории для просмотра товаров.",
+      "draft_slice": "",
+      "visuals": [
+        "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров."
+      ],
+      "user": "Пользователь кликает на категорию 'Bags' для просмотра товаров в этой категории. переход на страницу категорий",
+      "ui": [
+        "3D",
+        "New in",
+        "Shop",
+        "Contacts",
+        "Categories",
+        "ADMIN",
+        "® EN",
+        "Brands"
+      ],
+      "actions": [
+        "click"
+      ],
+      "said": "",
+      "screen_type": "catalog",
+      "change": "Появление категории 'Bags' в меню категорий.",
+      "product": "Saddle Crossbody"
+    },
+    {
+      "start": 53.17,
+      "end": 62.22,
+      "chapter_index": 6,
+      "chapter_title": "Запись экрана 2026-09-25 в 12.11.00.mov",
+      "intent": "3D-модель товара",
+      "draft_slice": "",
+      "visuals": [
+        "Пользователь перешел на страницу товара в 3D-формате, где виден список категорий. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров."
+      ],
+      "user": "просматривает 3D-модель сумки и выбирает нужную категорию",
+      "ui": [
+        "3D",
+        "8 магазині",
+        "Новинки",
+        "АДМИНИСТРАТОР",
+        "Брен,",
+        "Категории",
+        "Домой",
+        "EN"
+      ],
+      "actions": [
+        "переход на страницу товара",
+        "просмотр 3D-модели сумки"
+      ],
+      "said": "",
+      "screen_type": "product",
+      "change": "изменение экрана на страницу товара с 3D-моделью и кнопками для добавления в корзину и просмотра деталей",
+      "product": "сумка"
+    }
+  ],
+  "chapters_sent_to_llm": [
+    {
+      "title": "Запись экрана 2026-09-25 в 12.07.13.mov",
+      "start": 0.0,
+      "end": 28.23,
+      "intent": "",
+      "draft": "",
+      "said": ""
+    },
+    {
+      "title": "Запись экрана 2026-09-25 в 12.11.00.mov",
+      "start": 28.23,
+      "end": 62.2,
+      "intent": "",
+      "draft": "",
+      "said": ""
+    }
+  ]
+}

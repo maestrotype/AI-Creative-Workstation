@@ -1,0 +1,82 @@
+You write a voiceover for a screen recording. Tell the viewer what is happening and which demonstrated UI ability that shows.
+
+User notes: Демо Angular 3D Ecommerce для маркетплейса
+
+Замени авторскую озвучку. Минута картины — это несколько реплик по ходу кадра, не одна фраза на всю главу. Пиши то, что видно и что меняется, опираясь на разбор кадров и на слова автора. Черновик главы — смысл, не текст для копирования.
+Product brief (context only — never claim a feature that is not visible):
+Angular 3D Ecommerce — магазин на Angular 17, API на NestJS, PostgreSQL и 3D на Three.js.
+Для кого: покупатели на CodeCanyon и Gumroad, агентства и фрилансеры.
+Что показать:
+1. Это не лендинг: витрина, каталог, карточка, корзина, заказы и админка.
+2. Покупатель крутит GLB на карточке и на Product Stage. Демо-модели уже в комплекте.
+3. Темы витрины: Light, Dark, Glass. В админке ещё Dark Glass. Языки: EN, UA, RU.
+4. Stripe боевой, LiqPay для региона, PayPal в интерфейсе помечен как mock.
+5. В админке: дашборд, товары, заказы, пользователи, секции витрины, SEO.
+6. Фото с удалением фона через Remove.bg по ключу, загрузка GLB, Docker Compose и документация.
+Секреты, ключи и .env в кадре не показывать.
+Visual events below come from a vision model that compared start/mid/end frames.
+Video duration: 62.2s
+Language: Russian
+
+Visual events:
+Visual events in timeline order. Write speech only for events worth telling.
+Related events may share one spoken paragraph. Skip empty / pause events.
+Answer: what should the viewer be told about what they are seeing?
+OCR labels are evidence of painted text, not a description of the action.
+Do not invent screens. Do not write a generic shop slogan.
+EVENT 0 0.0s–9.3s (9.3s)
+  Screen: catalog
+  Happening: Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.
+  Change: переход с главной страницы на страницу категорий
+  User: просматривает 3D-модель сумки и выбирает нужную категорию для просмотра товаров
+  Product: Saddle Crossbody
+  Actions: переход на страницу категорий, просмотр 3D-модели сумки
+  Visible text (OCR): 3D, EN, Shop, New in, Brands, ADMIN, Contacts, Categories
+  Feature shown: 3D-представление товаров
+  Author said: —
+EVENT 1 9.3s–53.2s (43.8s)
+  Screen: catalog
+  Happening: Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.
+  Change: Появление категории 'Bags' в меню категорий.
+  User: Пользователь кликает на категорию 'Bags' для просмотра товаров в этой категории. переход на страницу категорий
+  Product: Saddle Crossbody
+  Actions: click
+  Visible text (OCR): 3D, New in, Shop, Contacts, Categories, ADMIN, ® EN, Brands
+  Feature shown: Просмотр товаров в 3D-формате и выбор категории для просмотра товаров.
+  Author said: —
+EVENT 2 53.2s–62.2s (9.0s)
+  Screen: product
+  Happening: Пользователь перешел на страницу товара в 3D-формате, где виден список категорий. На экране отображается список категорий, включая 'Shoes', 'Clothing', 'Bags', 'Cars', 'BPLA' и 'people'. Пользователь может выбрать нужную категорию для просмотра товаров.
+  Change: изменение экрана на страницу товара с 3D-моделью и кнопками для добавления в корзину и просмотра деталей
+  User: просматривает 3D-модель сумки и выбирает нужную категорию
+  Product: сумка
+  Actions: переход на страницу товара, просмотр 3D-модели сумки
+  Visible text (OCR): 3D, 8 магазині, Новинки, АДМИНИСТРАТОР, Брен,, Категории, Домой, EN
+  Feature shown: 3D-модель товара
+  Author said: —
+
+
+Return ONLY JSON:
+{
+  "segments": [
+    {
+      "start_sec": 0,
+      "end_sec": 5,
+      "text": "spoken words",
+      "role": "hook",
+      "purpose": "why this moment is spoken",
+      "speak": true
+    }
+  ]
+}
+
+Rules:
+- Write one spoken segment per meaningful event, or combine related events. Skip pauses.
+- Say what happened (opened a card, switched to 3D, changed language, added to cart). Then, if evidenced, name the template ability.
+- OCR labels prove painted text only. A header word ADMIN does not mean the admin dashboard is open.
+- Do not invent screens or features that are not in Happening / Change / User / Feature shown.
+- Product brief may explain a visible ability. It must not add unseen screens.
+- Avoid empty filler: «здесь мы видим», «discover», «experience», «everything you need».
+- Every sentence must end. Language: Russian only.
+- roles: hook | body | outro | cta
+- No stage directions, no "Scene 1", no commands like "покажи".

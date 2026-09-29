@@ -1,0 +1,339 @@
+{
+  "after_ocr_scene_analysis": [
+    {
+      "index": 0,
+      "start": 0,
+      "end": 9.344,
+      "visual_summary": "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, EN, Shop, New in.",
+      "ui_elements": [
+        "3D",
+        "EN",
+        "Shop",
+        "New in",
+        "Brands",
+        "ADMIN",
+        "Contacts",
+        "Categories",
+        "Saddle Crossbody",
+        "Turn it in 3D"
+      ],
+      "source": "ocr",
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-6b220f7bf3a0e4c5/win-000-1.jpg",
+      "narration_recommended": true
+    },
+    {
+      "index": 1,
+      "start": 9.344,
+      "end": 18.688,
+      "visual_summary": "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, New in, Shop, Contacts.",
+      "ui_elements": [
+        "3D",
+        "New in",
+        "Shop",
+        "Contacts",
+        "Categories",
+        "ADMIN",
+        "® EN",
+        "Brands",
+        "Trusted by Leading Brands",
+        "SUPPORT"
+      ],
+      "source": "ocr",
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-6b220f7bf3a0e4c5/win-001-1.jpg",
+      "narration_recommended": true
+    },
+    {
+      "index": 2,
+      "start": 18.688,
+      "end": 27.988,
+      "visual_summary": "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, Categories, Shop, Contacts.",
+      "ui_elements": [
+        "3D",
+        "Categories",
+        "Shop",
+        "Contacts",
+        "ADMIN",
+        "Đ EN",
+        "Brands",
+        "New in",
+        "JUST LANDED",
+        "New This Season"
+      ],
+      "source": "ocr",
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-6b220f7bf3a0e4c5/win-002-1.jpg",
+      "narration_recommended": true
+    },
+    {
+      "index": 3,
+      "start": 27.988,
+      "end": 37.288,
+      "visual_summary": "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, ADMIN, Shop, New in.",
+      "ui_elements": [
+        "3D",
+        "ADMIN",
+        "Shop",
+        "New in",
+        "Brands",
+        "Categories",
+        "Contacts",
+        "Đ EN",
+        "CAMPAIGN FILM",
+        "Move in 3D"
+      ],
+      "source": "ocr",
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-6b220f7bf3a0e4c5/win-003-1.jpg",
+      "narration_recommended": true
+    },
+    {
+      "index": 4,
+      "start": 37.288,
+      "end": 44.121,
+      "visual_summary": "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, New in, # EN, Categories.",
+      "ui_elements": [
+        "3D",
+        "New in",
+        "# EN",
+        "Categories",
+        "Shop",
+        "Brands",
+        "ADMIN",
+        "Contacts",
+        "Store",
+        "Your Name"
+      ],
+      "source": "ocr",
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-6b220f7bf3a0e4c5/win-004-1.jpg",
+      "narration_recommended": true
+    },
+    {
+      "index": 5,
+      "start": 44.121,
+      "end": 53.172,
+      "visual_summary": "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, 8 магазині, Новинки, Брен,.",
+      "ui_elements": [
+        "3D",
+        "8 магазині",
+        "Новинки",
+        "Брен,",
+        "Домой",
+        "@ RU",
+        "АДМИНИСТРАТОР",
+        "Категории",
+        "Откройте для себя",
+        "нашу коллекцию"
+      ],
+      "source": "ocr",
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-6b220f7bf3a0e4c5/win-005-1.jpg",
+      "narration_recommended": true
+    },
+    {
+      "index": 6,
+      "start": 53.172,
+      "end": 62.222,
+      "visual_summary": "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, 8 магазині, Новинки, АДМИНИСТРАТОР.",
+      "ui_elements": [
+        "3D",
+        "8 магазині",
+        "Новинки",
+        "АДМИНИСТРАТОР",
+        "Брен,",
+        "Категории",
+        "Домой",
+        "EN",
+        "RU",
+        "UA"
+      ],
+      "source": "ocr",
+      "frame_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Video/analysis/frames/1790368429273-eefae847-6b220f7bf3a0e4c5/win-006-1.jpg",
+      "narration_recommended": true
+    }
+  ],
+  "speech_beats": [
+    {
+      "start": 0.0,
+      "end": 9.34,
+      "chapter_index": 0,
+      "chapter_title": "Запись экрана 2026-09-25 в 12.07.13.mov",
+      "intent": "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, EN, Shop, New in.",
+      "draft_slice": "",
+      "visuals": [
+        "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, EN, Shop, New in."
+      ],
+      "user": "",
+      "ui": [
+        "3D",
+        "EN",
+        "Shop",
+        "New in",
+        "Brands",
+        "ADMIN",
+        "Contacts",
+        "Categories"
+      ],
+      "actions": [],
+      "said": ""
+    },
+    {
+      "start": 9.34,
+      "end": 18.69,
+      "chapter_index": 1,
+      "chapter_title": "Запись экрана 2026-09-25 в 12.07.13.mov",
+      "intent": "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, New in, Shop, Contacts.",
+      "draft_slice": "",
+      "visuals": [
+        "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, New in, Shop, Contacts."
+      ],
+      "user": "",
+      "ui": [
+        "3D",
+        "New in",
+        "Shop",
+        "Contacts",
+        "Categories",
+        "ADMIN",
+        "® EN",
+        "Brands"
+      ],
+      "actions": [],
+      "said": ""
+    },
+    {
+      "start": 18.69,
+      "end": 27.99,
+      "chapter_index": 2,
+      "chapter_title": "Запись экрана 2026-09-25 в 12.07.13.mov",
+      "intent": "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, Categories, Shop, Contacts.",
+      "draft_slice": "",
+      "visuals": [
+        "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, Categories, Shop, Contacts."
+      ],
+      "user": "",
+      "ui": [
+        "3D",
+        "Categories",
+        "Shop",
+        "Contacts",
+        "ADMIN",
+        "Đ EN",
+        "Brands",
+        "New in"
+      ],
+      "actions": [],
+      "said": ""
+    },
+    {
+      "start": 27.99,
+      "end": 37.29,
+      "chapter_index": 3,
+      "chapter_title": "Запись экрана 2026-09-25 в 12.11.00.mov",
+      "intent": "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, ADMIN, Shop, New in.",
+      "draft_slice": "",
+      "visuals": [
+        "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, ADMIN, Shop, New in."
+      ],
+      "user": "",
+      "ui": [
+        "3D",
+        "ADMIN",
+        "Shop",
+        "New in",
+        "Brands",
+        "Categories",
+        "Contacts",
+        "Đ EN"
+      ],
+      "actions": [],
+      "said": ""
+    },
+    {
+      "start": 37.29,
+      "end": 44.12,
+      "chapter_index": 4,
+      "chapter_title": "Запись экрана 2026-09-25 в 12.11.00.mov",
+      "intent": "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, New in, # EN, Categories.",
+      "draft_slice": "",
+      "visuals": [
+        "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, New in, # EN, Categories."
+      ],
+      "user": "",
+      "ui": [
+        "3D",
+        "New in",
+        "# EN",
+        "Categories",
+        "Shop",
+        "Brands",
+        "ADMIN",
+        "Contacts"
+      ],
+      "actions": [],
+      "said": ""
+    },
+    {
+      "start": 44.12,
+      "end": 53.17,
+      "chapter_index": 5,
+      "chapter_title": "Запись экрана 2026-09-25 в 12.11.00.mov",
+      "intent": "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, 8 магазині, Новинки, Брен,.",
+      "draft_slice": "",
+      "visuals": [
+        "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, 8 магазині, Новинки, Брен,."
+      ],
+      "user": "",
+      "ui": [
+        "3D",
+        "8 магазині",
+        "Новинки",
+        "Брен,",
+        "Домой",
+        "@ RU",
+        "АДМИНИСТРАТОР",
+        "Категории"
+      ],
+      "actions": [],
+      "said": ""
+    },
+    {
+      "start": 53.17,
+      "end": 62.22,
+      "chapter_index": 6,
+      "chapter_title": "Запись экрана 2026-09-25 в 12.11.00.mov",
+      "intent": "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, 8 магазині, Новинки, АДМИНИСТРАТОР.",
+      "draft_slice": "",
+      "visuals": [
+        "Открыта админка: каталог, заказы, пользователи и настройки магазина. На этом кадре читаются элементы витрины: 3D, 8 магазині, Новинки, АДМИНИСТРАТОР."
+      ],
+      "user": "",
+      "ui": [
+        "3D",
+        "8 магазині",
+        "Новинки",
+        "АДМИНИСТРАТОР",
+        "Брен,",
+        "Категории",
+        "Домой",
+        "EN"
+      ],
+      "actions": [],
+      "said": ""
+    }
+  ],
+  "chapters_sent_to_llm": [
+    {
+      "title": "Запись экрана 2026-09-25 в 12.07.13.mov",
+      "start": 0.0,
+      "end": 28.23,
+      "intent": "",
+      "draft": "",
+      "said": ""
+    },
+    {
+      "title": "Запись экрана 2026-09-25 в 12.11.00.mov",
+      "start": 28.23,
+      "end": 62.2,
+      "intent": "",
+      "draft": "",
+      "said": ""
+    }
+  ]
+}

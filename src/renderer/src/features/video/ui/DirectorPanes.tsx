@@ -375,6 +375,7 @@ export function DirectorResultPane({
           onOverlayMove={d.setOverlayPos}
           audioPolicy={d.exportSettings.audioPolicy}
           active={previewActive}
+          fallbackSource={d.voiceoverSource}
           onDecodeFail={(binId) => {
             const bin = d.bins.find((item) => item.id === binId);
             if (!bin || bin.proxying) return;

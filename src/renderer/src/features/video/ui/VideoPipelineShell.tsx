@@ -303,7 +303,7 @@ function StageAnalyze(): ReactNode {
       <p className={vp.hintTight}>{d.t('video.pipe_v1_screencast_hint')}</p>
       <SourceRow />
       <div className={vp.toolRow}>
-        {ctx ? (
+        {ctx && !busy && !ctx.warnings?.includes('VISION_MODEL_MISSING') && !ctx.warnings?.includes('VISION_CAPTION_FAILED') ? (
           <span className={vp.voAnalyzeReady}>{d.t('video.vo_analyze_ready')}</span>
         ) : (
           <button type="button" className={vp.toolPrimary} onClick={d.analyzeVoiceover} disabled={!canAnalyze}>
@@ -388,8 +388,8 @@ function StageAnalyze(): ReactNode {
           ) : (
             <p className={vp.hintTight}>{d.t('video.pipe_visual_empty')}</p>
           )}
-          {ctx.warnings?.includes('VISION_MODEL_MISSING') ? (
-            <p className={vp.hintTight}>{d.t('video.pipe_vision_missing')}</p>
+          {!busy && (ctx.warnings?.includes('VISION_MODEL_MISSING') || ctx.warnings?.includes('VISION_CAPTION_FAILED')) ? (
+            <p className={vp.error}>{d.t('video.pipe_vision_missing')}</p>
           ) : null}
           {ctx.transcript.segments.length > 0 ? (
             <details className={vp.voDetails}>
@@ -667,11 +667,10 @@ function StageScript({ active }: { active: boolean }): ReactNode {
                 ));
                 const live = d.playhead >= seg.start_sec && d.playhead < seg.end_sec;
                 const words = seg.text.split(/\s+/).filter(Boolean).length;
-                const windowSec = Math.max(0, seg.end_sec - seg.start_sec);
-                const estSec = (words / Math.max(60, script.meta.words_per_min || 130)) * 60;
+                const estSec = seg.estimated_sec
+                  ?? (words / Math.max(60, script.meta.words_per_min || 130)) * 60;
                 const measuredSec = seg.speech_sec;
                 const displaySec = measuredSec ?? estSec;
-                const over = words > 0 && displaySec > windowSec + (measuredSec != null ? 0.5 : 1);
                 const tempoApplied = seg.speech_tempo != null && seg.speech_tempo > 1.01;
                 return (
                   <Fragment key={`${seg.start_sec}-${index}`}>
@@ -694,20 +693,10 @@ function StageScript({ active }: { active: boolean }): ReactNode {
                         </button>
                         <span className={vp.voScriptRole}>{seg.role}</span>
                         {words > 0 ? (
-                          <span
-                            className={s.estimate}
-                            data-over={over}
-                            title={over ? d.t('video.pipe_estimate_over') : undefined}
-                          >
-                            {measuredSec != null
-                              ? d.t('video.pipe_measured', {
-                                  sec: Math.round(measuredSec * 10) / 10,
-                                  window: Math.round(windowSec),
-                                })
-                              : d.t('video.pipe_estimate', {
-                                  est: Math.round(estSec),
-                                  window: Math.round(windowSec),
-                                })}
+                          <span className={s.estimate}>
+                            {d.t('video.pipe_speech_sec', {
+                              sec: Math.round(displaySec * 10) / 10,
+                            })}
                             {tempoApplied && seg.speech_tempo != null
                               ? ` · ${d.t('video.pipe_tempo', {
                                   pct: Math.round((seg.speech_tempo - 1) * 100),

@@ -8,6 +8,8 @@ export interface ScriptSegment {
   purpose?: string;
   visual_summary?: string;
   estimated_sec?: number;
+  /** Picture time this line belongs to. Speech may start later if the previous line is still playing. */
+  anchor_sec?: number;
   audio_path?: string;
   /** Measured TTS duration after last A1 apply (seconds). */
   speech_sec?: number;
@@ -21,6 +23,8 @@ export interface VoiceoverScriptMeta {
   words_per_min: number;
   provider: string;
   model?: string | null;
+  /** Changes every time Generate replaces the script. A1 must be voiced for this value. */
+  script_version?: number;
 }
 
 export interface VoiceoverScript {

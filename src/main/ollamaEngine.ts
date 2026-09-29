@@ -6,7 +6,19 @@ import os from 'os';
 import path from 'path';
 
 export const DEFAULT_LLM_MODEL = 'qwen2.5:7b';
+export const VISION_LLM_MODEL = 'qwen2.5vl:7b';
 const OLLAMA_TAGS_URL = 'http://127.0.0.1:11434/api/tags';
+
+export function isVisionOllamaName(name: string): boolean {
+  const low = (name || '').trim().toLowerCase();
+  return low.includes('qwen2.5vl') || low.includes('qwen2.5-vl') || low.includes('vision') || low.includes('llava');
+}
+
+export function isScriptLlmModel(name: string): boolean {
+  const low = (name || '').trim().toLowerCase();
+  if (!low || isVisionOllamaName(low)) return false;
+  return low.includes('qwen2.5:14b') || low.includes('qwen2.5:7b');
+}
 
 const OLLAMA_BIN_CANDIDATES = [
   '/opt/homebrew/bin/ollama',
@@ -374,7 +386,11 @@ export function registerOllamaIpc(ipcMain: IpcMain, broadcast: BroadcastFn): voi
   });
 
   ipcMain.handle('set-ollama-active-model', async (_, modelName: string) => {
-    preferredLlmModel = (modelName || '').trim() || null;
+    const target = (modelName || '').trim();
+    if (target && !isScriptLlmModel(target)) {
+      return { ok: false, model: preferredLlmModel };
+    }
+    preferredLlmModel = target || null;
     broadcastStatus(broadcast);
     return { ok: true, model: preferredLlmModel };
   });
@@ -394,7 +410,9 @@ export function registerOllamaIpc(ipcMain: IpcMain, broadcast: BroadcastFn): voi
       if (!(await ollamaModelPulled(target))) {
         await pullOllamaModelByName(target, broadcast);
       }
-      preferredLlmModel = target;
+      if (isScriptLlmModel(target)) {
+        preferredLlmModel = target;
+      }
       ollamaInstallJob.percent = 100;
       ollamaInstallJob.stage = 'done';
       ollamaInstallJob.detail = `${target} ready`;

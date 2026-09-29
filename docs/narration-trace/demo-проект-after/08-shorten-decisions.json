@@ -1,0 +1,21 @@
+{
+  "rule": "DirectorBoard.applyScriptVoiceover: shorten if probed TTS duration > windowSec * 1.12",
+  "this_run": "Shorten was not used. The new script is already the raw LLM output after event alignment.",
+  "segments": [
+    {
+      "index": 0,
+      "window_sec": 9.34,
+      "text": "Пользователь перешел на страницу категорий магазина, где виден список товаров в 3D-формате."
+    },
+    {
+      "index": 1,
+      "window_sec": 43.83,
+      "text": "Пользователь просматривает список товаров в выбранной категории 'Bags' с возможностью взаимодействия с товарами в 3D-формате."
+    },
+    {
+      "index": 2,
+      "window_sec": 9.05,
+      "text": "Пользователь переходит на страницу товара, где виден 3D-модель сумки с кнопками для добавления в корзину и просмотра деталей."
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "status": "voiced",
+  "meta": {
+    "tone": "directed",
+    "language": "ru",
+    "words_per_min": 130,
+    "provider": "ollama",
+    "model": "qwen2.5:14b",
+    "planner": "chapters",
+    "scene_count": 7
+  },
+  "segments": [
+    {
+      "start_sec": 0,
+      "end_sec": 9.34,
+      "text": "В каталоге у карточки видна цена, новинку можно открыть. Так шаблон показывает товары.",
+      "role": "hook",
+      "purpose": "",
+      "visual_summary": "В каталоге у карточки видна цена, новинку можно открыть. Так шаблон показывает товары.",
+      "estimated_sec": 6,
+      "speech_sec": 5.286667,
+      "speech_tempo": 1,
+      "audio_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/vo-1790493565-000.wav"
+    },
+    {
+      "start_sec": 9.34,
+      "end_sec": 18.69,
+      "text": "Ниже блок с брендами, показывающий доверие покупателей к этим маркам на витрине.",
+      "role": "body",
+      "purpose": "",
+      "visual_summary": "Ниже блок с брендами. Шаблон показывает, кому уже доверяют на этой витрине.",
+      "estimated_sec": 5.54,
+      "speech_sec": 5.009333,
+      "speech_tempo": 1,
+      "audio_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/vo-1790493565-001.wav"
+    },
+    {
+      "start_sec": 18.69,
+      "end_sec": 37.29,
+      "text": "В каталоге у карточки видна цена, новинку можно открыть. Шаблон позволяет детально изучать товары.",
+      "role": "body",
+      "purpose": "",
+      "visual_summary": "В каталоге у карточки видна цена, новинку можно открыть. Так шаблон показывает товары.",
+      "estimated_sec": 6.46,
+      "speech_sec": 7.526667,
+      "speech_tempo": 1,
+      "audio_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/vo-1790493565-002.wav"
+    },
+    {
+      "start_sec": 37.29,
+      "end_sec": 44.12,
+      "text": "На главной открывается коллекция: товар показан объёмно, его можно рассмотреть.",
+      "role": "body",
+      "purpose": "",
+      "visual_summary": "На главной открывается коллекция: товар показан объёмно, его можно рассмотреть. Так шаблон встречает покупателя.",
+      "estimated_sec": 4.62,
+      "speech_sec": 4.604,
+      "speech_tempo": 1,
+      "audio_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/vo-1790493565-003.wav"
+    },
+    {
+      "start_sec": 44.12,
+      "end_sec": 62.22,
+      "text": "В каталоге у карточки видна цена, новинку можно открыть. Шаблон демонстрирует товары с подробной информацией.",
+      "role": "cta",
+      "purpose": "",
+      "visual_summary": "В каталоге у карточки видна цена, новинку можно открыть. Так шаблон показывает товары.",
+      "estimated_sec": 6.92,
+      "speech_sec": 6.950667,
+      "speech_tempo": 1,
+      "audio_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/vo-1790493565-004.wav"
+    }
+  ],
+  "note": "This is what Film saved after the last successful generate + apply. Provider ollama / planner chapters."
+}

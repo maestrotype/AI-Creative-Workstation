@@ -1,0 +1,61 @@
+{
+  "a1_clip": {
+    "label": "AI narration",
+    "start_sec": 0,
+    "duration_sec": 62.22,
+    "file_path": "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/voiceover-8cd095b2-7f44-4e38-ac81-709d5080ad7a-1790493603.wav"
+  },
+  "mixed_tracks": [
+    "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/voiceover-8cd095b2-7f44-4e38-ac81-709d5080ad7a-1790440999.wav",
+    "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/voiceover-8cd095b2-7f44-4e38-ac81-709d5080ad7a-1790441441.wav",
+    "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/voiceover-8cd095b2-7f44-4e38-ac81-709d5080ad7a-1790493287.wav",
+    "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/voiceover-8cd095b2-7f44-4e38-ac81-709d5080ad7a-1790493603.wav"
+  ],
+  "tts_parts_latest": [
+    "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/vo-1790493565-000.wav",
+    "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/vo-1790493565-001.wav",
+    "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/vo-1790493565-002.wav",
+    "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/vo-1790493565-003.wav",
+    "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/vo-1790493565-004.wav"
+  ],
+  "fit_parts_latest": [
+    "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/fit-0-1790493603.wav",
+    "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/fit-1-1790493603.wav",
+    "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/fit-2-1790493603.wav",
+    "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/fit-3-1790493603.wav",
+    "/Users/andriidanichkin/Documents/Canvas/Generated/Audio/fit-4-1790493603.wav"
+  ],
+  "mix_api": "mix-voiceover-track → /api/audio/voiceover-track",
+  "spoken_text": [
+    {
+      "start_sec": 0,
+      "end_sec": 9.34,
+      "text": "В каталоге у карточки видна цена, новинку можно открыть. Так шаблон показывает товары.",
+      "speech_sec": 5.286667
+    },
+    {
+      "start_sec": 9.34,
+      "end_sec": 18.69,
+      "text": "Ниже блок с брендами, показывающий доверие покупателей к этим маркам на витрине.",
+      "speech_sec": 5.009333
+    },
+    {
+      "start_sec": 18.69,
+      "end_sec": 37.29,
+      "text": "В каталоге у карточки видна цена, новинку можно открыть. Шаблон позволяет детально изучать товары.",
+      "speech_sec": 7.526667
+    },
+    {
+      "start_sec": 37.29,
+      "end_sec": 44.12,
+      "text": "На главной открывается коллекция: товар показан объёмно, его можно рассмотреть.",
+      "speech_sec": 4.604
+    },
+    {
+      "start_sec": 44.12,
+      "end_sec": 62.22,
+      "text": "В каталоге у карточки видна цена, новинку можно открыть. Шаблон демонстрирует товары с подробной информацией.",
+      "speech_sec": 6.950667
+    }
+  ]
+}

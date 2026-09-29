@@ -14,7 +14,7 @@ from transcribe import transcribe_video, whisper_available
 from scene_understand import analyze_visual_scenes
 
 ANALYSIS_DIR = os.path.expanduser("~/Documents/Canvas/Generated/Video/analysis")
-CACHE_VERSION = 5
+CACHE_VERSION = 6
 
 _analyze_lock = threading.Lock()
 _analyze_job: Dict[str, Any] = {
@@ -203,6 +203,15 @@ def analyze_video(
             "whisper_available": whisper_available(),
             "from_cache": False,
             "cache_version": CACHE_VERSION,
+            "visual_quality": (
+                "vlm"
+                if any(str(row.get("source") or "") == "vlm" and row.get("visual_summary") for row in scene_analysis)
+                else "degraded"
+            ),
+            "vision_model": next(
+                (str(row.get("vision_model") or "") for row in scene_analysis if row.get("vision_model")),
+                "",
+            ) or None,
         }
 
         save_cached_analysis(payload)

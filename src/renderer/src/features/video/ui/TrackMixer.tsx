@@ -942,27 +942,7 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
             </div>
 
             <div className={s.trackBody}>
-              {a1Clips.length > 0 ? (
-                a1Clips.map((clip, index) => renderMixerClip(clip, index, 'audioOriginal'))
-              ) : hasVideoSource ? (
-                <div
-                  className={`${s.clipBlock} ${s.clipAudioOriginal}`}
-                  style={{
-                    left: 0,
-                    width: Math.max(
-                      8,
-                      Math.min(bodyPx, (d.voiceoverSource?.durationSec ?? totalSec) * pxPerSec),
-                    ),
-                    opacity: 0.7,
-                  }}
-                  title="Original video audio"
-                >
-                  <span className={s.clipTitle}>Narration</span>
-                  <span className={s.clipDuration}>
-                    {formatTimecode(Math.min(d.voiceoverSource?.durationSec ?? 0, totalSec))}
-                  </span>
-                </div>
-              ) : null}
+              {a1Clips.map((clip, index) => renderMixerClip(clip, index, 'audioOriginal'))}
             </div>
 
             <div className={s.trackBody}>
