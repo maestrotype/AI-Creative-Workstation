@@ -9,7 +9,7 @@
 |--------|------|
 | `feat/film-phase-1` | Film UX for template demos (record the theme; app chapters, stitches, voices) |
 | `fix/studio-llm-status-nav` | Ollama on-disk vs running server; Studio Script chips |
-| `fix/create-intent-and-compose-ux` | **Current:** Create jobs, still compose, real Home covers, reference = variation, RU→EN for CLIP, delete/start over on Create result |
+| `fix/narration-vlm-understanding` | **Current:** Film narration planner, script↔A1 version, speech-sized A1 clips |
 
 ## Product (now)
 
@@ -74,6 +74,7 @@ Full architecture: [FILM_ARCHITECTURE.md](architecture/FILM_ARCHITECTURE.md).
 - Two sources of truth: `project.json` vs `acw-director-session-*` localStorage.
 - SQLite `projects` / `assets` tables exist and are unused.
 - Docs/roadmap still claim MLX FLUX, fal.ai, character graph — **false**.
+- Film narration: see [NARRATION_HANDOFF.md](film/NARRATION_HANDOFF.md). Do not change VLM / OCR / `video_analyze.py` for script wording. Sidecar Python is not live until the app restarts.
 - FLUX + Ollama + XTTS must not stay co-resident. Translate with qwen, **unload**, then load FLUX. Analyze/script already call `release_heavy_for_other_work()`.
 - 3D stays out of the film graph. Do not invent a huge identity graph / NLE / music.
 

@@ -2387,6 +2387,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       }> = [];
 
       let speechCursor = 0;
+      const pauseSec = 0.4;
+      const maxLeadSec = 6;
       for (let i = 0; i < parts.length; i += 1) {
         const part = parts[i];
         const scriptIndex = partScriptIndexes[i];
@@ -2396,7 +2398,9 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         const spoken = entry.seg.text.trim();
         const probed = await probeDuration(filePath, 'audio');
         const anchor = entry.seg.anchor_sec ?? entry.seg.start_sec;
-        const start = Math.max(anchor, speechCursor);
+        const start = speechCursor <= 0
+          ? Math.max(0, anchor)
+          : Math.max(speechCursor + pauseSec, anchor - maxLeadSec, speechCursor);
         const end = Math.round((start + probed.dur) * 100) / 100;
         speechCursor = end;
         speechUpdates.push({

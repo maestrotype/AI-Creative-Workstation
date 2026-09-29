@@ -2378,7 +2378,9 @@ def _accept_tour_line(
         return ""
     if len(capabilities) < 2 and _is_thin_caption(spoken) and re.match(r"^показывает функцию\b", spoken, flags=re.IGNORECASE):
         return ""
-    if re.search(r"\bна странице\b|\bнажав\b|\bтеперь\b|перейти на страниц|переход на страниц", spoken, flags=re.IGNORECASE):
+    if re.match(r"^(?:этот фрагмент|данный фрагмент|этот интерфейс)\b", spoken, flags=re.IGNORECASE):
+        return ""
+    if re.match(r"^доступны\s+", spoken, flags=re.IGNORECASE) and len(re.findall(r"[A-Za-zА-Яа-яЁё0-9-]+", spoken)) < 12:
         return ""
     if re.search(r"\bпозволяет\s+(?:переход|просмотр|отображение|возможность|выбор)\b", spoken, flags=re.IGNORECASE):
         return ""
@@ -2489,6 +2491,20 @@ def _latin_label(text: str) -> bool:
     return len(latin) / len(letters) >= 0.7
 
 
+def _capability_fits_screen(cap: str, screen: str) -> bool:
+    """Drop a VLM fact that belongs to another kind of screen."""
+    low = (cap or "").lower()
+    kind = (screen or "").strip().lower()
+    contactish = bool(re.search(r"сообщен|контакт|форм(?:а|ы|у|е)\b", low))
+    themeish = bool(re.search(r"тем\w*\s+оформ", low))
+    if kind in {"catalog", "product", "category", "listing"}:
+        if contactish or themeish:
+            return False
+    if kind == "contact" and re.search(r"\b3d\b|корзин|коллекц", low):
+        return False
+    return True
+
+
 def _unit_capabilities(beats: list[dict[str, Any]], covered_lines: list[str]) -> list[str]:
     """Demonstrated action of each event first, then other new facts, up to three."""
     covered = _stems(" ".join(covered_lines))
@@ -2496,7 +2512,8 @@ def _unit_capabilities(beats: list[dict[str, Any]], covered_lines: list[str]) ->
     extra: list[tuple[dict[str, Any], str]] = []
     for beat in beats:
         caps = [_clean_capability(cap) for cap in _narratable_capabilities(beat)]
-        caps = [cap for cap in caps if cap]
+        screen = str(beat.get("screen_type") or "")
+        caps = [cap for cap in caps if cap and _capability_fits_screen(cap, screen)]
         if not caps:
             continue
         primary.append((beat, caps[0]))
@@ -2576,9 +2593,9 @@ def _plan_tour(
             prompt = _tour_line_prompt(moment, spoken_lines, language, rejected)
             if _attempt == 2:
                 prompt = (
-                    "Напиши одно законченное русское предложение о том, что этот фрагмент шаблона даёт покупателю. "
-                    "Соедини все факты в одну мысль. Не начинай с «Можно увидеть», «Можно изучить» или «Показывает». "
-                    "Не описывай клик, скролл и открытие страницы.\n"
+                    "Напиши одно законченное русское предложение (12–22 слова) о том, что этот шаг шаблона даёт покупателю. "
+                    "Соедини все факты в одну мысль. Не начинай с «Можно увидеть», «Можно изучить», «Показывает», "
+                    "«Этот фрагмент» или «Доступны». Не описывай клик, скролл и открытие страницы.\n"
                     "Факты:\n"
                     + "\n".join(f"- {cap}" for cap in caps)
                     + '\nJSON: {"text":"...","speak":true}\n'
@@ -2600,6 +2617,23 @@ def _plan_tour(
             )
         if not accepted:
             accepted = _compose_unit_line(caps)
+        span = float(unit["end"]) - float(unit["start"])
+        if accepted and span >= 7.0 and _estimated_sec(accepted, 130) < min(5.5, span * 0.55):
+            longer = _try_ollama(
+                "Напиши одно более полное русское предложение (14–22 слова) о том, что покупатель получает на этом шаге. "
+                "Не начинай с «Этот фрагмент», «Доступны», «Можно увидеть». Не выдумывай экраны.\n"
+                f"Короткий черновик: {accepted}\n"
+                "Факты:\n"
+                + "\n".join(f"- {cap}" for cap in caps)
+                + '\nJSON: {"text":"...","speak":true}\n',
+                model=model,
+                num_predict=220,
+                temperature=0.2,
+            )
+            candidate = str((longer or {}).get("text") or "")
+            alt = _accept_tour_line(candidate, moment, spoken_lines, language)
+            if alt and _estimated_sec(alt, 130) > _estimated_sec(accepted, 130):
+                accepted = alt
         if not accepted:
             continue
         spoken_lines.append(accepted)
@@ -2621,15 +2655,24 @@ def _plan_tour(
     return _place_by_speech(planned)
 
 
+PAUSE_SEC = 0.4
+MAX_LEAD_SEC = 6.0
+
+
 def _place_by_speech(units: list[dict[str, Any]], wpm: int = 130) -> list[dict[str, Any]]:
-    """Each line occupies its own speech, starting at the picture or after the previous line."""
+    """Speech follows the previous mouth, with a short pause. It may lead the next picture by a few seconds."""
     cursor = 0.0
     placed: list[dict[str, Any]] = []
-    for unit in units:
+    for index, unit in enumerate(units):
         anchor = float(unit.get("anchor_sec", unit.get("start_sec", 0)) or 0)
-        start = max(anchor, cursor)
         estimate = float(unit.get("estimated_sec") or 0) or _estimated_sec(str(unit.get("text") or ""), wpm)
         estimate = max(1.1, estimate)
+        if index == 0:
+            start = max(0.0, anchor)
+        else:
+            start = max(cursor + PAUSE_SEC, anchor - MAX_LEAD_SEC)
+            if start < cursor:
+                start = cursor
         placed.append({
             **unit,
             "anchor_sec": round(anchor, 2),

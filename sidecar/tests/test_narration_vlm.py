@@ -412,12 +412,21 @@ class EventBeatTests(unittest.TestCase):
         ])
         self.assertEqual(placed[0]["end_sec"], 4.5)
         self.assertLess(placed[0]["end_sec"], 9)
-        self.assertEqual(placed[1]["start_sec"], 9)
+        self.assertAlmostEqual(placed[1]["start_sec"], 4.9, places=1)
         overlap = _place_by_speech([
             {"anchor_sec": 0, "text": "Длинная реплика занимает больше окна.", "estimated_sec": 12},
             {"anchor_sec": 9, "text": "Следующая мысль.", "estimated_sec": 4},
         ])
-        self.assertEqual(overlap[1]["start_sec"], 12)
+        self.assertGreaterEqual(overlap[1]["start_sec"], 12)
+        self.assertEqual(
+            _accept_tour_line(
+                "Этот фрагмент шаблона предоставляет покупателю удобный доступ к категориям.",
+                {"primary": "отображение категорий товаров", "product": "", "section": "", "also": []},
+                [],
+                "ru",
+            ),
+            "",
+        )
         self.assertEqual(
             _accept_tour_line(
                 "Возможность выбора товаров по категориям позволяет вам выбирать товары по категориям.",
@@ -462,6 +471,10 @@ class EventBeatTests(unittest.TestCase):
         caps = _unit_capabilities(units[0]["beats"], [])
         self.assertGreaterEqual(len(caps), 2)
         self.assertNotIn("переход на страницу", caps)
+        self.assertNotIn("форма для отправки сообщения", _unit_capabilities(
+            [{"start": 9, "end": 18, "screen_type": "catalog", "features": ["отображение категорий товаров", "форма для отправки сообщения"], "product": ""}],
+            [],
+        ))
         self.assertEqual(
             _accept_tour_line(
                 "Можно увидеть 3D модель товара.",
