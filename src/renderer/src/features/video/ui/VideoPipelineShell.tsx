@@ -749,6 +749,7 @@ function StageScript({ active }: { active: boolean }): ReactNode {
         <CalloutEditor active={active}>
           <DirectorPreview
             playhead={d.playhead}
+            playheadLiveRef={d.playheadLiveRef}
             playing={d.playing}
             seekNonce={d.seekNonce}
             clips={d.clips}
@@ -757,6 +758,7 @@ function StageScript({ active }: { active: boolean }): ReactNode {
             trackLayout={d.visibleLayout}
             overlayPos={d.overlayPos}
             onOverlayMove={d.setOverlayPos}
+            audioPolicy={d.exportSettings.audioPolicy}
             active={active}
             fallbackSource={d.voiceoverSource}
             onDecodeFail={(binId) => {

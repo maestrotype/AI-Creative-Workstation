@@ -619,32 +619,68 @@ def write_script(
     return written
 
 
-def place(written: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _gap_slot(start: float, end: float) -> Dict[str, Any]:
+    """Empty script slot so the editor timeline has no holes."""
+    end = max(end, start + 0.5)
+    span = round(end - start, 2)
+    return {
+        "anchor_sec": round(start, 2),
+        "start_sec": round(start, 2),
+        "end_sec": round(end, 2),
+        "text": "",
+        "role": "body",
+        "purpose": "",
+        "visual_summary": "",
+        "estimated_sec": span,
+    }
+
+
+def _fill_timeline(slots: List[Dict[str, Any]], duration: float) -> List[Dict[str, Any]]:
+    """Insert empty segments wherever the film has no script card yet."""
+    if duration <= 0:
+        return slots
+    ordered = sorted(slots, key=lambda item: (float(item["start_sec"]), float(item["end_sec"])))
+    out: List[Dict[str, Any]] = []
     cursor = 0.0
-    placed: List[Dict[str, Any]] = []
+    for slot in ordered:
+        start = float(slot["start_sec"])
+        end = float(slot["end_sec"])
+        if start > cursor + 0.08:
+            out.append(_gap_slot(cursor, start))
+        if end <= cursor + 0.08:
+            continue
+        if start < cursor - 0.08:
+            slot = dict(slot)
+            slot["start_sec"] = round(cursor, 2)
+        out.append(slot)
+        cursor = max(cursor, float(slot["end_sec"]))
+    if cursor < duration - 0.08:
+        out.append(_gap_slot(cursor, duration))
+    return out
+
+
+def place(written: List[Dict[str, Any]], duration: float = 0.0) -> List[Dict[str, Any]]:
+    """One script segment per planned unit; gaps become empty slots for manual text."""
+    slots: List[Dict[str, Any]] = []
     for entry in written:
-        if not entry["text"]:
-            continue
         unit = entry["unit"]
-        start = max(float(unit["start"]), cursor + GAP_SEC if placed else float(unit["start"]))
-        duration = speech_sec(entry["text"])
-        if start + duration > float(unit["limit"]) + 0.25:
-            entry["problems"] = [f"не помещается после предыдущей реплики ({start:.1f}+{duration:.1f}с)"]
-            entry["text"] = ""
-            continue
-        placed.append({
-            "anchor_sec": round(float(unit["start"]), 2),
+        start = float(unit["start"])
+        end = float(unit["limit"])
+        text = str(entry.get("text") or "").strip()
+        est = speech_sec(text) if text else round(max(0.5, end - start), 2)
+        slots.append({
+            "anchor_sec": round(start, 2),
             "start_sec": round(start, 2),
-            "end_sec": round(start + duration, 2),
-            "text": entry["text"],
+            "end_sec": round(end, 2),
+            "text": text,
             "role": "body",
             "purpose": " + ".join(t["topic"] for t in unit["topics"]),
             "visual_summary": f"{unit['start']:.1f}–{unit['limit']:.1f}s " + "; ".join(
                 t["meaning"] for t in unit["topics"]
             ),
-            "estimated_sec": duration,
+            "estimated_sec": est,
         })
-        cursor = start + duration
+    placed = _fill_timeline(slots, duration) if duration > 0 else slots
     if placed:
         placed[0]["role"] = "hook"
         placed[-1]["role"] = "cta"
@@ -697,7 +733,7 @@ def plan_story(
     topics = story_map(frames, model, project_context)
     units, silent = plan_units(topics, frames)
     written = write_script(units, frames, model, project_context) if units else []
-    placed = place(written)
+    placed = place(written, duration)
     return {
         "frames": frames,
         "topics": topics,

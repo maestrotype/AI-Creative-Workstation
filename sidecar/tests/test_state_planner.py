@@ -15,6 +15,7 @@ from state_planner import (  # noqa: E402
     plan_units,
     speech_sec,
     visual_map,
+    _fill_timeline,
 )
 
 
@@ -163,6 +164,17 @@ class UnitPlanTests(unittest.TestCase):
         self.assertGreaterEqual(brands["start"], 14.0)
         self.assertGreaterEqual(brands["budget"], 2.8)
         self.assertFalse(any(item["topic"] == "бренды" for item in silent))
+
+    def test_timeline_has_no_holes(self):
+        filled = _fill_timeline([
+            {"start_sec": 0.0, "end_sec": 3.0, "text": "a", "role": "body"},
+            {"start_sec": 10.0, "end_sec": 14.0, "text": "", "role": "body"},
+        ], 20.0)
+        self.assertEqual(filled[0]["start_sec"], 0.0)
+        self.assertAlmostEqual(filled[1]["start_sec"], 3.0, places=1)
+        self.assertAlmostEqual(filled[1]["end_sec"], 10.0, places=1)
+        self.assertEqual(filled[1]["text"], "")
+        self.assertEqual(filled[-1]["end_sec"], 20.0)
 
     def test_speech_stays_inside_its_window(self):
         unit, frames = _unit(
