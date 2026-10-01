@@ -1769,7 +1769,7 @@ function setupIpc() {
     ollama_model?: string;
   }) => {
     await prepareOllamaForScript(broadcast);
-    return sidecarJson('/api/script/generate', payload, 5 * 60 * 1000);
+    return sidecarJson('/api/script/generate', payload, 15 * 60 * 1000);
   });
 
   ipcMain.handle('shorten-script', async (_, payload: {
