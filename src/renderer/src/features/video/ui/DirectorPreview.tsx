@@ -27,6 +27,8 @@ interface DirectorPreviewProps {
   onOverlayMove?: (track: string, pos: OverlayPos) => void;
   onDecodeFail: (binId: string) => void;
   audioPolicy?: 'original' | 'duck' | 'replace';
+  /** Paint-time playhead (every frame while playing). Falls back to `playhead`. */
+  playheadLiveRef?: React.MutableRefObject<number>;
   /** When false the element stays mounted but does not play (hidden pipeline stages). */
   active?: boolean;
   fallbackSource?: { path: string; name?: string; durationSec?: number } | null;
@@ -55,6 +57,7 @@ export function DirectorPreview({
   onOverlayMove,
   onDecodeFail,
   audioPolicy = 'duck',
+  playheadLiveRef,
   active = true,
   fallbackSource,
 }: DirectorPreviewProps): ReactNode {
@@ -63,7 +66,7 @@ export function DirectorPreview({
   const overlayRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
   const playheadRef = useRef(playhead);
-  playheadRef.current = playhead;
+  playheadRef.current = playheadLiveRef?.current ?? playhead;
   const prevSeekNonceRef = useRef(seekNonce);
   const wasPlayingRef = useRef(playing);
   const [decodeError, setDecodeError] = useState<string | null>(null);
@@ -124,9 +127,32 @@ export function DirectorPreview({
   const v1IsVideo = effectiveV1Bin?.kind === 'video' && Boolean(v1Url) && !v1Busy;
   const v1IsImage = effectiveV1Bin?.kind === 'image' && Boolean(v1Url);
   const pipOverlays = liveOverlays.filter((o) => o.id !== promoted?.id);
-  const audioClips = audioTrackIds.map((id) => ({ id, clip: clipAtTime(clips, id as `a${number}`, playhead) }));
+  const timelineT = playing ? playheadRef.current : playhead;
+  const audioClips = audioTrackIds.map((id) => ({ id, clip: clipAtTime(clips, id as `a${number}`, timelineT) }));
   const titleClips = clips
     .filter((c) => c.track.startsWith('t') && c.text && playhead >= c.startSec && playhead < c.startSec + c.durationSec);
+
+  useEffect(() => {
+    if (!playing || !active) return undefined;
+    let raf = 0;
+    const pumpAudio = () => {
+      const t = playheadLiveRef?.current ?? playheadRef.current;
+      for (const id of audioTrackIds) {
+        const el = audioRefs.current[id];
+        if (!el) continue;
+        const clip = clipAtTime(clips, id as `a${number}`, t);
+        if (!clip || clip.muted) continue;
+        const url = playbackUrl(binFor(clip, bins), blobs);
+        if (!url || (el.src !== url && el.currentSrc !== url)) continue;
+        const mediaT = mediaTimeForClip(clip, t);
+        if (Math.abs(el.currentTime - mediaT) > 0.15) el.currentTime = mediaT;
+        if (el.paused) void el.play().catch(() => undefined);
+      }
+      raf = requestAnimationFrame(pumpAudio);
+    };
+    raf = requestAnimationFrame(pumpAudio);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, active, clips, audioTrackIds, playheadLiveRef, playhead]);
 
   useEffect(() => {
     const seekChanged = seekNonce !== prevSeekNonceRef.current;
@@ -141,6 +167,7 @@ export function DirectorPreview({
       shouldPlay: boolean,
       muted: boolean,
       volume = 1,
+      lockTimeline = false,
     ) => {
       if (!el) return;
       el.muted = muted;
@@ -155,14 +182,22 @@ export function DirectorPreview({
       }
       const same = el.src === url || el.currentSrc === url;
       if (!same) el.src = url;
+      const tryPlay = () => {
+        if (!shouldPlay || !el.paused) return;
+        void el.play().catch(() => {
+          requestAnimationFrame(() => {
+            if (shouldPlay && el.paused) void el.play().catch(() => undefined);
+          });
+        });
+      };
       const apply = () => {
-        if (syncTimeline || !same) {
+        const syncMedia = syncTimeline || !same || lockTimeline;
+        if (syncMedia) {
           const mediaT = mediaTimeForClip(clip, playheadRef.current);
           if (Math.abs(el.currentTime - mediaT) > 0.08) el.currentTime = mediaT;
         }
-        if (shouldPlay) {
-          if (el.paused) void el.play().catch(() => undefined);
-        } else el.pause();
+        if (shouldPlay) tryPlay();
+        else el.pause();
       };
       if (el.readyState >= 1) apply();
       else {
@@ -195,6 +230,7 @@ export function DirectorPreview({
         playing && active,
         Boolean(clip?.muted),
         clip?.volume ?? 1,
+        true,
       );
     }
   }, [

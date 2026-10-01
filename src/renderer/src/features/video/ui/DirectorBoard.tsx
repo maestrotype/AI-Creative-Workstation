@@ -120,6 +120,8 @@ type DirectorSnap = {
   selectedBin: string | null;
   selectedClip: string | null;
   playhead: number;
+  /** Updated every paint tick while playing; use for A/V sync when React playhead is throttled. */
+  playheadLiveRef: React.MutableRefObject<number>;
   playing: boolean;
   seekNonce: number;
   pxPerSec: number;
@@ -409,6 +411,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const lastFitRef = useRef(16);
   const originRef = useRef({ wall: 0, head: 0 });
   const playheadRef = useRef(0);
+  const playingRef = useRef(false);
   const totalRef = useRef(8);
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const playheadElRef = useRef<HTMLDivElement>(null);
@@ -567,11 +570,34 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const [voiceSamplePath, setVoiceSamplePath] = useState<string | null>(null);
   const [voiceSampleSourcePath, setVoiceSampleSourcePath] = useState<string | null>(null);
   const [libraryAudio, setLibraryAudio] = useState<Array<{ path: string; name: string }>>([]);
-  const blobs = useFileBlobs(bins.filter((b) => b.kind !== 'image' && !b.proxying).map((b) => b.path));
+  const blobPaths = useMemo(() => {
+    const binById = new Map(bins.map((b) => [b.id, b]));
+    const priority: string[] = [];
+    const seen = new Set<string>();
+    for (const clip of clips) {
+      if (!clip.binId) continue;
+      const path = binById.get(clip.binId)?.path;
+      if (path && !seen.has(path)) {
+        seen.add(path);
+        priority.push(path);
+      }
+    }
+    for (const bin of bins) {
+      if (bin.kind === 'image' || bin.proxying || seen.has(bin.path)) continue;
+      seen.add(bin.path);
+      priority.push(bin.path);
+    }
+    return priority;
+  }, [bins, clips]);
+  const blobs = useFileBlobs(blobPaths);
 
   useEffect(() => {
-    playheadRef.current = playhead;
-  }, [playhead]);
+    if (!playing) playheadRef.current = playhead;
+  }, [playhead, playing]);
+
+  useEffect(() => {
+    playingRef.current = playing;
+  }, [playing]);
 
   useEffect(() => {
     paintPlayhead(playheadRef.current);
@@ -593,7 +619,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     const layout = effectiveTrackLayout(list, trackLayoutRef.current);
     const key = buildTrackList(layout).map(({ id }) => clipAtTime(list, id, sec)?.id).join('|');
     const now = performance.now();
-    if (!force && key === liveKeyRef.current && now - lastReactRef.current < 120) return;
+    if (!force && !playingRef.current && key === liveKeyRef.current && now - lastReactRef.current < 120) return;
     liveKeyRef.current = key;
     lastReactRef.current = now;
     setPlayhead(sec);
@@ -2485,10 +2511,11 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
 
       const role = String(segment.role || 'body').toLowerCase();
       const roleLabel = role === 'hook' ? 'Hook' : role === 'cta' ? 'CTA' : role === 'outro' ? 'Outro' : 'Body';
+      const timelineAt = segment.start_sec + scriptTimelineOffset();
       setClips((prev) => prev.filter((clip) => !(
-        clip.track === 'a1' && Math.abs(clip.startSec - segment.start_sec) < 0.35
+        clip.track === 'a1' && Math.abs(clip.startSec - timelineAt) < 0.35
       )));
-      await ingestAudioPathAt(result.file_path, segment.start_sec, roleLabel);
+      await ingestAudioPathAt(result.file_path, segment.start_sec + scriptTimelineOffset(), roleLabel);
       setVoiceoverApplyProgress({ current: 1, total: 1, detail: 'Сегмент обновлён' });
     } catch (err) {
       setVoiceoverApplyError(ipcMessage(err, 'Не удалось обновить сегмент озвучки'));
@@ -3321,6 +3348,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     selectedBin,
     selectedClip,
     playhead,
+    playheadLiveRef: playheadRef,
     playing,
     seekNonce,
     pxPerSec,

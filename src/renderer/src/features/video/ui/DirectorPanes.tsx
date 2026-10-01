@@ -365,6 +365,7 @@ export function DirectorResultPane({
       >
         <DirectorPreview
           playhead={d.playhead}
+          playheadLiveRef={d.playheadLiveRef}
           playing={d.playing}
           seekNonce={d.seekNonce}
           clips={d.clips}

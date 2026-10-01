@@ -1211,14 +1211,68 @@ def _visual_quality(video_context: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _beat_type(row: dict[str, Any]) -> str:
+    explicit = str(row.get("beat_type") or "").strip().upper()
+    if explicit in {"STATE", "EVENT", "TRANSITION", "PAUSE_CANDIDATE"}:
+        return explicit
+    if (row.get("frame_paths") or row.get("coverage") == "unresolved") and not str(row.get("visual_summary") or "").strip():
+        return "STATE"
+    if row.get("pause_ok") and not row.get("narration_recommended"):
+        return "PAUSE_CANDIDATE"
+    change = str(row.get("changes_from_previous") or "")
+    actions = " ".join(str(item) for item in (row.get("actions") or []))
+    if re.search(r"переход|откры|click|клик|scroll|скролл", f"{change} {actions}", flags=re.IGNORECASE):
+        return "EVENT"
+    return "STATE"
+
+
+def _rows_covering_frames(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One window can hold several screens. Each sampled frame is its own interval."""
+    covered: list[dict[str, Any]] = []
+    for row in rows:
+        states = [state for state in (row.get("frame_states") or []) if isinstance(state, dict) and str(state.get("visual_summary") or "").strip()]
+        if len(states) < 2:
+            covered.append(row)
+            continue
+        start = float(row.get("start", 0))
+        end = float(row.get("end", start))
+        step = (end - start) / len(states) if end > start else 0
+        for index, state in enumerate(states):
+            piece = dict(row)
+            piece["frame_states"] = []
+            piece["start"] = round(start + index * step, 3)
+            piece["end"] = round(end if index == len(states) - 1 else start + (index + 1) * step, 3)
+            for key in ("visual_summary", "screen_type", "visible_product", "demonstrated_feature", "beat_type"):
+                if str(state.get(key) or "").strip():
+                    piece[key] = state[key]
+            if state.get("ui_elements"):
+                piece["ui_elements"] = list(state["ui_elements"])
+            if state.get("actions"):
+                piece["actions"] = list(state["actions"])
+            features = list(state.get("product_features") or [])
+            if state.get("demonstrated_feature") and state["demonstrated_feature"] not in features:
+                features.append(state["demonstrated_feature"])
+            if features:
+                piece["product_features"] = features
+            piece["narration_recommended"] = bool(state.get("narration_recommended", True))
+            piece["pause_ok"] = bool(state.get("pause_ok"))
+            piece["changes_from_previous"] = "" if index == 0 else str(state.get("visual_summary") or "")
+            piece["source"] = "vlm"
+            covered.append(piece)
+    return covered
+
+
 def _event_signal(row: dict[str, Any]) -> bool:
-    """A described screen change is a beat even if the VLM also set pause_ok."""
+    """A visible screen is a beat. A missing caption is not the same as an empty timeline."""
     summary = str(row.get("visual_summary") or "").strip()
     change = str(row.get("changes_from_previous") or "").strip()
     user = str(row.get("user_doing") or "").strip()
     actions = [str(item).strip() for item in (row.get("actions") or []) if str(item).strip()]
-    if str(row.get("importance") or "").lower() == "skip" and not summary:
+    frames = list(row.get("frame_paths") or [])
+    if str(row.get("importance") or "").lower() == "skip" and not summary and not frames:
         return False
+    if frames and float(row.get("end", 0)) - float(row.get("start", 0)) >= 2:
+        return True
     described = bool(summary and (change or user or actions or row.get("narration_recommended")))
     if row.get("pause_ok") and not row.get("narration_recommended") and not described:
         return False
@@ -1240,7 +1294,7 @@ def _capability_facts(row: dict[str, Any]) -> list[str]:
 def _beats_from_analysis(video_context: dict[str, Any], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Meaningful visual events, not one spoken line per analysis window."""
     beats: list[dict[str, Any]] = []
-    for row in rows:
+    for row in _rows_covering_frames(rows):
         start = float(row.get("start", 0))
         end = float(row.get("end", start))
         if end <= start or not _event_signal(row):
@@ -1281,6 +1335,8 @@ def _beats_from_analysis(video_context: dict[str, Any], rows: list[dict[str, Any
             "change": change,
             "product": str(row.get("visible_product") or ""),
             "features": _capability_facts(row),
+            "beat_type": _beat_type(row),
+            "coverage": str(row.get("coverage") or ""),
         }))
     return beats
 
@@ -1298,7 +1354,7 @@ def _speech_beats(video_context: dict[str, Any]) -> list[dict[str, Any]]:
         "said": "",
     }]
     rows = _analysis_rows(video_context)
-    if any(_has_vlm_picture(row) for row in rows):
+    if any(_has_vlm_picture(row) or row.get("frame_paths") or row.get("frame_states") for row in rows):
         picture = _fit_narration_windows(_beats_from_analysis(video_context, rows), rows)
         return picture[:MAX_BEATS]
     beats: list[dict[str, Any]] = []
@@ -2045,17 +2101,24 @@ def _tour_line_prompt(
         if section else ""
     )
     reject = f"The previous sentence was rejected: {rejected}\nWrite a different sentence.\n" if rejected else ""
+    previous = covered_lines[-1].strip() if covered_lines else ""
+    vary = (
+        f"The previous sentence was: {previous}\nStart with different words.\n"
+        if previous else ""
+    )
     return f"""Write one finished sentence of product narration in {lang}. Use only {lang}.
 This sentence covers the whole sequence, not one frame.
-Say what this part of the template lets a buyer do.
+Explain what this part of the template lets a buyer do with the listed facts.
 {also_line}{product_line}{section_line}Already told, do not repeat these facts:
 {covered}
-{reject}
+{vary}{reject}
 Return ONLY JSON: {{"text":"...","speak":true}} or {{"text":"","speak":false}} if nothing new remains.
 Rules:
-- One finished thought. If several capabilities are listed, the sentence connects them.
+- One finished thought of about 12–22 words. If several capabilities are listed, connect them.
 - A statement about the template, not a command and not a caption of one object.
-- Do not start with «Можно увидеть», «Можно изучить», «Показывает», «Теперь вы можете», «Вы можете», «Этот шаблон демонстрирует», «С помощью этой функции», «Пользователь», «На экране», «На странице», «Здесь», «Далее».
+- Do not start with «Можно увидеть», «Можно изучить», «Показывает», «Покупатель может», «Покупатель видит», «Просматривая», «Теперь вы можете», «Вы можете», «Этот шаблон демонстрирует», «С помощью этой функции», «Пользователь», «На экране», «На странице», «Здесь», «Далее».
+- Keep a correct object case. Never write «выбрать товаров», «посмотреть товара», «просмотреть товара».
+- Do not read an English button label aloud. Describe the action in {lang}.
 - Do not add an action the capabilities do not name.
 - Do not describe a click, a scroll, or a page opening.
 - If the object name uses another alphabet, copy it unchanged or omit it. Do not translate it.
@@ -2188,6 +2251,7 @@ def _outside_evidence(
             "увидеть", "изучить", "показ", "выбрать", "раздел", "сразу", "быстро",
             "известных", "конкретный", "новый", "покупатель", "затем", "также",
             "сначала", "дальше", "после", "доступно", "получает", "может",
+            "здесь", "часть", "шаг", "включает", "который", "открывается", "показаны", "этот", "этой",
             "открыть", "добавить", "перейти", "рассмотреть", "посмотреть",
             "показать", "получить", "начать", "найти", "отправить", "написать",
             "повернуть", "приблизить", "помощь", "способ", "удобно", "прямо", "каждый",
@@ -2291,73 +2355,59 @@ def _mentions_several(text: str, capabilities: list[str]) -> bool:
     return hits >= 2
 
 
-def _as_buyer_action(cap: str) -> str:
-    text = _clean_capability(cap)
-    if not text:
-        return ""
-    rules = (
-        (r"^возможность\s+связи(\s+с\b)", r"связаться\1"),
-        (r"^возможность\s+отправки\s+", "отправить "),
-        (r"^возможность\s+добавления\s+", "добавить "),
-        (r"^возможность\s+выбора\s+", "выбрать "),
-        (r"^форма\s+для\s+отправки\s+", "отправить "),
-        (r"^переход(\s+(?:между|к|на|по|с)\b)", r"переходить\1"),
-        (r"^выбор(\s+(?:между|из|по)\b)", r"выбрать\1"),
-        (r'^кнопка\s+[«"\']?', "нажать "),
-    )
-    swapped = text
-    for pattern, repl in rules:
-        nxt = re.sub(pattern, repl, swapped, count=1, flags=re.IGNORECASE)
-        if nxt != swapped:
-            swapped = nxt
-            break
-    else:
-        if re.search(r"\b3d\b", swapped, flags=re.IGNORECASE) and not re.match(
-            r"^(?:рассмотреть|изучить|просмотреть)\b", swapped, flags=re.IGNORECASE
-        ):
-            swapped = f"рассмотреть {swapped}"
-    swapped = swapped.strip(" «»\"'")
-    if not swapped:
-        return ""
-    return swapped[0].lower() + swapped[1:]
+def _broken_object_case(text: str) -> bool:
+    """Infinitive plus a genitive object: «выбрать товаров», «посмотреть товара»."""
+    preps = {
+        "от", "из", "для", "к", "ко", "на", "с", "со", "по", "у", "без", "до",
+        "о", "об", "в", "во", "при", "через", "между",
+    }
+    verbs = {"выбрать", "посмотреть", "просмотреть", "рассмотреть", "открыть", "изучить", "добавить"}
+    tokens = re.findall(r"[A-Za-zА-Яа-яЁё0-9-]+", text or "")
+    for index, token in enumerate(tokens):
+        if token.lower() not in verbs:
+            continue
+        for word in tokens[index + 1:index + 4]:
+            low = word.lower()
+            if low in preps:
+                break
+            if low in {"товара", "бренда"} or re.search(r"(?:ов|ев|ей)$", low):
+                return True
+    return False
 
 
-def _is_infinitive_phrase(text: str) -> bool:
-    first = re.split(r"\s+", (text or "").strip(), maxsplit=1)[0].lower()
-    return first.endswith(("ть", "ти", "чь", "ться", "тись"))
+def _is_caption_stub(text: str) -> bool:
+    raw = re.sub(r"\s+", " ", (text or "")).strip()
+    if re.match(r"^(?:просматривая|покупатель видит)\b", raw, flags=re.IGNORECASE):
+        return True
+    words = re.findall(r"[A-Za-zА-Яа-яЁё0-9-]+", raw)
+    if re.match(r"^покупатель может\b", raw, flags=re.IGNORECASE) and len(words) < 9:
+        return True
+    return len(words) < 6
 
 
-def _compose_unit_line(capabilities: list[str]) -> str:
-    """One finished sentence when the model only returned a caption."""
-    actions: list[str] = []
-    nouns: list[str] = []
+def _compose_unit_line(capabilities: list[str], variant: int = 0) -> str:
+    """One grammatical sentence that keeps each fact in its original case."""
+    caps: list[str] = []
     for cap in capabilities:
-        action = _as_buyer_action(cap)
-        if _is_infinitive_phrase(action):
-            if action not in actions:
-                actions.append(action)
-        else:
-            noun = _clean_capability(cap)
-            if noun and noun not in nouns:
-                nouns.append(noun)
-    if actions and not nouns:
-        if len(actions) == 1:
-            line = f"Покупатель может {actions[0]}"
-        elif len(actions) == 2:
-            line = f"Покупатель может {actions[0]}, а затем {actions[1]}"
-        else:
-            line = f"Покупатель может {actions[0]}, {actions[1]} и {actions[2]}"
-        return line if line[-1] in ".!?" else f"{line}."
-    if nouns and not actions:
-        if len(nouns) == 1:
-            line = f"Доступны {nouns[0][0].lower() + nouns[0][1:]}"
-        else:
-            line = f"Доступны {nouns[0][0].lower() + nouns[0][1:]} и {nouns[1][0].lower() + nouns[1][1:]}"
-        return line if line[-1] in ".!?" else f"{line}."
-    if actions and nouns:
-        line = f"Покупатель может {actions[0]}; также доступны {nouns[0][0].lower() + nouns[0][1:]}"
-        return line if line[-1] in ".!?" else f"{line}."
-    return ""
+        noun = _clean_capability(cap)
+        if noun and noun not in caps and not _ui_label(noun):
+            caps.append(noun)
+    if not caps:
+        return ""
+    if len(caps) == 1:
+        body = caps[0]
+    elif len(caps) == 2:
+        body = f"{caps[0]} и {caps[1]}"
+    else:
+        body = f"{caps[0]}, {caps[1]} и {caps[2]}"
+    if body[0].isalpha() and not body[0].isascii():
+        body = body[0].lower() + body[1:]
+    frames = (
+        "В этой части шаблона покупателю доступны возможности, которые здесь показаны: {body}.",
+        "Этот шаг шаблона включает то, что покупатель получает здесь: {body}.",
+        "Дальше шаблон даёт покупателю то, что показано на этом шаге: {body}.",
+    )
+    return frames[variant % len(frames)].format(body=body)
 
 
 def _accept_tour_line(
@@ -2380,7 +2430,15 @@ def _accept_tour_line(
         return ""
     if re.match(r"^(?:этот фрагмент|данный фрагмент|этот интерфейс)\b", spoken, flags=re.IGNORECASE):
         return ""
-    if re.match(r"^доступны\s+", spoken, flags=re.IGNORECASE) and len(re.findall(r"[A-Za-zА-Яа-яЁё0-9-]+", spoken)) < 12:
+    if re.match(r"^доступны\s+", spoken, flags=re.IGNORECASE):
+        return ""
+    if re.search(r"\bможет возможность\b|\bотображение\b.+\bотображение\b", spoken, flags=re.IGNORECASE):
+        return ""
+    if _broken_object_case(spoken) or _is_caption_stub(spoken):
+        return ""
+    if re.search(r"просматривая страниц", spoken, flags=re.IGNORECASE):
+        return ""
+    if re.search(r"\bнажать\b", spoken, flags=re.IGNORECASE) and re.search(r"[A-Za-z]{3,}", spoken):
         return ""
     if re.search(r"\bпозволяет\s+(?:переход|просмотр|отображение|возможность|выбор)\b", spoken, flags=re.IGNORECASE):
         return ""
@@ -2491,6 +2549,13 @@ def _latin_label(text: str) -> bool:
     return len(latin) / len(letters) >= 0.7
 
 
+def _ui_label(text: str) -> bool:
+    """A painted button name, not a capability to explain."""
+    if _latin_label(text):
+        return True
+    return len(re.findall(r"[A-Za-z]{3,}", text or "")) >= 2
+
+
 def _capability_fits_screen(cap: str, screen: str) -> bool:
     """Drop a VLM fact that belongs to another kind of screen."""
     low = (cap or "").lower()
@@ -2505,15 +2570,19 @@ def _capability_fits_screen(cap: str, screen: str) -> bool:
     return True
 
 
-def _unit_capabilities(beats: list[dict[str, Any]], covered_lines: list[str]) -> list[str]:
-    """Demonstrated action of each event first, then other new facts, up to three."""
+def _unit_capabilities(
+    beats: list[dict[str, Any]],
+    covered_lines: list[str],
+    later_beats: list[dict[str, Any]] | None = None,
+) -> list[str]:
+    """New facts for this picture. A fact still visible later is saved for that picture."""
     covered = _stems(" ".join(covered_lines))
     primary: list[tuple[dict[str, Any], str]] = []
     extra: list[tuple[dict[str, Any], str]] = []
     for beat in beats:
         caps = [_clean_capability(cap) for cap in _narratable_capabilities(beat)]
         screen = str(beat.get("screen_type") or "")
-        caps = [cap for cap in caps if cap and _capability_fits_screen(cap, screen)]
+        caps = [cap for cap in caps if cap and _capability_fits_screen(cap, screen) and not _ui_label(cap)]
         if not caps:
             continue
         primary.append((beat, caps[0]))
@@ -2526,34 +2595,53 @@ def _unit_capabilities(beats: list[dict[str, Any]], covered_lines: list[str]) ->
             )
     picked: list[str] = []
     picked_stems: set[str] = set()
+    picked_full: set[str] = set()
 
     def take(beat: dict[str, Any], cap: str) -> bool:
-        if _latin_label(cap) and any(not _latin_label(item) for item in picked):
+        del beat
+        full = _stems(cap)
+        distinct = _distinct_stems(cap)
+        stems = distinct or full
+        if not (stems - covered - picked_stems):
             return False
-        stems = _distinct_stems(cap) or _stems(cap)
-        product_stems = _distinct_stems(str(beat.get("product") or ""))
-        new_cap = bool(stems - covered - picked_stems)
-        new_product = bool(product_stems - covered - picked_stems)
-        if not new_cap and not new_product:
-            return False
-        if stems and stems <= picked_stems:
+        if distinct:
+            if distinct <= picked_stems:
+                return False
+            if picked_stems and len(distinct - picked_stems) <= 1 and (distinct & picked_stems):
+                return False
+        elif full and full <= picked_full:
             return False
         picked.append(cap)
         picked_stems.update(stems)
-        picked_stems.update(product_stems)
+        picked_full.update(full)
         return len(picked) >= 3
 
     for beat, cap in primary:
         if take(beat, cap):
-            return picked
-    for beat, cap in extra:
-        if take(beat, cap):
-            return picked
+            break
+    else:
+        for beat, cap in extra:
+            if take(beat, cap):
+                break
+    later_stems: set[str] = set()
+    for beat in later_beats or []:
+        screen = str(beat.get("screen_type") or "")
+        for cap in _narratable_capabilities(beat):
+            cleaned = _clean_capability(cap)
+            if cleaned and _capability_fits_screen(cleaned, screen) and not _ui_label(cleaned):
+                later_stems.update(_distinct_stems(cleaned) or _stems(cleaned))
+    if later_stems and len(picked) > 1:
+        unique = [cap for cap in picked if not ((_distinct_stems(cap) or _stems(cap)) & later_stems)]
+        picked = unique[:3] if unique else picked[:1]
     return picked
 
 
-def _unit_moment(beats: list[dict[str, Any]], covered_lines: list[str]) -> dict[str, Any] | None:
-    caps = _unit_capabilities(beats, covered_lines)
+def _unit_moment(
+    beats: list[dict[str, Any]],
+    covered_lines: list[str],
+    later_beats: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    caps = _unit_capabilities(beats, covered_lines, later_beats)
     if not caps:
         return None
     products: list[str] = []
@@ -2574,79 +2662,264 @@ def _unit_moment(beats: list[dict[str, Any]], covered_lines: list[str]) -> dict[
     }
 
 
+_STORY_RULES = (
+    ("subcategories", r"подкатегор"),
+    ("brands", r"бренд|brand"),
+    ("categories", r"категор|categor"),
+    ("collection", r"коллекц|collection"),
+    ("contact", r"контакт|отправк\w*\s+сообщен|форм\w*\s+(?:для\s+)?(?:отправк|сообщен)"),
+    ("product", r"\b3d\b|корзин|детале|подробн|цен[аыуе]"),
+)
+
+_STORY_MEANING = {
+    "categories": "каталог разделён на категории, покупатель выбирает группу товаров",
+    "subcategories": "внутри раздела есть более узкие группы товаров",
+    "brands": "товары можно найти по марке",
+    "collection": "открыта отдельная подборка товаров",
+    "contact": "покупатель может написать магазину через форму",
+    "product": "карточка товара показывает подробности и действия с товаром",
+    "cart": "выбранный товар можно положить в корзину",
+}
+
+_STORY_LINE = {
+    "categories": "Каталог здесь разделён на категории, чтобы покупатель сразу открыл нужную группу товаров и не искал всё подряд.",
+    "subcategories": "Внутри раздела видны более узкие группы, и по ним можно перейти к подходящим товарам.",
+    "brands": "Дальше товары собраны по маркам, и нужную марку можно открыть отдельно, не возвращаясь к общему списку.",
+    "collection": "Здесь открывается отдельная подборка товаров, и её можно просмотреть целиком, прежде чем выбрать одну позицию.",
+    "contact": "На этой странице можно написать магазину: на экране форма сообщения и контактные данные.",
+    "cart": "Выбранный товар можно положить в корзину прямо из этой карточки.",
+}
+
+
+def _focus_text(beat: dict[str, Any]) -> str:
+    return " ".join([str(beat.get("change") or ""), str(beat.get("user") or "")])
+
+
+def _beat_story_text(beat: dict[str, Any]) -> str:
+    visuals = " ".join(str(item) for item in (beat.get("visuals") or []))
+    features = " ".join(_narratable_capabilities(beat))
+    return " ".join([visuals, _focus_text(beat), features, str(beat.get("screen_type") or "")])
+
+
+def _kinds_in(text: str) -> list[str]:
+    found: list[str] = []
+    for kind, pattern in _STORY_RULES:
+        if re.search(pattern, text or "", flags=re.IGNORECASE) and kind not in found:
+            found.append(kind)
+    return found
+
+
+def _pick_story_kind(beat: dict[str, Any], covered: set[str]) -> str | None:
+    """What this picture adds to the tour. A repeated topic stays silent."""
+    screen = str(beat.get("screen_type") or "").strip().lower()
+    if screen == "contact":
+        return None if "contact" in covered else "contact"
+    if screen == "product":
+        if "product" not in covered:
+            return "product"
+        if re.search(r"корзин|cart", _beat_story_text(beat), flags=re.IGNORECASE) and "cart" not in covered:
+            return "cart"
+        return None
+    ordered: list[str] = []
+    for kind in _kinds_in(_focus_text(beat)) + _kinds_in(_beat_story_text(beat)):
+        if kind in {"product", "contact"}:
+            continue
+        if kind not in ordered:
+            ordered.append(kind)
+    if "categories" in ordered and "subcategories" in ordered:
+        ordered.remove("categories")
+        ordered.insert(ordered.index("subcategories"), "categories")
+    for kind in ordered:
+        if kind not in covered:
+            return kind
+    return None
+
+
+def _proper_product_name(beat: dict[str, Any]) -> str:
+    product = str(beat.get("product") or "").strip()
+    if re.search(r"[A-Za-z]{3,}", product):
+        return product
+    return ""
+
+
+def _product_story_line(beat: dict[str, Any]) -> str:
+    text = _beat_story_text(beat)
+    parts: list[str] = []
+    if re.search(r"\b3d\b", text, flags=re.IGNORECASE):
+        parts.append("объёмный просмотр")
+    if re.search(r"цен", text, flags=re.IGNORECASE):
+        parts.append("цену")
+    if re.search(r"детале|подроб", text, flags=re.IGNORECASE):
+        parts.append("подробности")
+    if re.search(r"корзин", text, flags=re.IGNORECASE):
+        parts.append("возможность сразу положить товар в корзину")
+    if not parts:
+        return "В карточке собрано то, что нужно знать о выбранном товаре перед покупкой."
+    if len(parts) == 1:
+        body = parts[0]
+    elif len(parts) == 2:
+        body = f"{parts[0]} и {parts[1]}"
+    else:
+        body = ", ".join(parts[:-1]) + " и " + parts[-1]
+    return f"В карточке товара есть {body}."
+
+
+_STORY_SHORT = {
+    "categories": "Каталог здесь разделён на категории товаров.",
+    "subcategories": "Внутри раздела есть более узкие группы товаров.",
+    "brands": "Дальше товары магазина собраны по маркам.",
+    "collection": "Здесь открывается отдельная подборка товаров магазина.",
+    "contact": "На этой странице можно написать магазину.",
+    "product": "В карточке товар можно рассмотреть со всех сторон.",
+    "cart": "Этот товар можно положить в корзину.",
+}
+
+
+def _story_fallback(kind: str, beat: dict[str, Any], target_sec: float) -> str:
+    if target_sec < 5.5 and kind in _STORY_SHORT:
+        return _STORY_SHORT[kind]
+    line = _product_story_line(beat) if kind == "product" else _STORY_LINE[kind]
+    if target_sec >= 12 and kind == "subcategories":
+        line = (
+            f"{line} Можно остановиться на одной группе и открыть только её. "
+            "Так каталог сужается до подходящих товаров, и покупатель открывает выбранную группу."
+        )
+    return line
+
+
+def _story_units(beats: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One new product message per picture. A scroll with nothing new stays inside the previous message."""
+    units: list[dict[str, Any]] = []
+    covered: set[str] = set()
+    for beat in beats:
+        kind = _pick_story_kind(beat, covered)
+        if kind is None:
+            if units:
+                prev = units[-1]
+                screen = str(beat.get("screen_type") or "").strip().lower()
+                mentioned = set(_kinds_in(_beat_story_text(beat)))
+                same_topic = str(prev.get("kind") or "") in mentioned and mentioned <= covered
+                if same_topic and (not screen or screen == str(prev.get("screen") or "")):
+                    prev["end"] = float(beat["end"])
+                    prev["beats"].append(beat)
+            continue
+        forbid = _proper_product_name(beat) if kind != "product" else ""
+        units.append({
+            "start": float(beat["start"]),
+            "end": float(beat["end"]),
+            "kind": kind,
+            "screen": str(beat.get("screen_type") or "").strip().lower(),
+            "beats": [beat],
+            "meaning": _STORY_MEANING[kind],
+            "forbid_name": forbid,
+        })
+        covered.add(kind)
+    return units
+
+
+def _accept_story_line(text: str, moment: dict[str, Any], covered_lines: list[str]) -> str:
+    spoken = re.sub(r"\s+", " ", _unwrap_command(text or "")).strip()
+    if spoken and spoken[-1] not in ".!?":
+        spoken += "."
+    if not spoken or _broken_object_case(spoken) or _is_caption_stub(spoken):
+        return ""
+    if re.match(r"^просмотр\b", spoken, flags=re.IGNORECASE):
+        return ""
+    if re.search(
+        r"шаблон позволяет|в этой части шаблона|категориальн\w+\s+структур",
+        spoken,
+        flags=re.IGNORECASE,
+    ):
+        return ""
+    kind = str(moment.get("kind") or "")
+    if kind not in {"product", "cart"} and re.search(r"\b3d\b|корзин", spoken, flags=re.IGNORECASE):
+        return ""
+    if kind != "contact" and re.search(r"форм\w*\s+(?:для\s+)?(?:отправк|сообщен)|контактн\w+\s+информац", spoken, flags=re.IGNORECASE):
+        return ""
+    forbid = str(moment.get("forbid_name") or "")
+    if forbid:
+        for word in re.findall(r"[A-Za-z]{3,}", forbid):
+            if re.search(rf"\b{re.escape(word)}\b", spoken, flags=re.IGNORECASE):
+                return ""
+    if not (_stems(spoken) & _stems(str(moment.get("meaning") or ""))):
+        return ""
+    if _circular_claim(spoken):
+        return ""
+    if any(_same_spoken(spoken, line) for line in covered_lines):
+        return ""
+    return spoken
+
+
+def _story_prompt(moment: dict[str, Any], covered_lines: list[str], rejected: str, target_sec: float) -> str:
+    words = max(12, int(target_sec / 60 * 130))
+    sentences = "два предложения одной мысли" if target_sec >= 12 else "одно предложение"
+    covered = "\n".join(f"- {line}" for line in covered_lines) or "(ещё ничего)"
+    forbid = str(moment.get("forbid_name") or "")
+    forbid_line = f"Не произноси название «{forbid}».\n" if forbid else ""
+    reject = f"Предыдущий вариант отклонён: {rejected}\nНапиши иначе.\n" if rejected else ""
+    return (
+        "Напиши озвучку шага в магазине. Это смысл для зрителя, не подпись к факту.\n"
+        f"Смысл, и только он: {moment.get('meaning')}\n"
+        f"Уже сказано, не повторяй:\n{covered}\n"
+        f"{forbid_line}{reject}"
+        f"Объём около {words} слов, {sentences}, чтобы речь шла примерно {target_sec:.0f} секунд. "
+        "Не начинай с «Просмотр», «Шаблон позволяет», «В этой части шаблона», «Покупатель может», «Покупатель видит». "
+        "Не описывай скролл, клик и открытие страницы. Не выдумывай кнопки и экраны, которых нет в смысле. "
+        "Не ломай падеж.\n"
+        'JSON: {"text":"...","speak":true}\n'
+    )
+
+
 def _plan_tour(
     beats: list[dict[str, Any]],
     language: str,
     model: str,
 ) -> list[dict[str, Any]]:
-    """One finished thought per sequence of related events. A repeated fact stays silent."""
+    """One new product message per picture. Speech stays on that picture and fills it."""
     spoken_lines: list[str] = []
     planned: list[dict[str, Any]] = []
-    for unit in _narrative_units(beats):
-        moment = _unit_moment(unit["beats"], spoken_lines)
-        if moment is None:
-            continue
+    for unit in _story_units(beats):
+        span = float(unit["end"]) - float(unit["start"])
+        target = span - 0.3 if span < 6 else min(18.0, max(6.0, span - 0.8))
+        moment = {
+            "kind": unit["kind"],
+            "meaning": unit["meaning"],
+            "forbid_name": unit.get("forbid_name") or "",
+            "primary": unit["meaning"],
+            "also": [],
+            "capabilities": [unit["meaning"]],
+            "product": "",
+            "section": "",
+        }
         accepted = ""
         rejected = ""
-        caps = list(moment.get("capabilities") or [])
         for _attempt in range(3):
-            prompt = _tour_line_prompt(moment, spoken_lines, language, rejected)
-            if _attempt == 2:
-                prompt = (
-                    "Напиши одно законченное русское предложение (12–22 слова) о том, что этот шаг шаблона даёт покупателю. "
-                    "Соедини все факты в одну мысль. Не начинай с «Можно увидеть», «Можно изучить», «Показывает», "
-                    "«Этот фрагмент» или «Доступны». Не описывай клик, скролл и открытие страницы.\n"
-                    "Факты:\n"
-                    + "\n".join(f"- {cap}" for cap in caps)
-                    + '\nJSON: {"text":"...","speak":true}\n'
-                )
-            result = _try_ollama(prompt, model=model, num_predict=220, temperature=0.2)
-            if not result or result.get("speak") is False:
-                rejected = "the line was skipped"
-                continue
-            candidate = str(result.get("text") or "")
-            accepted = _accept_tour_line(candidate, moment, spoken_lines, language)
-            if not accepted:
-                accepted = _accept_tour_line(_salvage_caption(candidate, moment), moment, spoken_lines, language)
-            if accepted:
-                break
-            rejected = (
-                "One finished sentence that names every listed capability. "
-                "Do not write a short caption. "
-                + (candidate.strip()[:240] or "empty")
-            )
-        if not accepted:
-            accepted = _compose_unit_line(caps)
-        span = float(unit["end"]) - float(unit["start"])
-        if accepted and span >= 7.0 and _estimated_sec(accepted, 130) < min(5.5, span * 0.55):
-            longer = _try_ollama(
-                "Напиши одно более полное русское предложение (14–22 слова) о том, что покупатель получает на этом шаге. "
-                "Не начинай с «Этот фрагмент», «Доступны», «Можно увидеть». Не выдумывай экраны.\n"
-                f"Короткий черновик: {accepted}\n"
-                "Факты:\n"
-                + "\n".join(f"- {cap}" for cap in caps)
-                + '\nJSON: {"text":"...","speak":true}\n',
+            result = _try_ollama(
+                _story_prompt(moment, spoken_lines, rejected, target),
                 model=model,
-                num_predict=220,
+                num_predict=260,
                 temperature=0.2,
             )
-            candidate = str((longer or {}).get("text") or "")
-            alt = _accept_tour_line(candidate, moment, spoken_lines, language)
-            if alt and _estimated_sec(alt, 130) > _estimated_sec(accepted, 130):
-                accepted = alt
+            if not result or result.get("speak") is False:
+                rejected = "фраза пропущена"
+                continue
+            accepted = _accept_story_line(str(result.get("text") or ""), moment, spoken_lines)
+            floor = max(2.4, target - 1.2) if target < 6 else (5.5 if target < 12 else target - 4)
+            if accepted and _estimated_sec(accepted, 130) >= floor:
+                break
+            rejected = (accepted or str(result.get("text") or "")).strip()[:240] or "слишком коротко или не про этот кадр"
+            accepted = ""
+        if not accepted:
+            accepted = _accept_story_line(_story_fallback(unit["kind"], unit["beats"][0], target), moment, spoken_lines)
         if not accepted:
             continue
         spoken_lines.append(accepted)
-        events = []
-        for beat in unit["beats"]:
-            label = ", ".join(_clean_capability(cap) for cap in _narratable_capabilities(beat)[:2]) or str(beat.get("screen_type") or "")
-            events.append(f"{float(beat['start']):.1f}–{float(beat['end']):.1f}s {label}".strip())
         planned.append({
             "anchor_sec": round(float(unit["start"]), 2),
             "text": accepted,
             "role": "body",
-            "purpose": "; ".join(caps)[:180],
-            "visual_summary": " | ".join(events)[:240],
+            "purpose": unit["kind"],
+            "visual_summary": f"{float(unit['start']):.1f}–{float(unit['end']):.1f}s {unit['meaning']}",
             "estimated_sec": _estimated_sec(accepted, 130),
         })
     if planned:
@@ -2656,11 +2929,10 @@ def _plan_tour(
 
 
 PAUSE_SEC = 0.4
-MAX_LEAD_SEC = 6.0
 
 
 def _place_by_speech(units: list[dict[str, Any]], wpm: int = 130) -> list[dict[str, Any]]:
-    """Speech follows the previous mouth, with a short pause. It may lead the next picture by a few seconds."""
+    """Speech starts when its picture is on screen. A gap before that picture is a pause."""
     cursor = 0.0
     placed: list[dict[str, Any]] = []
     for index, unit in enumerate(units):
@@ -2670,9 +2942,7 @@ def _place_by_speech(units: list[dict[str, Any]], wpm: int = 130) -> list[dict[s
         if index == 0:
             start = max(0.0, anchor)
         else:
-            start = max(cursor + PAUSE_SEC, anchor - MAX_LEAD_SEC)
-            if start < cursor:
-                start = cursor
+            start = max(cursor + PAUSE_SEC, anchor)
         placed.append({
             **unit,
             "anchor_sec": round(anchor, 2),
@@ -2703,7 +2973,28 @@ def generate_voiceover_script(
     ollama_model: str = DEFAULT_OLLAMA_MODEL,
     project_context: str = "",
 ) -> dict[str, Any]:
+    if prefer_ollama and language.startswith("ru") and video_context.get("source_path"):
+        from state_planner import plan_from_video
+
+        planned = plan_from_video(video_context, ollama_model, project_context)
+        if planned:
+            return {
+                "segments": planned,
+                "meta": {
+                    "tone": "directed",
+                    "language": language,
+                    "words_per_min": target_wpm,
+                    "provider": "ollama",
+                    "model": ollama_model,
+                    "scene_count": len(video_context.get("scene_analysis") or []),
+                    "planner": "states",
+                    "visual_quality": _visual_quality(video_context),
+                    "vision_model": video_context.get("vision_model"),
+                },
+            }
     video_context = _with_frame_captions(video_context, language)
+    from scene_understand import recover_missing_states
+    video_context = recover_missing_states(video_context, language)
     duration = float(video_context.get("duration_sec") or 60)
     rows = _analysis_rows(video_context)
     beats = _speech_beats(video_context)

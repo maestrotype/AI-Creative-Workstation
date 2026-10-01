@@ -227,6 +227,7 @@ def _ask_vlm(
 Коротко о предыдущем куске (не копируй этот текст): {prev}
 
 Сравни ТОЛЬКО эти кадры между собой: что открылось, куда кликнули, что прокрутили, крутится ли 3D, сменился ли экран.
+Неподвижный, но понятный экран тоже описывай: это состояние, а не пустой интервал.
 Если кадр сменился — narration_recommended=true и pause_ok=false.
 pause_ok=true только когда это тот же экран и нового действия нет.
 Ссылка «ADMIN» в шапке сама по себе не значит, что открыта админка.
@@ -302,6 +303,138 @@ Do not invent screens. pause_ok=true and narration_recommended=false for repeats
         return None
     content = str(((body.get("message") or {}).get("content")) or "")
     return _extract_json(content)
+
+
+def _ask_frame_state(model: str, image_path: str, language: str) -> Optional[dict[str, Any]]:
+    """One frame is a screen state even when nothing in it moves."""
+    ru = language.startswith("ru")
+    ask = (
+        "Один кадр записи экрана. Опиши, что на нём устойчиво видно. "
+        "Неподвижный информативный экран — это состояние, не пустота. "
+        "Не выдумывай кнопки и разделы, которых нет на кадре.\n"
+        "JSON: {"
+        '"visual_summary":"что за экран",'
+        '"screen_type":"home|catalog|product|cart|checkout|contact|admin|other",'
+        '"ui_elements":["видимые подписи"],'
+        '"visible_product":"",'
+        '"demonstrated_feature":"какую возможность показывает этот экран, или пусто",'
+        '"actions":[],'
+        '"beat_type":"STATE",'
+        '"narration_recommended":true,'
+        '"pause_ok":false,'
+        '"confidence":0.0}'
+        if ru else
+        "One frame of a screen recording. Describe the stable screen. "
+        "A still, informative page is a state, not an empty interval. "
+        "Do not invent controls that are not visible.\n"
+        "JSON: {"
+        '"visual_summary":"which screen",'
+        '"screen_type":"home|catalog|product|cart|checkout|contact|admin|other",'
+        '"ui_elements":["visible labels"],'
+        '"visible_product":"",'
+        '"demonstrated_feature":"which ability this screen shows, or empty",'
+        '"actions":[],'
+        '"beat_type":"STATE",'
+        '"narration_recommended":true,'
+        '"pause_ok":false,'
+        '"confidence":0.0}'
+    )
+    return _ask_vlm_prompt(model, [image_path], ask)
+
+
+def _ask_vlm_prompt(model: str, image_paths: List[str], ask: str) -> Optional[dict[str, Any]]:
+    images: List[str] = []
+    for path in image_paths:
+        try:
+            with open(path, "rb") as handle:
+                images.append(base64.b64encode(handle.read()).decode("ascii"))
+        except OSError:
+            continue
+    if not images:
+        return None
+    payload = json.dumps(
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": ask, "images": images}],
+            "stream": False,
+            "format": "json",
+            "keep_alive": KEEP_ALIVE_WARM,
+            "options": {"temperature": 0.1, "num_predict": 500},
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        f"{OLLAMA_URL}/api/chat",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+        return None
+    content = str(((body.get("message") or {}).get("content")) or "")
+    return _extract_json(content)
+
+
+def _states_for_frames(model: str, frame_paths: List[str], language: str) -> List[dict[str, Any]]:
+    states: List[dict[str, Any]] = []
+    for path in list(frame_paths or [])[:3]:
+        parsed = _ask_frame_state(model, path, language) or {}
+        summary = str(parsed.get("visual_summary") or "").strip()
+        if not summary:
+            continue
+        kind = str(parsed.get("beat_type") or "STATE").strip().upper()
+        if kind not in {"STATE", "EVENT", "TRANSITION", "PAUSE_CANDIDATE"}:
+            kind = "STATE"
+        states.append({
+            "visual_summary": summary,
+            "screen_type": str(parsed.get("screen_type") or "").strip(),
+            "ui_elements": _as_list(parsed.get("ui_elements")),
+            "visible_product": str(parsed.get("visible_product") or "").strip(),
+            "demonstrated_feature": str(parsed.get("demonstrated_feature") or "").strip(),
+            "product_features": _as_list(parsed.get("product_features")) or (
+                [str(parsed.get("demonstrated_feature")).strip()] if parsed.get("demonstrated_feature") else []
+            ),
+            "actions": _as_list(parsed.get("actions")),
+            "beat_type": kind,
+            "narration_recommended": bool(parsed.get("narration_recommended", True)),
+            "pause_ok": bool(parsed.get("pause_ok")),
+        })
+    return states
+
+
+def recover_missing_states(video_context: dict[str, Any], language: str = "ru") -> dict[str, Any]:
+    """A window with frames but no caption is still on screen. Describe each frame."""
+    rows = [row for row in (video_context.get("scene_analysis") or []) if isinstance(row, dict)]
+    pending = [
+        row for row in rows
+        if not str(row.get("visual_summary") or "").strip() and (row.get("frame_paths") or row.get("frame_states"))
+    ]
+    if not pending:
+        return video_context
+    model = detect_vision_model()
+    if not model:
+        for row in pending:
+            row["beat_type"] = row.get("beat_type") or "STATE"
+            row["coverage"] = "unresolved"
+        return video_context
+    for row in pending:
+        states = list(row.get("frame_states") or []) or _states_for_frames(model, list(row.get("frame_paths") or []), language)
+        if not states:
+            row["beat_type"] = "STATE"
+            row["coverage"] = "unresolved"
+            continue
+        row["frame_states"] = states
+        row["visual_summary"] = " ".join(state["visual_summary"] for state in states)
+        row["source"] = "vlm"
+        row["narration_recommended"] = True
+        row["pause_ok"] = False
+        row["beat_type"] = "STATE"
+        row["coverage"] = "recovered"
+    if model:
+        _unload_ollama_model(model)
+    return video_context
 
 
 def _as_list(value: Any) -> List[str]:
@@ -404,6 +537,15 @@ def analyze_visual_scenes(
             percent = 28 + int((n / max(total, 1)) * 22)
             on_progress("visual", percent, f"Keyframe {n + 1}/{total}")
         item = _normalize_analysis(parsed, window)
+        if model and not item.get("visual_summary") and window.get("frame_paths"):
+            states = _states_for_frames(model, window["frame_paths"], language)
+            if states:
+                item["frame_states"] = states
+                item["visual_summary"] = " ".join(state["visual_summary"] for state in states)
+                item["source"] = "vlm"
+                item["narration_recommended"] = True
+                item["pause_ok"] = False
+                item["beat_type"] = "STATE"
         item["frames_sent"] = len(window.get("frame_paths") or []) if model else 0
         item["vision_model"] = model or ""
         if not model:
