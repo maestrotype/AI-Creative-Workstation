@@ -170,8 +170,18 @@
 }
 
 .inspector {
-  min-width: 200px;
+  min-width: 0;
   border-left: 1px solid var(--color-border-subtle);
+}
+
+.inspector .panelContent {
+  overflow-x: hidden;
+}
+
+.inspector .panelContent > * {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .panelLabel {

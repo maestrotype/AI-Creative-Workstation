@@ -393,6 +393,7 @@ interface Window {
       normalized: string;
       stressed: string;
       spoken: string;
+      marked?: string;
       language: string;
       warnings: string[];
       stress_available: boolean;
@@ -417,6 +418,7 @@ interface Window {
         normalized: string;
         stressed: string;
         spoken: string;
+        marked?: string;
         lexicon_applied?: string[];
       };
     }>;

@@ -24,6 +24,7 @@ from text_ru import (
     save_lexicon_entry,
     stress_status,
     to_spoken_text,
+    to_xtts_text,
 )
 
 router = APIRouter()
@@ -634,7 +635,7 @@ def _resolve_tts_text(request: TtsRequest) -> tuple[str, dict]:
         raise HTTPException(status_code=400, detail="text is required")
 
     if request.prepared_text and request.prepared_text.strip():
-        spoken = to_spoken_text(request.prepared_text.strip())
+        spoken = to_xtts_text(request.prepared_text.strip())
         return spoken, {"skipped": True, "source": "prepared_text", "spoken": spoken}
 
     if request.skip_prepare:
@@ -759,7 +760,9 @@ def synthesize_voice(request: TtsRequest):
 
     tts_text, prep_meta = _resolve_tts_text(request)
     os.makedirs(AUDIO_DIR, exist_ok=True)
-    dest = _audio_out(f"tts-{abs(hash(tts_text)) % 10_000_000}", "wav")
+    # New path every time: the timeline caches audio by file path, so rewriting
+    # the same wav left the old pronunciation on A1.
+    dest = _audio_out(f"tts-{int(time.time() * 1000)}", "wav")
     lang = _tts_language(tts_text, request.language or "en")
     _run_xtts_clone(tts_text, dest, lang)
     return {
@@ -866,7 +869,7 @@ def synthesize_batch(request: TtsBatchRequest):
         if not raw:
             continue
         if item.prepared_text and item.prepared_text.strip():
-            spoken = to_spoken_text(item.prepared_text.strip())
+            spoken = to_xtts_text(item.prepared_text.strip())
         elif request.skip_prepare:
             spoken = raw
         else:

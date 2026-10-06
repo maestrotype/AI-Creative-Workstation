@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -5,6 +6,7 @@ import { studioHref } from '../../studio/model/studioReturn';
 import { useDirector } from './DirectorBoard';
 import { LlmEngineNotice } from './LlmEngineNotice';
 import { VoiceSampleSetup } from './VoiceSampleSetup';
+import { SegmentPronunciationFix } from './SegmentPronunciationFix';
 import { formatTimecode } from '../model/videoAnalysis';
 import styles from './VideoPage.module.css';
 
@@ -19,6 +21,7 @@ function wordCount(text: string): number {
 
 export function VoiceoverScriptEditor(): ReactNode {
   const d = useDirector();
+  const [pronIndex, setPronIndex] = useState<number | null>(null);
   const script = d.voiceover.script;
   const analysis = d.voiceover.analysis;
   const busy = d.scriptBusy || d.voiceoverApplyBusy;
@@ -88,6 +91,14 @@ export function VoiceoverScriptEditor(): ReactNode {
                       {formatTimecode(seg.start_sec)} – {formatTimecode(seg.end_sec)}
                     </span>
                     <span className={styles.voScriptRole}>{seg.role}</span>
+                    <button
+                      type="button"
+                      className={styles.voPronToggle}
+                      data-on={pronIndex === index || undefined}
+                      onClick={() => setPronIndex(pronIndex === index ? null : index)}
+                    >
+                      {d.t('video.pipe_fix_toggle')}
+                    </button>
                     <span className={styles.voScriptWords}>
                       {words}
                       {spoken != null && spoken > 0 ? ` · ${Math.round(spoken * 10) / 10} с` : ''}
@@ -100,6 +111,9 @@ export function VoiceoverScriptEditor(): ReactNode {
                     onChange={(e) => d.updateScriptSegment(index, { text: e.target.value })}
                     disabled={busy}
                   />
+                  {pronIndex === index ? (
+                    <SegmentPronunciationFix index={index} text={seg.text} />
+                  ) : null}
                   {seg.audio_path ? (
                     <button
                       type="button"

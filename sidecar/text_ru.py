@@ -26,8 +26,13 @@ _WORD_RE = re.compile(
     r"(?:слово|word)\s+[\"«]?([\w\u0400-\u04FF-]+)[\"»]?",
     re.IGNORECASE,
 )
+_QUOTE = r"[\"'«»„“”]"
 _STRESS_VOWEL_RE = re.compile(
-    rf"ударени[ея]\s+на\s+[\"«]?([{_RU_VOWELS}])[\"»]?",
+    rf"ударени(?:ем|е|я)\s+на\s+(?:{_QUOTE})?([{_RU_VOWELS}])(?:{_QUOTE})?",
+    re.IGNORECASE,
+)
+_LEADING_WORD_BEFORE_STRESS_RE = re.compile(
+    rf"^({_QUOTE})?([\w\u0400-\u04FF-]+)\1?\s+ударени",
     re.IGNORECASE,
 )
 _STRESS_VOWEL_EN_RE = re.compile(
@@ -133,7 +138,11 @@ def load_lexicon_stress_dict() -> Dict[str, str]:
 def list_lexicon_entries() -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
     for word, entry in sorted(load_lexicon_entries().items()):
-        items.append({"word": word, **entry.to_dict()})
+        payload = {"word": word, **entry.to_dict()}
+        shown = _stress_display(entry)
+        if shown:
+            payload["spoken"] = shown
+        items.append(payload)
     return items
 
 
@@ -146,7 +155,7 @@ def save_lexicon_entry(
     key = (word or "").lower().strip()
     if not key:
         raise ValueError("word is required")
-    spoken_clean = to_spoken_text((spoken or "").strip())
+    spoken_clean = _keep_stress_mark((spoken or "").strip())
     if not spoken_clean:
         raise ValueError("spoken is required")
 
@@ -205,12 +214,52 @@ def apply_lexicon_spoken(text: str) -> str:
     return out
 
 
+def _plus_from_acute(text: str) -> Optional[str]:
+    """пе́карь → п+екарь. Letters stay the same."""
+    nfd = unicodedata.normalize("NFD", text or "")
+    if "\u0301" not in nfd:
+        return None
+    out: List[str] = []
+    index = 0
+    while index < len(nfd):
+        char = nfd[index]
+        nxt = nfd[index + 1] if index + 1 < len(nfd) else ""
+        if nxt == "\u0301":
+            out.append("+")
+            out.append(char)
+            index += 2
+            continue
+        if char != "\u0301":
+            out.append(char)
+        index += 1
+    marked = "".join(out)
+    return marked if "+" in marked else None
+
+
 def _insert_stress_before_vowel(word: str, vowel: str) -> str:
     target = vowel.lower()
     for index, char in enumerate(word):
         if char.lower() == target:
             return f"{word[:index]}+{word[index:]}"
     return word
+
+
+def _word_from_stress_prompt(text: str, default_word: Optional[str]) -> str:
+    word_match = _WORD_RE.search(text)
+    if word_match:
+        return word_match.group(1).lower().strip()
+    if "→" in text or "->" in text:
+        left = re.split(r"→|->", text, maxsplit=1)[0]
+        left = re.sub(r"^(?:слово|word)\s+", "", left, flags=re.IGNORECASE)
+        left = left.strip(" \"'«»„“”")
+        token = left.split()[-1] if left else ""
+        cleaned = re.sub(r"[^\w\u0400-\u04FF-]", "", token).lower()
+        if cleaned:
+            return cleaned
+    lead = _LEADING_WORD_BEFORE_STRESS_RE.match(text)
+    if lead:
+        return lead.group(2).lower().strip()
+    return (default_word or "").lower().strip()
 
 
 def parse_pronunciation_fix(
@@ -221,25 +270,23 @@ def parse_pronunciation_fix(
     if not text:
         return None
 
-    replace_match = _REPLACE_RE.match(text)
-    if replace_match:
-        word = replace_match.group(1).lower()
-        spoken = to_spoken_text(replace_match.group(2).strip())
-        return {
-            "word": word,
-            "spoken": spoken,
-            "stress": None,
-            "note": text,
-            "parsed_as": "replacement",
-        }
-
-    word_match = _WORD_RE.search(text)
-    word = (word_match.group(1) if word_match else default_word or "").lower().strip()
     vowel_match = _STRESS_VOWEL_RE.search(text) or _STRESS_VOWEL_EN_RE.search(text)
-    if word and vowel_match:
+    if vowel_match:
+        word = _word_from_stress_prompt(text, default_word)
         vowel = vowel_match.group(1).lower()
+        if not word:
+            return None
+        if vowel not in word:
+            return {
+                "word": word,
+                "spoken": word,
+                "stress": None,
+                "note": text,
+                "parsed_as": "stress_missing_vowel",
+                "error": f"В слове «{word}» нет буквы «{vowel}».",
+            }
         stress = _insert_stress_before_vowel(word, vowel)
-        spoken = to_spoken_text(stress)
+        spoken = word
         return {
             "word": word,
             "spoken": spoken,
@@ -247,6 +294,18 @@ def parse_pronunciation_fix(
             "note": text,
             "parsed_as": "stress_on_vowel",
             "needs_spoken_hint": spoken.lower() == word.lower(),
+        }
+
+    replace_match = _REPLACE_RE.match(text)
+    if replace_match:
+        word = replace_match.group(1).lower()
+        spoken = _keep_stress_mark(replace_match.group(2).strip())
+        return {
+            "word": word,
+            "spoken": spoken,
+            "stress": _plus_from_acute(spoken),
+            "note": text,
+            "parsed_as": "replacement",
         }
 
     if default_word and text:
@@ -268,8 +327,10 @@ def apply_pronunciation_fix(
     parsed = parse_pronunciation_fix(prompt, default_word)
     if not parsed:
         raise ValueError(
-            "Could not parse fix. Use: замок → текст  or  слово «замок» ударение на «а»",
+            "Не удалось разобрать правило. Напишите замену: «слово → как произнести».",
         )
+    if parsed.get("error"):
+        raise ValueError(str(parsed["error"]))
 
     entry = save_lexicon_entry(
         parsed["word"],
@@ -416,14 +477,117 @@ def add_stress(text: str) -> Tuple[str, List[str]]:
         return text, warnings
 
 
+def _keep_stress_mark(text: str) -> str:
+    """Drop + and apostrophe marks, keep the vowel and a combining acute."""
+    if not text:
+        return text
+    out = text.replace("+", "")
+    out = _APOSTROPHE_STRESS_RE.sub(r"\1", out)
+    return unicodedata.normalize("NFC", out)
+
+
 def to_spoken_text(text: str) -> str:
-    """Strip stress markup before XTTS — + and similar symbols cause glitches/pauses."""
+    """Letters only. Stress marks are not part of the written word."""
     if not text:
         return text
     out = text.replace("+", "")
     out = _COMBINING_ACUTE_RE.sub(r"\1", out)
     out = _APOSTROPHE_STRESS_RE.sub(r"\1", out)
     return unicodedata.normalize("NFC", out)
+
+
+def to_xtts_text(text: str) -> str:
+    """Text for synthesis. A marked vowel is stored as парфюме́р → парфюм+ер.
+
+    The plus is not spoken. It only says which vowel to lengthen. Letters stay the same.
+    """
+    raw = text or ""
+    plus = _plus_from_acute(raw)
+    if plus:
+        return plus
+    if "+" in raw:
+        return raw
+    return to_spoken_text(raw)
+
+
+def _plus_to_acute(text: str) -> str:
+    """п+екарь → пе́карь. The letter stays the same."""
+    chars: List[str] = []
+    index = 0
+    raw = text or ""
+    while index < len(raw):
+        if raw[index] == "+" and index + 1 < len(raw):
+            chars.append(raw[index + 1])
+            chars.append("\u0301")
+            index += 2
+            continue
+        chars.append(raw[index])
+        index += 1
+    return unicodedata.normalize("NFC", "".join(chars))
+
+
+def _stress_display(entry: LexiconEntry) -> Optional[str]:
+    """Acute form for the UI. None when this entry is a letter change, not a stress."""
+    if not entry.stress or "+" not in entry.stress:
+        return None
+    acute = _plus_to_acute(entry.stress)
+    surface = to_spoken_text(entry.spoken)
+    if to_spoken_text(acute).lower() != surface.lower():
+        return None
+    return acute
+
+
+def _paint_user_stress(text: str) -> str:
+    """Show the saved stress on the same letters. TTS text stays unmarked."""
+    if not text:
+        return text
+    entries = load_lexicon_entries()
+    for word in sorted(entries, key=len, reverse=True):
+        shown = _stress_display(entries[word])
+        if not shown:
+            continue
+        surface = to_spoken_text(entries[word].spoken) or word
+
+        def repl(match: re.Match[str], acute_form: str = shown) -> str:
+            src = match.group(0)
+            if src[:1].isupper():
+                return acute_form[:1].upper() + acute_form[1:]
+            return acute_form
+
+        text = _word_boundary_pattern(surface).sub(repl, text)
+    return text
+
+
+def _with_source_case(src: str, form: str) -> str:
+    if not src[:1].isupper():
+        return form
+    chars = list(form)
+    for index, char in enumerate(chars):
+        if char.isalpha():
+            chars[index] = char.upper()
+            break
+    return "".join(chars)
+
+
+def apply_xtts_user_stress(text: str) -> str:
+    """Put + before the vowel the user marked. The plus is not spoken."""
+    if not text:
+        return text
+    entries = load_lexicon_entries()
+    for word in sorted(entries, key=len, reverse=True):
+        entry = entries[word]
+        if not entry.stress or "+" not in entry.stress:
+            continue
+        surface = to_spoken_text(entry.spoken) or word
+        if entry.stress.replace("+", "").lower() != surface.lower():
+            continue
+        marked = entry.stress
+
+        def repl(match: re.Match[str], form: str = marked) -> str:
+            return _with_source_case(match.group(0), form)
+
+        text = _word_boundary_pattern(surface).sub(repl, text)
+    return text
 
 
 def prepare_text(
@@ -466,13 +630,16 @@ def prepare_text(
         accentizer, ok, _ = _get_accentizer()
         stress_available = ok and accentizer is not None
 
-    spoken = to_spoken_text(stressed)
+    base = apply_lexicon_spoken(to_spoken_text(stressed))
+    spoken = apply_xtts_user_stress(base)
+    marked = _paint_user_stress(base)
 
     return {
         "original": original,
         "normalized": normalized,
         "stressed": stressed,
         "spoken": spoken,
+        "marked": marked,
         "language": lang,
         "warnings": warnings,
         "stress_available": stress_available,
