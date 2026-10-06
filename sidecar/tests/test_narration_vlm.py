@@ -403,7 +403,7 @@ class EventBeatTests(unittest.TestCase):
             _repair_opening("В разделе подборки с фильтром можно сузить список.").lower().startswith("в разделе")
         )
 
-    def test_a_line_occupies_its_speech_and_the_next_waits(self):
+    def test_lines_follow_each_other_without_a_scene_gap(self):
         from script_llm import _accept_tour_line, _place_by_speech
 
         placed = _place_by_speech([
@@ -412,19 +412,21 @@ class EventBeatTests(unittest.TestCase):
             {"anchor_sec": 20, "text": "Финал.", "estimated_sec": 4},
         ])
         self.assertEqual(placed[0]["end_sec"], 4.5)
-        self.assertEqual(placed[1]["start_sec"], 9)
-        self.assertGreaterEqual(placed[2]["start_sec"], 20)
+        self.assertEqual(placed[1]["start_sec"], 4.5)
+        self.assertEqual(placed[2]["start_sec"], 8.5)
+        self.assertEqual(placed[1]["anchor_sec"], 9)
         overlap = _place_by_speech([
             {"anchor_sec": 0, "text": "Длинная реплика занимает больше окна.", "estimated_sec": 12},
             {"anchor_sec": 9, "text": "Следующая мысль.", "estimated_sec": 4},
         ])
-        self.assertGreaterEqual(overlap[1]["start_sec"], 12)
+        self.assertEqual(overlap[1]["start_sec"], 12)
         last = _place_by_speech([
             {"anchor_sec": 0, "estimated_sec": 6, "text": "старт"},
             {"anchor_sec": 44, "estimated_sec": 6, "text": "коллекция"},
             {"anchor_sec": 53, "estimated_sec": 5, "text": "карточка"},
         ])
-        self.assertGreaterEqual(last[-1]["start_sec"], 53)
+        self.assertEqual(last[-1]["start_sec"], 12)
+        self.assertEqual(last[-1]["anchor_sec"], 53)
         self.assertEqual(
             _accept_tour_line(
                 "Доступны отображение брендов магазина и отображение логотипов брендов.",
@@ -655,9 +657,9 @@ class StoryPlannerTests(unittest.TestCase):
             }
             for unit in units
         ])
-        for index, item in enumerate(placed):
-            self.assertGreaterEqual(item["start_sec"], units[index]["start"])
-        self.assertLess(placed[3]["start_sec"] - placed[2]["end_sec"], 4)
+        for index in range(1, len(placed)):
+            self.assertEqual(placed[index]["start_sec"], placed[index - 1]["end_sec"])
+        self.assertEqual(placed[0]["start_sec"], 0)
 
 
 class VisualCoverageTests(unittest.TestCase):

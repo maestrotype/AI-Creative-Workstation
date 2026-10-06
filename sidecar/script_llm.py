@@ -2928,21 +2928,15 @@ def _plan_tour(
     return _place_by_speech(planned)
 
 
-PAUSE_SEC = 0.4
-
-
 def _place_by_speech(units: list[dict[str, Any]], wpm: int = 130) -> list[dict[str, Any]]:
-    """Speech starts when its picture is on screen. A gap before that picture is a pause."""
+    """Lines follow one another. A pause exists only when the user opens a gap on the timeline."""
     cursor = 0.0
     placed: list[dict[str, Any]] = []
-    for index, unit in enumerate(units):
+    for unit in units:
         anchor = float(unit.get("anchor_sec", unit.get("start_sec", 0)) or 0)
         estimate = float(unit.get("estimated_sec") or 0) or _estimated_sec(str(unit.get("text") or ""), wpm)
         estimate = max(1.1, estimate)
-        if index == 0:
-            start = max(0.0, anchor)
-        else:
-            start = max(cursor + PAUSE_SEC, anchor)
+        start = cursor
         placed.append({
             **unit,
             "anchor_sec": round(anchor, 2),

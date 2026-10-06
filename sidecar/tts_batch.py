@@ -34,30 +34,10 @@ TOP_K = 50
 TOP_P = 0.85
 
 OUTPUT_SR = 24000  # XTTS native output rate
-TRIM_TOP_DB = 40
-TRIM_PAD_SEC = 0.06
 
 
 def emit(stage: str, percent: int, detail: str = "") -> None:
     print(json.dumps({"progress": percent, "stage": stage, "detail": detail}), flush=True)
-
-
-def _trim_silence(wav, sr: int):
-    """Drop leading/trailing silence and XTTS artifact tails, keep a short pad."""
-    try:
-        import librosa
-        import numpy as np
-    except ImportError:
-        return wav
-
-    arr = np.asarray(wav, dtype="float32")
-    if arr.size == 0:
-        return wav
-    trimmed, _ = librosa.effects.trim(arr, top_db=TRIM_TOP_DB)
-    if trimmed.size == 0:
-        return arr
-    pad = int(TRIM_PAD_SEC * sr)
-    return np.pad(trimmed, (0, pad), mode="constant")
 
 
 def main() -> int:
@@ -142,6 +122,7 @@ def main() -> int:
         }))
         return 2
 
+    from tts_audio import finish_speech
     from tts_stress import mix_stressed_segment, needs_stress_engine
 
     results = []
@@ -176,10 +157,7 @@ def main() -> int:
                 )
                 return np.asarray(spoken["wav"], dtype="float32")
 
-            wav = mix_stressed_segment(text, say_plain)
-            peak = float(np.abs(wav).max()) if wav.size else 0.0
-            if peak > 0:
-                wav = wav / peak * 0.89
+            wav = finish_speech(mix_stressed_segment(text, say_plain), OUTPUT_SR)
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             sf.write(dest, wav, OUTPUT_SR, subtype="PCM_16")
             results.append({
@@ -201,13 +179,7 @@ def main() -> int:
             top_p=TOP_P,
             enable_text_splitting=True,
         )
-        wav = np.asarray(out["wav"], dtype="float32")
-        wav = _trim_silence(wav, OUTPUT_SR)
-
-        peak = float(np.abs(wav).max()) if wav.size else 0.0
-        if peak > 0:
-            wav = wav / peak * 0.89
-
+        wav = finish_speech(np.asarray(out["wav"], dtype="float32"), OUTPUT_SR)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         sf.write(dest, wav, OUTPUT_SR, subtype="PCM_16")
         results.append({

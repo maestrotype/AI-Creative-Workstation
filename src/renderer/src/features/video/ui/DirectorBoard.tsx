@@ -27,6 +27,7 @@ import {
   insertClipOnTrack,
   trackHasGap,
   syncClipDuration,
+  contiguousNarrationStarts,
   filmTotalSec,
   trimRunawayAudioClips,
   trackIndex,
@@ -2412,9 +2413,12 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         end_sec: number;
       }> = [];
 
-      let speechCursor = 0;
-      const pauseSec = 0.4;
-      const maxLeadSec = 6;
+      const probedDurations: number[] = [];
+      for (let i = 0; i < parts.length; i += 1) {
+        const probed = await probeDuration(parts[i].file_path, 'audio');
+        probedDurations.push(probed.dur);
+      }
+      const packedStarts = contiguousNarrationStarts(probedDurations);
       for (let i = 0; i < parts.length; i += 1) {
         const part = parts[i];
         const scriptIndex = partScriptIndexes[i];
@@ -2422,16 +2426,12 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         if (!entry) continue;
         const filePath = part.file_path;
         const spoken = entry.seg.text.trim();
-        const probed = await probeDuration(filePath, 'audio');
-        const anchor = entry.seg.anchor_sec ?? entry.seg.start_sec;
-        const start = speechCursor <= 0
-          ? Math.max(0, anchor)
-          : Math.max(speechCursor + pauseSec, anchor - maxLeadSec, speechCursor);
-        const end = Math.round((start + probed.dur) * 100) / 100;
-        speechCursor = end;
+        const start = packedStarts[i] ?? 0;
+        const spokenDur = probedDurations[i] ?? 0;
+        const end = Math.round((start + spokenDur) * 100) / 100;
         speechUpdates.push({
           scriptIndex,
-          speech_sec: probed.dur,
+          speech_sec: spokenDur,
           text: spoken,
           audio_path: filePath,
           start_sec: Math.round(start * 100) / 100,
@@ -2447,10 +2447,10 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       if (speechUpdates.length) {
         setVoiceover((prev) => {
           if (!prev.script) return prev;
-          const nextSegments = prev.script.segments.map((seg, idx) => {
+          const nextSegments = prev.script.segments.flatMap((seg, idx) => {
             const row = speechUpdates.find((item) => item.scriptIndex === idx);
-            if (!row) return seg;
-            return {
+            if (!row) return seg.text.trim() ? [seg] : [];
+            return [{
               ...seg,
               text: row.text,
               start_sec: row.start_sec,
@@ -2458,7 +2458,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
               speech_sec: row.speech_sec,
               speech_tempo: 1,
               audio_path: row.audio_path,
-            };
+            }];
           });
           return { ...prev, script: { ...prev.script, segments: nextSegments } };
         });

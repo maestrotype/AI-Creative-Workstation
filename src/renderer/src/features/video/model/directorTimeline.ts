@@ -293,6 +293,21 @@ export function snapStart(
   return avoidOverlap(clips, clipId, track, start, durationSec);
 }
 
+/**
+ * Narration clips sit flush, one after another.
+ * A pause is a gap the user opens on the timeline afterwards, not a seam
+ * inserted between scenes.
+ */
+export function contiguousNarrationStarts(durations: number[], origin = 0): number[] {
+  const starts: number[] = [];
+  let cursor = Math.max(0, origin);
+  for (const dur of durations) {
+    starts.push(Math.round(cursor * 100) / 100);
+    cursor += Math.max(0.05, dur);
+  }
+  return starts;
+}
+
 export function trackHasGap(clips: TimelineClip[], track: TrackId): boolean {
   const on = clips
     .filter((c) => c.track === track)

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  contiguousNarrationStarts,
   moveClipWithRipple,
   sanitizeClips,
   splitClipAt,
@@ -21,6 +22,10 @@ function clip(id: string, track: TimelineClip['track'], startSec: number, durati
 }
 
 describe('director timeline editing', () => {
+  it('places narration clips flush, with no seam between scenes', () => {
+    expect(contiguousNarrationStarts([33.68, 8.06, 7.5])).toEqual([0, 33.68, 41.74]);
+  });
+
   it('splits without changing source coverage', () => {
     const result = splitClipAt([clip('a', 'v1', 2, 6)], 'a', 5);
     expect(result).toHaveLength(2);

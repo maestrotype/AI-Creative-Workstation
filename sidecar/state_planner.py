@@ -619,48 +619,13 @@ def write_script(
     return written
 
 
-def _gap_slot(start: float, end: float) -> Dict[str, Any]:
-    """Empty script slot so the editor timeline has no holes."""
-    end = max(end, start + 0.5)
-    span = round(end - start, 2)
-    return {
-        "anchor_sec": round(start, 2),
-        "start_sec": round(start, 2),
-        "end_sec": round(end, 2),
-        "text": "",
-        "role": "body",
-        "purpose": "",
-        "visual_summary": "",
-        "estimated_sec": span,
-    }
-
-
-def _fill_timeline(slots: List[Dict[str, Any]], duration: float) -> List[Dict[str, Any]]:
-    """Insert empty segments wherever the film has no script card yet."""
-    if duration <= 0:
-        return slots
-    ordered = sorted(slots, key=lambda item: (float(item["start_sec"]), float(item["end_sec"])))
-    out: List[Dict[str, Any]] = []
-    cursor = 0.0
-    for slot in ordered:
-        start = float(slot["start_sec"])
-        end = float(slot["end_sec"])
-        if start > cursor + 0.08:
-            out.append(_gap_slot(cursor, start))
-        if end <= cursor + 0.08:
-            continue
-        if start < cursor - 0.08:
-            slot = dict(slot)
-            slot["start_sec"] = round(cursor, 2)
-        out.append(slot)
-        cursor = max(cursor, float(slot["end_sec"]))
-    if cursor < duration - 0.08:
-        out.append(_gap_slot(cursor, duration))
-    return out
-
-
 def place(written: List[Dict[str, Any]], duration: float = 0.0) -> List[Dict[str, Any]]:
-    """One script segment per planned unit; gaps become empty slots for manual text."""
+    """One spoken line per planned unit.
+
+    ``duration`` is the picture length. It is not filled with empty cards:
+    a silent join between scenes becomes a click and a pause in the voiceover.
+    """
+    del duration
     slots: List[Dict[str, Any]] = []
     for entry in written:
         unit = entry["unit"]
@@ -680,7 +645,7 @@ def place(written: List[Dict[str, Any]], duration: float = 0.0) -> List[Dict[str
             ),
             "estimated_sec": est,
         })
-    placed = _fill_timeline(slots, duration) if duration > 0 else slots
+    placed = [slot for slot in slots if str(slot.get("text") or "").strip()]
     if placed:
         placed[0]["role"] = "hook"
         placed[-1]["role"] = "cta"
