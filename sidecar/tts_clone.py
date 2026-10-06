@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 import coqui_compat  # noqa: F401 — patch torch.load before TTS import
@@ -40,6 +41,8 @@ def main() -> int:
         }))
         return 2
 
+    from tts_stress import mix_stressed_segment, needs_stress_engine
+
     try:
         emit("import", 8, "Loading Coqui TTS")
         from TTS.api import TTS as CoquiTTS
@@ -54,12 +57,27 @@ def main() -> int:
     )
     tts = CoquiTTS("tts_models/multilingual/multi-dataset/xtts_v2")
     emit("synthesizing", 72, "Generating speech in your voice")
-    tts.tts_to_file(
-        text=text,
-        speaker_wav=speaker,
-        language=language,
-        file_path=dest,
-    )
+    if needs_stress_engine(text):
+        import numpy as np
+
+        def say_plain(part: str) -> np.ndarray:
+            return np.asarray(
+                tts.tts(text=part, speaker_wav=speaker, language=language),
+                dtype="float32",
+            )
+
+        wav = mix_stressed_segment(text, say_plain)
+        folder = os.path.dirname(dest)
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+        sf.write(dest, wav, 24000)
+    else:
+        tts.tts_to_file(
+            text=text,
+            speaker_wav=speaker,
+            language=language,
+            file_path=dest,
+        )
     emit("done", 100, "Voiceover ready")
     print(json.dumps({"ok": True, "file_path": dest}))
     return 0

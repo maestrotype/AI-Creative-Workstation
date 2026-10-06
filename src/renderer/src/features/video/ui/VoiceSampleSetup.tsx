@@ -32,11 +32,12 @@ export function VoiceSampleSetup(): ReactNode {
       ...d.bins.filter((b) => b.kind === 'audio').map((b) => ({ path: b.path, name: b.name })),
     ]) {
       if (!item.path || seen.has(item.path)) continue;
-      const fileName = item.name.split(/[/\\]/).pop() || item.name;
+      // Bin titles are Hook/Body, while the file is vo-*.wav. Judge the file.
+      const fileName = item.path.split(/[/\\]/).pop() || item.name;
       const kind = audioClipKind(fileName);
-      if (kind === 'voiceover' || kind === 'generated') continue;
+      if (kind !== 'mic' && kind !== 'imported') continue;
       seen.add(item.path);
-      out.push(item);
+      out.push({ path: item.path, name: fileName });
     }
     return out;
   })();

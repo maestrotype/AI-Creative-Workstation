@@ -142,6 +142,8 @@ def main() -> int:
         }))
         return 2
 
+    from tts_stress import mix_stressed_segment, needs_stress_engine
+
     results = []
     total = len(items)
     for i, item in enumerate(items):
@@ -154,9 +156,39 @@ def main() -> int:
             results.append({"index": item.get("index", i), "file_path": dest, "skipped": True})
             continue
 
-        # Same seed for every segment: identical sampling trajectory start, so
-        # the cloned timbre stays consistent across the whole voiceover.
+        # Same seed and the same cloned voice for the whole line, including a
+        # word whose stress was marked. The mark only changes vowel length.
         torch.manual_seed(seed)
+
+        if needs_stress_engine(text):
+            def say_plain(part: str, _seed: int = seed) -> np.ndarray:
+                torch.manual_seed(_seed)
+                spoken = model.inference(
+                    text=part,
+                    language=language,
+                    gpt_cond_latent=gpt_cond_latent,
+                    speaker_embedding=speaker_embedding,
+                    temperature=TEMPERATURE,
+                    repetition_penalty=REPETITION_PENALTY,
+                    top_k=TOP_K,
+                    top_p=TOP_P,
+                    enable_text_splitting=True,
+                )
+                return np.asarray(spoken["wav"], dtype="float32")
+
+            wav = mix_stressed_segment(text, say_plain)
+            peak = float(np.abs(wav).max()) if wav.size else 0.0
+            if peak > 0:
+                wav = wav / peak * 0.89
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            sf.write(dest, wav, OUTPUT_SR, subtype="PCM_16")
+            results.append({
+                "index": item.get("index", i),
+                "file_path": dest,
+                "duration_sec": round(len(wav) / OUTPUT_SR, 3),
+                "skipped": False,
+            })
+            continue
 
         out = model.inference(
             text=text,

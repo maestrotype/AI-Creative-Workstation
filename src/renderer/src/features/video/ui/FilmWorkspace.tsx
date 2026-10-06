@@ -20,8 +20,9 @@ const SPLITTER = 8;
 const COLUMN_KEY = 'acw-film-columns';
 const MEDIA_MIN = 200;
 const MEDIA_MAX = 420;
-const INSPECTOR_MIN = 220;
-const INSPECTOR_MAX = 460;
+const INSPECTOR_MIN = 280;
+const INSPECTOR_MAX = 560;
+const NARRATION_WIDTH = 400;
 
 function readColumns(): { media: number; inspector: number } {
   try {
@@ -32,7 +33,7 @@ function readColumns(): { media: number; inspector: number } {
       inspector: clamp(parsed?.inspector ?? 300, INSPECTOR_MIN, INSPECTOR_MAX),
     };
   } catch {
-    return { media: 248, inspector: 300 };
+    return { media: 248, inspector: NARRATION_WIDTH };
   }
 }
 
@@ -67,6 +68,13 @@ export function FilmWorkspace({
     setInspectorTab('narration');
     void d.openVoiceover();
   }, [d]);
+
+  useEffect(() => {
+    if (inspectorTab !== 'narration') return;
+    setColumns((prev) => (
+      prev.inspector >= NARRATION_WIDTH ? prev : { ...prev, inspector: NARRATION_WIDTH }
+    ));
+  }, [inspectorTab]);
 
   useEffect(() => {
     if (!openNarration || openedNarrationRef.current) return;
