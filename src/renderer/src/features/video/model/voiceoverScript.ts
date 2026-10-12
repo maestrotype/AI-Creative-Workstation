@@ -1,9 +1,14 @@
 export type ScriptSegmentRole = 'hook' | 'body' | 'outro' | 'cta';
 
+export type NarrationLang = 'ru' | 'en';
+
 export interface ScriptSegment {
   start_sec: number;
   end_sec: number;
+  /** Russian source. Empty when the line was generated in English. */
   text: string;
+  /** English narration. Filled by generation or by the Перевод tab. */
+  text_en?: string;
   role: ScriptSegmentRole | string;
   purpose?: string;
   visual_summary?: string;
@@ -34,6 +39,12 @@ export interface VoiceoverScript {
 
 export function emptyVoiceoverScript(): VoiceoverScript | null {
   return null;
+}
+
+/** The line that should be spoken and shown for the open language tab. */
+export function segmentSpoken(segment: Pick<ScriptSegment, 'text' | 'text_en'>, lang: NarrationLang): string {
+  if (lang === 'en') return (segment.text_en || '').trim();
+  return segment.text.trim();
 }
 
 export function scriptWordCount(script: VoiceoverScript | null): number {

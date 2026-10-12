@@ -293,6 +293,21 @@ export function snapStart(
   return avoidOverlap(clips, clipId, track, start, durationSec);
 }
 
+/**
+ * Narration clips sit flush, one after another.
+ * A pause is a gap the user opens on the timeline afterwards, not a seam
+ * inserted between scenes.
+ */
+export function contiguousNarrationStarts(durations: number[], origin = 0): number[] {
+  const starts: number[] = [];
+  let cursor = Math.max(0, origin);
+  for (const dur of durations) {
+    starts.push(Math.round(cursor * 100) / 100);
+    cursor += Math.max(0.05, dur);
+  }
+  return starts;
+}
+
 export function trackHasGap(clips: TimelineClip[], track: TrackId): boolean {
   const on = clips
     .filter((c) => c.track === track)
@@ -666,6 +681,72 @@ export function insertClipOnTrack(
     return { ...item, startSec: item.startSec + duration };
   });
   return [...next, { ...clip, track, startSec: at, durationSec: duration }];
+}
+
+/** Drop a time span from every track and close the hole so later clips stay in sync. */
+export function exciseTimelineRange(
+  clips: TimelineClip[],
+  rangeStart: number,
+  rangeEnd: number,
+): TimelineClip[] {
+  const start = Math.min(rangeStart, rangeEnd);
+  const end = Math.max(rangeStart, rangeEnd);
+  const span = end - start;
+  if (span < 0.12) return clips;
+  const next: TimelineClip[] = [];
+  for (const clip of clips) {
+    const clipEnd = clip.startSec + clip.durationSec;
+    if (clipEnd <= start + 0.001) {
+      next.push(clip);
+      continue;
+    }
+    if (clip.startSec >= end - 0.001) {
+      next.push({ ...clip, startSec: round2(clip.startSec - span) });
+      continue;
+    }
+    const leftDur = Math.max(0, start - clip.startSec);
+    const rightDur = Math.max(0, clipEnd - end);
+    if (leftDur >= 0.12) {
+      next.push({ ...clip, durationSec: round2(leftDur), autoLength: false });
+    }
+    if (rightDur >= 0.12) {
+      next.push({
+        ...clip,
+        id: leftDur >= 0.12 ? newId('clip') : clip.id,
+        startSec: round2(start),
+        durationSec: round2(rightDur),
+        sourceInSec: round2(clip.sourceInSec + (end - clip.startSec)),
+        autoLength: false,
+      });
+    }
+  }
+  return next;
+}
+
+/** Give one clip a new length and shift everything that started after it by the same amount. */
+export function resizeClipAndRipple(
+  clips: TimelineClip[],
+  clipId: string,
+  durationSec: number,
+): TimelineClip[] {
+  const clip = clips.find((item) => item.id === clipId);
+  if (!clip) return clips;
+  const nextDur = Math.max(0.4, durationSec);
+  const oldEnd = clip.startSec + clip.durationSec;
+  const delta = nextDur - clip.durationSec;
+  return clips.map((item) => {
+    if (item.id === clipId) {
+      return { ...item, durationSec: round2(nextDur), sourceInSec: 0, autoLength: true };
+    }
+    if (Math.abs(delta) > 0.001 && item.startSec >= oldEnd - 0.05) {
+      return { ...item, startSec: round2(Math.max(0, item.startSec + delta)) };
+    }
+    return item;
+  });
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 export function splitClipAt(

@@ -57,9 +57,9 @@ def main() -> int:
     )
     tts = CoquiTTS("tts_models/multilingual/multi-dataset/xtts_v2")
     emit("synthesizing", 72, "Generating speech in your voice")
-    if needs_stress_engine(text):
-        import numpy as np
+    import numpy as np
 
+    if needs_stress_engine(text):
         def say_plain(part: str) -> np.ndarray:
             return np.asarray(
                 tts.tts(text=part, speaker_wav=speaker, language=language),
@@ -67,17 +67,18 @@ def main() -> int:
             )
 
         wav = mix_stressed_segment(text, say_plain)
-        folder = os.path.dirname(dest)
-        if folder:
-            os.makedirs(folder, exist_ok=True)
-        sf.write(dest, wav, 24000)
     else:
-        tts.tts_to_file(
-            text=text,
-            speaker_wav=speaker,
-            language=language,
-            file_path=dest,
+        wav = np.asarray(
+            tts.tts(text=text, speaker_wav=speaker, language=language),
+            dtype="float32",
         )
+    from tts_audio import finish_speech
+
+    wav = finish_speech(wav, 24000)
+    folder = os.path.dirname(dest)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    sf.write(dest, wav, 24000)
     emit("done", 100, "Voiceover ready")
     print(json.dumps({"ok": True, "file_path": dest}))
     return 0

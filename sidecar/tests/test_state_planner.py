@@ -15,7 +15,6 @@ from state_planner import (  # noqa: E402
     plan_units,
     speech_sec,
     visual_map,
-    _fill_timeline,
 )
 
 
@@ -92,6 +91,18 @@ class LineCheckTests(unittest.TestCase):
             topic="карточка товара",
         )
 
+    def test_english_line_is_not_rejected_for_being_english(self):
+        text = "The product card lets you turn the model and put the item in the cart."
+        claims = [{
+            "claim": "the card can turn the model",
+            "evidence": "rotation control",
+            "type": "seen",
+        }]
+        problems = line_problems(
+            text, self.unit, self.frames, [], "", claims, first=False, language="en",
+        )
+        self.assertFalse(any("рус" in item or "латиница" in item for item in problems), problems)
+
     def test_rejects_ukrainian_and_caption(self):
         self.assertTrue(line_problems("Поверні модель в 3D.", self.unit, self.frames, [], "", first=False))
         self.assertTrue(line_problems("Страница магазина с 3D-моделями сумок.", self.unit, self.frames, [], "", first=False))
@@ -165,16 +176,15 @@ class UnitPlanTests(unittest.TestCase):
         self.assertGreaterEqual(brands["budget"], 2.8)
         self.assertFalse(any(item["topic"] == "бренды" for item in silent))
 
-    def test_timeline_has_no_holes(self):
-        filled = _fill_timeline([
-            {"start_sec": 0.0, "end_sec": 3.0, "text": "a", "role": "body"},
-            {"start_sec": 10.0, "end_sec": 14.0, "text": "", "role": "body"},
+    def test_place_does_not_insert_empty_joins(self):
+        unit, _frames = _unit(0.0, 3.0, "Каталог.", ["категории"], topic="категории")
+        later, _frames = _unit(10.0, 14.0, "Бренды.", ["бренды"], topic="бренды")
+        placed = place([
+            {"unit": unit, "text": "Каталог открыт.", "claims": [], "problems": [], "draft": "Каталог открыт."},
+            {"unit": later, "text": "", "claims": [], "problems": ["пусто"], "draft": ""},
         ], 20.0)
-        self.assertEqual(filled[0]["start_sec"], 0.0)
-        self.assertAlmostEqual(filled[1]["start_sec"], 3.0, places=1)
-        self.assertAlmostEqual(filled[1]["end_sec"], 10.0, places=1)
-        self.assertEqual(filled[1]["text"], "")
-        self.assertEqual(filled[-1]["end_sec"], 20.0)
+        self.assertEqual(len(placed), 1)
+        self.assertEqual(placed[0]["text"], "Каталог открыт.")
 
     def test_speech_stays_inside_its_window(self):
         unit, frames = _unit(

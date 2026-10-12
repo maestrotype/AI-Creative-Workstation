@@ -6,12 +6,39 @@ import { useTranslation } from 'react-i18next';
 import { toAssetUrl } from '../../video/model/directorMedia';
 import { assembleShots, planToTimeline, productShotPresets } from '../../video/model/autoAssemble';
 import { writeLastProjectId } from '../model/handoff';
-import { composeClips, formatForPreset, marketplaceFilmSeed, newScene, normalizePreset, normalizeShotMotion, projectDuration, sceneHasMedia, shotFromGeneration, type FilmPreset, type ProjectDoc, type ProjectScene } from '../model/project';
+import { composeClips, formatForPreset, marketplaceFilmSeed, newScene, normalizePreset, normalizeShotMotion, projectDuration, sceneHasMedia, shotFromGeneration, timelineFromScenes, timelinePictureMatchesScenePaths, type FilmPreset, type ProjectDoc, type ProjectScene } from '../model/project';
 import styles from './ProjectsPage.module.css';
 
 function ipcMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   return raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '').trim();
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!target || !(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return true;
+  if (target.isContentEditable) return true;
+  return Boolean(target.closest('textarea, input, select, [contenteditable="true"]'));
+}
+
+function imageFileFromClipboard(event: ClipboardEvent): File | null {
+  const dt = event.clipboardData;
+  if (!dt) return null;
+  const fromFiles = Array.from(dt.files).filter((file) => file.type.startsWith('image/'));
+  if (fromFiles[0]) return fromFiles[0];
+  for (const item of Array.from(dt.items)) {
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile();
+      if (file) return file;
+    }
+  }
+  return null;
+}
+
+function diskPathOfFile(file: File): string | undefined {
+  const path = (file as File & { path?: string }).path;
+  return path && path.length > 1 ? path : undefined;
 }
 
 function insertStillPrompt(brief: string, scenePrompt: string): string {
@@ -304,9 +331,12 @@ export function ProjectWorkspace(): ReactNode {
   const [shotLength, setShotLength] = useState(3.4);
   const [showBroll, setShowBroll] = useState(false);
   const [dragOverSceneId, setDragOverSceneId] = useState<string | null>(null);
+  const [focusedSceneId, setFocusedSceneId] = useState<string | null>(null);
 
   const docRef = useRef<ProjectDoc | null>(null);
   docRef.current = doc;
+  const focusedSceneIdRef = useRef<string | null>(null);
+  focusedSceneIdRef.current = focusedSceneId;
 
   const persist = useCallback(async (next: ProjectDoc) => {
     docRef.current = next;
@@ -317,6 +347,68 @@ export function ProjectWorkspace(): ReactNode {
       setError(ipcMessage(err));
     }
   }, []);
+
+  const attachStillToScene = useCallback(async (sceneId: string, file: File) => {
+    const latest = docRef.current;
+    if (!latest?.id) return;
+    setBusyScene(sceneId);
+    try {
+      let copied: { file_path: string };
+      const disk = diskPathOfFile(file);
+      if (disk && window.api.importIntoProject) {
+        copied = await window.api.importIntoProject({ projectId: latest.id, path: disk });
+      } else if (window.api.importPastedImageIntoProject) {
+        copied = await window.api.importPastedImageIntoProject({
+          projectId: latest.id,
+          data: await file.arrayBuffer(),
+          mime: file.type,
+        });
+      } else {
+        throw new Error('import unavailable');
+      }
+      const next: ProjectDoc = {
+        ...latest,
+        assembledPath: null,
+        scenes: latest.scenes.map((row) => (
+          row.id === sceneId
+            ? { ...row, stillPath: copied.file_path, clipPath: null, motion: 'still_motion' }
+            : row
+        )),
+      };
+      await persist({ ...next, timeline: timelineFromScenes(next) });
+      setStatus(t('projects.paste_still_ok'));
+    } catch (err) {
+      setError(ipcMessage(err));
+    } finally {
+      setBusyScene(null);
+    }
+  }, [persist, t]);
+
+  useEffect(() => {
+    const scenes = doc?.scenes;
+    if (!scenes?.length) {
+      setFocusedSceneId(null);
+      return;
+    }
+    setFocusedSceneId((prev) => (
+      prev && scenes.some((scene) => scene.id === prev) ? prev : scenes[0].id
+    ));
+  }, [doc?.scenes]);
+
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      if (isEditableTarget(event.target)) return;
+      const sceneId = focusedSceneIdRef.current;
+      const latest = docRef.current;
+      if (!sceneId || !latest?.scenes.some((scene) => scene.id === sceneId)) return;
+      const file = imageFileFromClipboard(event);
+      if (!file) return;
+      event.preventDefault();
+      void attachStillToScene(sceneId, file);
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [attachStillToScene]);
 
   useEffect(() => {
     setDoc(null);
@@ -391,6 +483,8 @@ export function ProjectWorkspace(): ReactNode {
       brief: seed.brief,
       scenes: seed.scenes,
       voiceover: seed.voiceover,
+      assembledPath: null,
+      timeline: null,
     });
   };
 
@@ -411,13 +505,14 @@ export function ProjectWorkspace(): ReactNode {
     if (!result.file_path) throw new Error(t('projects.generate_fail'));
     const latest = docRef.current ?? doc;
     const copied = await window.api.importIntoProject({ projectId: latest.id, path: result.file_path });
-    await persist({
+    const next: ProjectDoc = {
       ...latest,
       assembledPath: null,
       scenes: latest.scenes.map((row) => (
         row.id === scene.id ? { ...row, stillPath: copied.file_path, clipPath: null, motion: 'still_motion' } : row
       )),
-    });
+    };
+    await persist({ ...next, timeline: timelineFromScenes(next) });
     return copied.file_path;
   };
 
@@ -472,7 +567,7 @@ export function ProjectWorkspace(): ReactNode {
       const copied = await window.api.importIntoProject({ projectId: latest.id, path: result.file_path });
       const duration = await window.api.probeMediaDuration(copied.file_path).catch(() => 2);
       const after = docRef.current ?? latest;
-      await persist({
+      const next: ProjectDoc = {
         ...after,
         assembledPath: null,
         scenes: after.scenes.map((row) => (
@@ -480,7 +575,8 @@ export function ProjectWorkspace(): ReactNode {
             ? { ...row, clipPath: copied.file_path, durationSec: duration > 0 ? Math.round(duration * 10) / 10 : 2, motion: 'i2v' }
             : row
         )),
-      });
+      };
+      await persist({ ...next, timeline: timelineFromScenes(next) });
       setStatus(t(isTi2v ? 'projects.generated_motion_ok' : isH3 ? 'projects.generated_h3_ok' : 'projects.generated_runway_ok'));
     } catch (err) {
       setStatus(null);
@@ -567,10 +663,18 @@ export function ProjectWorkspace(): ReactNode {
     }
   };
 
-  const openDirector = (voice = false) => {
+  const goToDirector = async (voice = false) => {
     const latest = docRef.current ?? doc;
     writeLastProjectId(latest.id);
-    navigate(`/video?project=${encodeURIComponent(latest.id)}${voice ? '&voice=1' : ''}`);
+    if (latest.scenes.some(sceneHasMedia) && !timelinePictureMatchesScenePaths(latest)) {
+      await persist({ ...latest, timeline: timelineFromScenes(latest) });
+    }
+    const id = (docRef.current ?? latest).id;
+    navigate(`/video?project=${encodeURIComponent(id)}${voice ? '&voice=1' : ''}`);
+  };
+
+  const openDirector = (voice = false) => {
+    void goToDirector(voice);
   };
 
   const openEditorFromShots = async (assemble: boolean, voice = false) => {
@@ -617,17 +721,20 @@ export function ProjectWorkspace(): ReactNode {
   const importStill = async (scene: ProjectScene) => {
     const picked = await window.api.pickImage?.();
     if (!picked || !window.api.importIntoProject) return;
+    setFocusedSceneId(scene.id);
     setBusyScene(scene.id);
     try {
       const latest = docRef.current ?? doc;
       const copied = await window.api.importIntoProject({ projectId: latest.id, path: picked });
-      await persist({
+      const next: ProjectDoc = {
         ...latest,
         assembledPath: null,
         scenes: latest.scenes.map((row) => (
           row.id === scene.id ? { ...row, stillPath: copied.file_path, clipPath: null, motion: 'still_motion' } : row
         )),
-      });
+      };
+      await persist({ ...next, timeline: timelineFromScenes(next) });
+      setStatus(t('projects.paste_still_ok'));
     } catch (err) {
       setError(ipcMessage(err));
     } finally {
@@ -644,8 +751,9 @@ export function ProjectWorkspace(): ReactNode {
       const latest = docRef.current ?? doc;
       const copied = await window.api.importIntoProject({ projectId: latest.id, path: picked });
       const duration = await window.api.probeMediaDuration(copied.file_path).catch(() => scene.durationSec);
-      await persist({
+      const next: ProjectDoc = {
         ...latest,
+        assembledPath: null,
         scenes: latest.scenes.map((row) => (
           row.id === scene.id
             ? {
@@ -657,7 +765,8 @@ export function ProjectWorkspace(): ReactNode {
               }
             : row
         )),
-      });
+      };
+      await persist({ ...next, timeline: timelineFromScenes(next) });
       setStatus(t('projects.clip_attached'));
     } catch (err) {
       setError(ipcMessage(err));
@@ -685,7 +794,12 @@ export function ProjectWorkspace(): ReactNode {
         fps: 30,
       });
       const copied = await window.api.importIntoProject({ projectId: latest.id, path: rendered.file_path });
-      await persist({ ...(docRef.current ?? latest), assembledPath: copied.file_path });
+      const after = docRef.current ?? latest;
+      await persist({
+        ...after,
+        assembledPath: copied.file_path,
+        timeline: timelineFromScenes(after),
+      });
       setStatus(t('projects.composed_ok'));
       return copied.file_path;
     } catch (err) {
@@ -699,19 +813,19 @@ export function ProjectWorkspace(): ReactNode {
   const finishInVideo = async () => {
     const latest = docRef.current ?? doc;
     writeLastProjectId(latest.id);
+    if (latest.scenes.some(sceneHasMedia)) {
+      const assembled = await compose();
+      if (!assembled) return;
+      const fresh = docRef.current ?? latest;
+      navigate(`/video?project=${encodeURIComponent(fresh.id)}&voice=1`);
+      return;
+    }
     if ((latest.shots ?? []).some((shot) => shot.artifactPath)) {
       const hasCut = (latest.timeline?.clips ?? []).some((clip) => clip.track === 'v1');
       await openEditorFromShots(!hasCut, true);
       return;
     }
-    if (!latest.scenes.some(sceneHasMedia)) {
-      setError(t('projects.compose_need_media'));
-      return;
-    }
-    let assembled = await compose();
-    if (!assembled) return;
-    const fresh = docRef.current ?? latest;
-    navigate(`/video?project=${encodeURIComponent(fresh.id)}&voice=1`);
+    setError(t('projects.compose_need_media'));
   };
 
   const useStillMotion = (scene: ProjectScene) => {
@@ -719,7 +833,15 @@ export function ProjectWorkspace(): ReactNode {
       setError(t('projects.need_product_still'));
       return;
     }
-    patchScene(scene.id, { motion: 'still_motion', clipPath: null });
+    const latest = docRef.current ?? doc;
+    const next: ProjectDoc = {
+      ...latest,
+      assembledPath: null,
+      scenes: latest.scenes.map((row) => (
+        row.id === scene.id ? { ...row, motion: 'still_motion', clipPath: null } : row
+      )),
+    };
+    void persist({ ...next, timeline: timelineFromScenes(next) });
     setStatus(t('projects.still_motion_ok'));
   };
 
@@ -804,6 +926,9 @@ export function ProjectWorkspace(): ReactNode {
           {t('projects.add_shot')}
         </button>
       </div>
+      {doc.scenes.length > 0 ? (
+        <p className={styles.pasteHint}>{t('projects.scene_paste_hint')}</p>
+      ) : null}
 
       {doc.scenes.length === 0 ? (
         <p className={styles.emptyHint}>{t('projects.scenes_empty')}</p>
@@ -811,10 +936,17 @@ export function ProjectWorkspace(): ReactNode {
         <ol className={styles.sceneList}>
           {doc.scenes.map((scene, index) => {
             const isDragOver = dragOverSceneId === scene.id;
+            const isFocused = focusedSceneId === scene.id;
             return (
               <li
                 key={scene.id}
-                className={`${styles.sceneCard} ${isDragOver ? styles.dragOver : ''}`}
+                tabIndex={0}
+                className={`${styles.sceneCard} ${isDragOver ? styles.dragOver : ''} ${isFocused ? styles.sceneCardFocused : ''}`}
+                onFocus={() => setFocusedSceneId(scene.id)}
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest('button, input, textarea, label, a')) return;
+                  setFocusedSceneId(scene.id);
+                }}
                 onDragOver={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -872,10 +1004,19 @@ export function ProjectWorkspace(): ReactNode {
                   <label className={styles.sceneField}>
                     <span>{t('projects.shot_direction')}</span>
                     <textarea
-                      rows={2}
+                      rows={3}
                       value={scene.prompt}
                       onChange={(e) => patchScene(scene.id, { prompt: e.target.value })}
                       placeholder={t('projects.scene_prompt_ph')}
+                    />
+                  </label>
+                  <label className={`${styles.sceneField} ${styles.recordSteps}`}>
+                    <span>{t('projects.record_steps')}</span>
+                    <textarea
+                      rows={4}
+                      value={scene.recordSteps}
+                      onChange={(e) => patchScene(scene.id, { recordSteps: e.target.value })}
+                      placeholder={t('projects.record_steps_ph')}
                     />
                   </label>
                   <div className={styles.sceneGrid}>

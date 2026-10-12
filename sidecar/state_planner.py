@@ -5,7 +5,7 @@ Three layers, each built once for the whole film:
 1. Visual evidence — what is visible in every read frame (visual_timeline).
 2. Story map — which product capabilities the video actually demonstrates.
    Topics come from the frames; nothing here knows what a shop or a theme is.
-3. Narration — one spoken thought per capability, in Russian, at the first
+3. Narration — one spoken thought per capability, in English, at the first
    showing that can hold a finished sentence. Related pictures may share a line.
 
 A visual beat is not a sentence. A short showing is not dropped: the line waits
@@ -453,6 +453,48 @@ def _stems(text: str) -> set:
     } | set(re.findall(r"\d+", text or ""))
 
 
+_EN_CAPTION = re.compile(
+    r"^(on screen|this page|this screen|the screen|here|you can see|this block)\b",
+    re.IGNORECASE,
+)
+_EN_BOSSY = re.compile(r"^(click|open|press|tap|scroll|look)\b", re.IGNORECASE)
+
+
+def _english_line_problems(
+    text: str,
+    unit: Dict[str, Any],
+    said: List[str],
+    claims: Optional[List[Dict[str, Any]]],
+) -> List[str]:
+    """Spoken English. Scene notes may still be Russian; do not demand those words in the line."""
+    spoken = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not spoken or spoken[-1] not in ".!?":
+        return ["sentence is unfinished"]
+    problems: List[str] = []
+    if len(spoken.split()) < 7:
+        problems.append("too short: write a full sentence, not a caption")
+    if _EN_CAPTION.search(spoken) or _EN_BOSSY.search(spoken):
+        problems.append("starts like a caption or a command")
+    if any(_sl._same_spoken(spoken, line) for line in said):
+        problems.append("repeats something already said")
+    if speech_sec(spoken) > float(unit["budget"]) + 0.25:
+        problems.append(f"longer than the shot: {speech_sec(spoken):.1f}s in a {unit['budget']:.1f}s window")
+    if claims is not None and not claims:
+        problems.append("no grounded claims")
+    for claim in claims or []:
+        if not isinstance(claim, dict):
+            continue
+        kind = str(claim.get("type") or "").strip().lower()
+        body = str(claim.get("claim") or "").strip()
+        support = str(claim.get("evidence") or "").strip()
+        if kind in {"evaluation", "оценка"} or kind.startswith("оцен"):
+            problems.append(f"claims a quality that is not on screen: {body[:60]}")
+            continue
+        if not support:
+            problems.append(f"claim has no evidence: {body[:60]}")
+    return problems
+
+
 def line_problems(
     text: str,
     unit: Dict[str, Any],
@@ -463,6 +505,7 @@ def line_problems(
     *,
     first: bool,
     qualities: Optional[List[str]] = None,
+    language: str = "ru",
 ) -> List[str]:
     """Checks on the spoken thought. Claims are judged, not individual words.
 
@@ -470,6 +513,8 @@ def line_problems(
     claim of type «оценка», not a banned adjective.
     """
     del qualities
+    if str(language).startswith("en"):
+        return _english_line_problems(text, unit, said, claims)
     spoken = re.sub(r"\s+", " ", str(text or "")).strip()
     problems: List[str] = []
     if not spoken or spoken[-1] not in ".!?":
@@ -543,6 +588,24 @@ _RULES = (
 )
 
 
+_EXAMPLE_EN = (
+    "Tone example from another product. Do not copy the words or the shape:\n"
+    "Bad: \"A restaurant page with a menu.\"\n"
+    "Good: \"The menu is split into sections, and each dish shows its weight and price.\"\n"
+    "Bad: \"A form on the site.\"\n"
+    "Good: \"A table can be booked on the site, through a short form that asks for the date.\"\n"
+)
+
+_RULES_EN = (
+    "Write the spoken line in English only, even when the notes and the on-screen words are in another language. "
+    "Sound like a person showing the product to a colleague: one or two finished thoughts, "
+    "not a screenshot caption and not a list. You may interpret what is visible. "
+    "Do not claim anything invisible, such as speed, convenience, quality, popularity, or payment. "
+    "Do not start with \"On screen\", \"This page\", \"Here\", \"You can see\", or \"This block\". "
+    "No commands. Do not read English labels aloud, except the product name in the first line."
+)
+
+
 def _line_prompt(
     unit: Dict[str, Any],
     frames: List[Dict[str, Any]],
@@ -552,6 +615,7 @@ def _line_prompt(
     said: List[str],
     rejected: str = "",
     problems: Optional[List[str]] = None,
+    language: str = "ru",
 ) -> str:
     hint = _word_hint(unit["budget"])
     topics = "\n".join(
@@ -564,6 +628,33 @@ def _line_prompt(
         topics += "\nСкажи обо всём этом одной связной репликой, по ходу ролика."
     visible = "; ".join(_unit_evidence(unit, frames)[:14])
     history = "\n".join(f"- {line}" for line in said) or "(это начало ролика)"
+    if str(language).startswith("en"):
+        history_en = "\n".join(f"- {line}" for line in said) or "(this is the start of the film)"
+        role_en = ""
+        if first and name:
+            role_en = f"This is the first line: name the product \"{name}\".\n"
+        elif last:
+            role_en = "This is the last line: close the story without repeating what was already said.\n"
+        retry_en = ""
+        if rejected or problems:
+            retry_en = (
+                f"The previous line \"{rejected}\" was rejected: {'; '.join(problems or [])}. "
+                "Write a different line.\n"
+            )
+        return (
+            "You are the narrator of a product demo and you write the next spoken line.\n"
+            f"{_EXAMPLE_EN}{_RULES_EN}\n\n"
+            f"Already said (do not repeat these thoughts):\n{history_en}\n\n"
+            f"On screen now ({unit['start']:.1f}–{unit['limit']:.1f}s). What this moment means:\n{topics}\n"
+            f"Visible facts (grounding, not words to read aloud): {visible}\n"
+            f"{role_en}{retry_en}"
+            f"Length: a finished thought of about {hint} words, so it fits in {unit['budget']:.1f}s. "
+            "Do not shrink it into a caption.\n"
+            "Return the claims in the line. Type \"seen\" is literally on screen; "
+            "\"interpretation\" is the obvious meaning of what is visible; "
+            "\"evaluation\" is a quality that is not in the shot (do not write those).\n"
+            'JSON: {"text":"...","claims":[{"claim":"...","evidence":"...","type":"seen"}]}\n'
+        )
     role = ""
     if first and name:
         role = f"Это первая реплика: назови продукт «{name}».\n"
@@ -592,6 +683,7 @@ def write_script(
     frames: List[Dict[str, Any]],
     model: str,
     project_context: str,
+    language: str = "en",
 ) -> List[Dict[str, Any]]:
     """One line per unit, in order, with memory of what was already said."""
     name = project_name(project_context)
@@ -605,11 +697,14 @@ def write_script(
             prompt = _line_prompt(
                 unit, frames, name, first, last, said,
                 text if attempt else "", problems if attempt else None,
+                language=language,
             )
             reply = _sl._try_ollama(prompt, model=model, num_predict=400, temperature=0.45) or {}
             text = re.sub(r"\s+", " ", str(reply.get("text") or "")).strip().strip("«»\"")
             claims = reply.get("claims") if isinstance(reply.get("claims"), list) else []
-            problems = line_problems(text, unit, frames, said, name, claims, first=first)
+            problems = line_problems(
+                text, unit, frames, said, name, claims, first=first, language=language,
+            )
             if not problems:
                 break
         entry = {"unit": unit, "text": "" if problems else text, "claims": claims, "problems": problems, "draft": text}
@@ -619,48 +714,13 @@ def write_script(
     return written
 
 
-def _gap_slot(start: float, end: float) -> Dict[str, Any]:
-    """Empty script slot so the editor timeline has no holes."""
-    end = max(end, start + 0.5)
-    span = round(end - start, 2)
-    return {
-        "anchor_sec": round(start, 2),
-        "start_sec": round(start, 2),
-        "end_sec": round(end, 2),
-        "text": "",
-        "role": "body",
-        "purpose": "",
-        "visual_summary": "",
-        "estimated_sec": span,
-    }
-
-
-def _fill_timeline(slots: List[Dict[str, Any]], duration: float) -> List[Dict[str, Any]]:
-    """Insert empty segments wherever the film has no script card yet."""
-    if duration <= 0:
-        return slots
-    ordered = sorted(slots, key=lambda item: (float(item["start_sec"]), float(item["end_sec"])))
-    out: List[Dict[str, Any]] = []
-    cursor = 0.0
-    for slot in ordered:
-        start = float(slot["start_sec"])
-        end = float(slot["end_sec"])
-        if start > cursor + 0.08:
-            out.append(_gap_slot(cursor, start))
-        if end <= cursor + 0.08:
-            continue
-        if start < cursor - 0.08:
-            slot = dict(slot)
-            slot["start_sec"] = round(cursor, 2)
-        out.append(slot)
-        cursor = max(cursor, float(slot["end_sec"]))
-    if cursor < duration - 0.08:
-        out.append(_gap_slot(cursor, duration))
-    return out
-
-
 def place(written: List[Dict[str, Any]], duration: float = 0.0) -> List[Dict[str, Any]]:
-    """One script segment per planned unit; gaps become empty slots for manual text."""
+    """One spoken line per planned unit.
+
+    ``duration`` is the picture length. It is not filled with empty cards:
+    a silent join between scenes becomes a click and a pause in the voiceover.
+    """
+    del duration
     slots: List[Dict[str, Any]] = []
     for entry in written:
         unit = entry["unit"]
@@ -680,7 +740,7 @@ def place(written: List[Dict[str, Any]], duration: float = 0.0) -> List[Dict[str
             ),
             "estimated_sec": est,
         })
-    placed = _fill_timeline(slots, duration) if duration > 0 else slots
+    placed = [slot for slot in slots if str(slot.get("text") or "").strip()]
     if placed:
         placed[0]["role"] = "hook"
         placed[-1]["role"] = "cta"
@@ -728,11 +788,12 @@ def plan_story(
     duration: float,
     model: str,
     project_context: str = "",
+    language: str = "en",
 ) -> Dict[str, Any]:
     frames = visual_map(states, duration)
     topics = story_map(frames, model, project_context)
     units, silent = plan_units(topics, frames)
-    written = write_script(units, frames, model, project_context) if units else []
+    written = write_script(units, frames, model, project_context, language) if units else []
     placed = place(written, duration)
     return {
         "frames": frames,
@@ -751,6 +812,7 @@ def plan_from_video(
     video_context: Dict[str, Any],
     model: str,
     project_context: str = "",
+    language: str = "en",
 ) -> List[Dict[str, Any]]:
     from visual_timeline import build_dense_timeline
 
@@ -758,4 +820,4 @@ def plan_from_video(
     if len(states) < 2:
         return []
     duration = float(video_context.get("duration_sec") or states[-1]["time"])
-    return plan_story(states, duration, model, project_context)["placed"]
+    return plan_story(states, duration, model, project_context, language)["placed"]

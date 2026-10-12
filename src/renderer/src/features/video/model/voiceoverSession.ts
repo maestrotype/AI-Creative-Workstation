@@ -19,6 +19,8 @@ export interface VoiceoverSession {
   projectContext: string;
   status: VoiceoverStatus;
   expanded: boolean;
+  /** Which script tab is open. Voiceover speaks this language. */
+  narrationLang?: 'ru' | 'en';
 }
 
 export interface VoiceoverSource {

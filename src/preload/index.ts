@@ -63,6 +63,8 @@ const api = {
   deleteProject: (id: string) => ipcRenderer.invoke('delete-project', id),
   importIntoProject: (payload: { projectId: string; path: string }) =>
     ipcRenderer.invoke('import-into-project', payload),
+  importPastedImageIntoProject: (payload: { projectId: string; data: ArrayBuffer; mime?: string }) =>
+    ipcRenderer.invoke('import-pasted-image-into-project', payload) as Promise<{ file_path: string; poster_path?: null }>,
   renderTimeline: (payload: {
     clips: Array<{
       kind: string;
@@ -235,6 +237,12 @@ const api = {
     prefer_ollama?: boolean;
     ollama_model?: string;
   }) => ipcRenderer.invoke('generate-script', payload),
+  translateScript: (payload: {
+    lines: string[];
+    source?: string;
+    target?: string;
+    ollama_model?: string;
+  }) => ipcRenderer.invoke('translate-script', payload) as Promise<{ lines: string[] }>,
   shortenScript: (payload: {
     text: string;
     target_sec: number;

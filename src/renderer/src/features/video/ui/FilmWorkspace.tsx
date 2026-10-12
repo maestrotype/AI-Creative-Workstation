@@ -229,6 +229,42 @@ export function FilmWorkspace({
           </button>
           <button
             type="button"
+            className={s.ghost}
+            data-on={d.cutInSec != null || undefined}
+            onClick={d.markCutStart}
+            title={t('video.dir_cut_in_hint')}
+          >
+            {t('video.dir_cut_in')}{d.cutInSec != null ? ` ${formatClock(d.cutInSec)}` : ''}
+          </button>
+          <button
+            type="button"
+            className={s.ghost}
+            data-on={d.cutOutSec != null || undefined}
+            onClick={d.markCutEnd}
+            title={t('video.dir_cut_out_hint')}
+          >
+            {t('video.dir_cut_out')}{d.cutOutSec != null ? ` ${formatClock(d.cutOutSec)}` : ''}
+          </button>
+          <button
+            type="button"
+            className={s.ghost}
+            onClick={d.exciseMarkedRange}
+            disabled={d.cutInSec == null || d.cutOutSec == null}
+            title={t('video.dir_excise_hint')}
+          >
+            {t('video.dir_excise')}
+          </button>
+          <button
+            type="button"
+            className={s.ghost}
+            onClick={() => d.replaceChapterMedia()}
+            disabled={!d.clips.some((clip) => clip.id === d.selectedClip && clip.track.startsWith('v')) && !d.bins.some((bin) => bin.id === d.selectedBin && bin.kind === 'video')}
+            title={t('video.dir_replace_clip_hint')}
+          >
+            {t('video.dir_replace_clip')}
+          </button>
+          <button
+            type="button"
             className={s.export}
             onClick={d.exportVideo}
             disabled={d.clips.length === 0 || d.exportBusy || d.bins.some((b) => b.proxying)}
