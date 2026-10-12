@@ -3120,6 +3120,36 @@ Return JSON: {{ "text": "..." }}"""
     return _clip_to_budget(text, target_sec, wpm)
 
 
+_CJK_RX = re.compile(r"[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]")
+_MODEL_META_RX = re.compile(
+    r"翻译|以下是|俄文翻译|версия:\s*\{|translated version|following is the|russian version",
+    re.I,
+)
+
+
+def valid_narration_line(text: str, language: str = "ru") -> bool:
+    """Drop translator chatter, JSON debris, and wrong-script model replies."""
+    spoken = re.sub(r"\s+", " ", (text or "")).strip()
+    if len(spoken) < 4:
+        return False
+    if _CJK_RX.search(spoken):
+        return False
+    if _MODEL_META_RX.search(spoken):
+        return False
+    if spoken.count("{") or spoken.count("}"):
+        return False
+    letters = [ch for ch in spoken if ch.isalpha()]
+    if not letters:
+        return False
+    if language.startswith("ru"):
+        cyrillic = sum(1 for ch in letters if "\u0400" <= ch <= "\u04FF" or ch in "ёЁ")
+        if len(letters) <= 12:
+            return cyrillic >= max(3, len(letters) - 1)
+        return cyrillic >= max(10, int(len(letters) * 0.45))
+    latin = sum(1 for ch in letters if "a" <= ch.lower() <= "z")
+    return latin >= max(10, int(len(letters) * 0.6))
+
+
 def expand_spoken(
     text: str,
     *,
@@ -3164,7 +3194,11 @@ def expand_spoken(
     candidate = ""
     if parsed:
         candidate = re.sub(r"\s+", " ", str(parsed.get("text") or "")).strip()
+        if candidate and not valid_narration_line(candidate, language):
+            candidate = ""
     best = candidate if candidate and len(candidate.split()) > words else source
+    if best and not valid_narration_line(best, language):
+        best = source or chapter
     if best and len(best.split()) > high:
         return _fit_spoken(best, target_sec, wpm)
     return best or source or chapter
@@ -3181,7 +3215,7 @@ def translation_lines(expected: list[str], payload: dict[str, Any] | None) -> li
             out.append("")
             continue
         text = re.sub(r"\s+", " ", str(item or "")).strip().strip("«»\"")
-        if not text:
+        if not text or not valid_narration_line(text, "en"):
             return None
         out.append(text)
     return out

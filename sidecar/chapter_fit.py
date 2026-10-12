@@ -78,8 +78,12 @@ def correct_line(text: str, target_words: int, sources: list[str]) -> str:
 def _lines_from_reply(reply: Optional[dict[str, Any]], count: int) -> Optional[list[str]]:
     if not reply or not isinstance(reply.get("lines"), list):
         return None
+    from script_llm import valid_narration_line
+
     lines = [_clean_line(item) for item in reply["lines"]]
     if len(lines) != count or any(not line for line in lines):
+        return None
+    if any(not valid_narration_line(line, "ru") for line in lines):
         return None
     return lines
 
@@ -118,7 +122,7 @@ def chapter_prompt(
         + "\n"
         + retry
         + f'Верни JSON {{"lines":[...]}} ровно из {len(beats)} строк. '
-        "Каждая строка заканчивается точкой и держит заданное число слов.\n"
+        "Каждая строка — только русская озвучка, заканчивается точкой, без китайского и без пояснений переводчика.\n"
     )
 
 
@@ -158,8 +162,12 @@ def fit_chapters(
                 continue
             fitted = [_clip_long(line, int(beat.get("target_words") or 12)) for line, beat in zip(lines, beats)]
             problems = []
+            from script_llm import valid_narration_line
+
             for line, beat in zip(fitted, beats):
                 problems.extend(line_gap(line, int(beat.get("target_words") or 12)))
+                if not valid_narration_line(line, "ru"):
+                    problems.append("ответ не на русском или служебный текст модели")
             chosen = fitted
             if not problems:
                 break
