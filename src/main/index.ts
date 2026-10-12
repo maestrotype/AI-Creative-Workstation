@@ -1810,6 +1810,21 @@ function setupIpc() {
     return sidecarJson('/api/script/translate', payload, 3 * 60 * 1000);
   });
 
+  ipcMain.handle('expand-script', async (_, payload: {
+    text: string;
+    brief?: string;
+    target_sec: number;
+    language?: string;
+    seen?: string;
+    measured_sec?: number;
+    part?: number;
+    parts?: number;
+    target_wpm?: number;
+  }) => {
+    await prepareOllamaForScript(broadcast);
+    return sidecarJson('/api/script/expand', payload, 3 * 60 * 1000);
+  });
+
   ipcMain.handle('shorten-script', async (_, payload: {
     text: string;
     target_sec: number;
@@ -2169,6 +2184,19 @@ function setupIpc() {
     language?: string;
     seed?: number;
   }) => sidecarJson('/api/audio/tts/batch', payload, 60 * 60 * 1000));
+
+  ipcMain.handle('fit-speech-duration', async (_, payload: {
+    file_path: string;
+    target_sec: number;
+    force?: boolean;
+  }) => {
+    const data = await sidecarJson('/api/audio/fit-speech', payload, 60 * 1000);
+    const locked = data.file_path;
+    if (typeof locked === 'string' && locked.trim() && locked !== payload.file_path) {
+      rememberPickedMedia(locked);
+    }
+    return data;
+  });
 
   ipcMain.handle('mix-voiceover-track', async (_, payload: {
     parts: Array<{ file_path: string; start_sec: number }>;

@@ -357,6 +357,20 @@ interface Window {
         spoken_text?: string;
       }>;
     }>;
+    fitSpeechDuration?: (payload: {
+      file_path: string;
+      target_sec: number;
+      force?: boolean;
+    }) => Promise<{
+      file_path: string;
+      source_sec: number;
+      speech_sec: number;
+      output_sec: number;
+      window_sec: number;
+      tempo: number;
+      fitted: boolean;
+      needs_shorten: boolean;
+    }>;
     mixVoiceoverTrack?: (payload: {
       parts: Array<{ file_path: string; start_sec: number; max_duration_sec?: number }>;
       total_sec?: number;
@@ -521,6 +535,17 @@ interface Window {
       target?: string;
       ollama_model?: string;
     }) => Promise<{ lines: string[] }>;
+    expandScript?: (payload: {
+      text: string;
+      brief?: string;
+      target_sec: number;
+      language?: string;
+      seen?: string;
+      measured_sec?: number;
+      part?: number;
+      parts?: number;
+      target_wpm?: number;
+    }) => Promise<{ text: string }>;
     shortenScript: (payload: {
       text: string;
       target_sec: number;

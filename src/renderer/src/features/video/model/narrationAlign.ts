@@ -1,4 +1,15 @@
-/** Place narration on the picture it belongs to, without laying two lines on top of each other. */
+/** Place each spoken line on the picture slot it belongs to.
+
+A long line is shortened to that slot. It does not push the next line off its picture.
+A short line keeps the rest of the slot as silence.
+*/
+
+export const SPEECH_TEMPO_MAX = 1.15;
+
+export interface PictureSlot {
+  startSec: number;
+  endSec: number;
+}
 
 export interface PictureSpan {
   title: string;
@@ -75,6 +86,74 @@ export function alignedNarrationStarts(
   };
 }
 
+/**
+ * How many spoken lines each picture clip receives.
+ * Every clip gets one line when there are enough lines. Extra lines go to the longer clips.
+ */
+export function lineCountsForPicture(chapters: PictureSpan[], count: number): number[] {
+  const n = chapters.length;
+  if (n === 0 || count <= 0) return chapters.map(() => 0);
+  if (count === n) return chapters.map(() => 1);
+  if (count < n) {
+    const ranked = chapters
+      .map((chapter, index) => ({ index, len: chapter.endSec - chapter.startSec }))
+      .sort((a, b) => b.len - a.len || a.index - b.index);
+    const counts = chapters.map(() => 0);
+    for (let i = 0; i < count; i += 1) counts[ranked[i].index] = 1;
+    return counts;
+  }
+  const counts = chapters.map(() => 1);
+  const extra = count - n;
+  const weights = chapters.map((chapter) => Math.max(0.4, chapter.endSec - chapter.startSec));
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  const extras = weights.map((weight) => Math.floor((extra * weight) / total));
+  let used = extras.reduce((sum, value) => sum + value, 0);
+  const remainder = weights
+    .map((weight, index) => ({ index, frac: (extra * weight) / total - extras[index] }))
+    .sort((a, b) => b.frac - a.frac || a.index - b.index);
+  let cursor = 0;
+  while (used < extra) {
+    extras[remainder[cursor % remainder.length].index] += 1;
+    used += 1;
+    cursor += 1;
+  }
+  return counts.map((base, index) => base + extras[index]);
+}
+
+/** Tile the current V1 clips with the spoken lines, in order. Slots meet the picture edges. */
+export function pictureSlots(chapters: PictureSpan[], lineCount: number): PictureSlot[] {
+  const pics = [...chapters]
+    .filter((chapter) => chapter.endSec - chapter.startSec >= 0.4)
+    .sort((a, b) => a.startSec - b.startSec);
+  if (!pics.length || lineCount <= 0) return [];
+  const counts = lineCountsForPicture(pics, lineCount);
+  const starts: number[] = [];
+  pics.forEach((chapter, index) => {
+    const n = counts[index];
+    const span = chapter.endSec - chapter.startSec;
+    for (let step = 0; step < n; step += 1) {
+      starts.push(round2(chapter.startSec + (span * step) / n));
+    }
+  });
+  return starts.map((start, index) => {
+    const next = starts[index + 1];
+    const home = chapterAt(pics, start) ?? pics[pics.length - 1];
+    const end = next != null && next < home.endSec - 0.05 ? next : home.endSec;
+    return { startSec: start, endSec: round2(Math.max(start + 0.4, end)) };
+  });
+}
+
+/** Speech longer than the picture is rewritten. A small overrun can be sped up. Short speech is padded with silence. */
+export function speechLockPlan(speechSec: number, windowSec: number): 'keep' | 'pad' | 'tempo' | 'shorten' | 'expand' {
+  const window = Math.max(0.4, windowSec);
+  const ratio = speechSec / window;
+  if (ratio > SPEECH_TEMPO_MAX) return 'shorten';
+  if (ratio > 1.05) return 'tempo';
+  if (ratio < 0.75) return 'expand';
+  if (ratio < 0.98) return 'pad';
+  return 'keep';
+}
+
 export function planNarrationAlign(chapters: PictureSpan[], pieces: NarrationPiece[]): NarrationAlignPlan {
   const pics = [...chapters]
     .filter((chapter) => chapter.endSec - chapter.startSec >= 0.4)
@@ -88,36 +167,16 @@ export function planNarrationAlign(chapters: PictureSpan[], pieces: NarrationPie
     };
   }
 
-  const targets = targetStarts(pics, lines);
-  const resolved: number[] = [];
+  const slots = pictureSlots(pics, lines.length);
+  const resolved = slots.map((slot) => slot.startSec);
   const notes: string[] = [];
-  let cursor = 0;
   lines.forEach((line, index) => {
-    const want = targets[index];
-    const start = round2(Math.max(want, cursor));
-    resolved.push(start);
-    const dur = Math.max(0.05, line.durationSec);
-    const home = chapterAt(pics, want) ?? pics[Math.min(index, pics.length - 1)];
-    if (start > want + EPS) {
-      notes.push(
-        `«${line.label}» должна начаться в ${clock(want)} вместе с «${home.title}», но предыдущая речь заканчивается только в ${clock(start)}.`,
-      );
-    }
-    cursor = start + dur;
-  });
-
-  lines.forEach((line, index) => {
-    const start = resolved[index];
-    const end = start + Math.max(0.05, line.durationSec);
-    const home = chapterAt(pics, start);
-    if (!home || end <= home.endSec + EPS) return;
-    const extra = end - home.endSec;
-    const next = pics.find((chapter) => chapter.startSec >= home.endSec - 0.05 && chapter !== home);
-    const chapterLen = home.endSec - home.startSec;
+    const slot = slots[index];
+    const room = slot.endSec - slot.startSec;
+    if (line.durationSec <= room + EPS) return;
+    const home = chapterAt(pics, slot.startSec) ?? pics[0];
     notes.push(
-      next
-        ? `«${line.label}» длится ${line.durationSec.toFixed(1)} с, глава «${home.title}» — ${chapterLen.toFixed(1)} с. Речь на ${extra.toFixed(1)} с заходит на «${next.title}» и сдвигает всё, что после.`
-        : `«${line.label}» на ${extra.toFixed(1)} с длиннее главы «${home.title}».`,
+      `«${line.label}» звучит ${line.durationSec.toFixed(1)} с, а кадр «${home.title}» даёт ей ${room.toFixed(1)} с. Реплика укорачивается под этот кадр и не сдвигает следующую.`,
     );
   });
 
@@ -153,39 +212,3 @@ export function planNarrationAlign(chapters: PictureSpan[], pieces: NarrationPie
   };
 }
 
-function targetStarts(chapters: PictureSpan[], lines: NarrationPiece[]): number[] {
-  if (lines.length === chapters.length) {
-    return chapters.map((chapter) => chapter.startSec);
-  }
-  const filmEnd = chapters[chapters.length - 1].endSec;
-  const insidePicture = (anchor: number) => anchor >= chapters[0].startSec - 0.2 && anchor < filmEnd + 0.2;
-  const anchors = lines.map((line) => line.anchorSec);
-  const anchorsUseful = anchors.every((anchor) => typeof anchor === 'number' && Number.isFinite(anchor) && insidePicture(anchor))
-    && anchors.some((anchor, index) => Math.abs((anchor as number) - lines[index].startSec) > EPS);
-  if (anchorsUseful) {
-    return anchors as number[];
-  }
-  const groups: number[][] = chapters.map(() => []);
-  lines.forEach((line, index) => {
-    const end = line.startSec + Math.max(0.05, line.durationSec);
-    let best = 0;
-    let bestOverlap = -1;
-    chapters.forEach((chapter, chapterIndex) => {
-      const overlap = Math.min(end, chapter.endSec) - Math.max(line.startSec, chapter.startSec);
-      if (overlap > bestOverlap) {
-        bestOverlap = overlap;
-        best = chapterIndex;
-      }
-    });
-    groups[best].push(index);
-  });
-  const targets = new Array<number>(lines.length).fill(0);
-  groups.forEach((indexes, chapterIndex) => {
-    let cursor = chapters[chapterIndex].startSec;
-    indexes.forEach((index) => {
-      targets[index] = cursor;
-      cursor += Math.max(0.05, lines[index].durationSec);
-    });
-  });
-  return targets;
-}

@@ -171,6 +171,20 @@ const api = {
     language?: string;
     seed?: number;
   }) => ipcRenderer.invoke('synthesize-voice-batch', payload),
+  fitSpeechDuration: (payload: {
+    file_path: string;
+    target_sec: number;
+    force?: boolean;
+  }) => ipcRenderer.invoke('fit-speech-duration', payload) as Promise<{
+    file_path: string;
+    source_sec: number;
+    speech_sec: number;
+    output_sec: number;
+    window_sec: number;
+    tempo: number;
+    fitted: boolean;
+    needs_shorten: boolean;
+  }>,
   mixVoiceoverTrack: (payload: {
     parts: Array<{ file_path: string; start_sec: number; max_duration_sec?: number }>;
     total_sec?: number;
@@ -264,6 +278,17 @@ const api = {
     target?: string;
     ollama_model?: string;
   }) => ipcRenderer.invoke('translate-script', payload) as Promise<{ lines: string[] }>,
+  expandScript: (payload: {
+    text: string;
+    brief?: string;
+    target_sec: number;
+    language?: string;
+    seen?: string;
+    measured_sec?: number;
+    part?: number;
+    parts?: number;
+    target_wpm?: number;
+  }) => ipcRenderer.invoke('expand-script', payload) as Promise<{ text: string }>,
   shortenScript: (payload: {
     text: string;
     target_sec: number;

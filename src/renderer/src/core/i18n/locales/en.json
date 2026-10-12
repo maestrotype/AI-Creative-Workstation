@@ -494,7 +494,7 @@
     "vo_source_film": "Whole film · {{count}} chapters",
     "vo_replace_own": "Voice to chapter length",
     "vo_replace_own_busy": "Fitting words to chapter length…",
-    "vo_replace_own_hint": "Chapter length sets the word count. The ready chapter text stays the meaning and is opened out to that length from what is visible. A short line is not laid on a long recording.",
+    "vo_replace_own_hint": "Chapter length sets the word count. The ready chapter text stays the meaning and is opened out to that length from what is visible. The voice is placed in that same window on the timeline.",
     "vo_assemble_fail": "Could not join the chapters into one film for analysis.",
     "vo_source_stale_analysis": "Analysis is shorter than this file — press Re-analyze.",
     "vo_no_video": "Add video to the timeline or sources.",
