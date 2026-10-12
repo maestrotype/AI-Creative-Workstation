@@ -94,7 +94,6 @@ export function VoiceoverScriptEditor(): ReactNode {
           {d.scriptBusy ? d.t('video.vo_script_generating') : d.t('video.vo_script_generate')}
         </button>
       </div>
-      {d.scriptError ? <p className={styles.error}>{d.scriptError}</p> : null}
       {script ? (
         <>
           <p className={styles.voScriptStatus}>

@@ -90,6 +90,8 @@ import {
 } from '../model/chapterNarration';
 import { buildRenderPlan } from '../model/renderPlan';
 import { captionClipsFromScript, scriptToSrt } from '../model/captions';
+import { pushNotice } from '../../../shared/lib/notice';
+import { pictureNotesFromAnalysis, planChapterCoverage } from '../model/chapterCoverage';
 import { alignedNarrationStarts, planNarrationAlign } from '../model/narrationAlign';
 
 const LABEL_W = 118;
@@ -573,6 +575,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const [voiceoverProgress, setVoiceoverProgress] = useState({ stage: 'idle', percent: 0, detail: '' });
   const [scriptBusy, setScriptBusy] = useState(false);
   const [scriptError, setScriptError] = useState<string | null>(null);
+  const fitGuardRef = useRef('');
   const [scriptModel, setScriptModel] = useState('qwen2.5:14b');
   const [voiceoverApplyBusy, setVoiceoverApplyBusy] = useState(false);
   const [voiceoverApplyError, setVoiceoverApplyError] = useState<string | null>(null);
@@ -2256,9 +2259,13 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       await applyScriptVoiceover();
     } catch (err) {
       const msg = ipcMessage(err, t('video.vo_script_fail'));
-      setScriptError(
-        /OLLAMA_SCRIPT_FAILED/i.test(msg) ? t('video.vo_script_ollama_fail') : msg,
-      );
+      const shown = /CHAPTER_FIT_EMPTY|CHAPTER_FIT_SHORT/i.test(msg)
+        ? t('video.vo_script_fit_empty')
+        : /OLLAMA_SCRIPT_FAILED/i.test(msg)
+          ? t('video.vo_script_ollama_fail')
+          : msg;
+      setScriptError(shown);
+      pushNotice(shown);
     } finally {
       setScriptBusy(false);
     }
@@ -2277,12 +2284,120 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     setVoiceoverProgress({
       stage: 'script',
       percent: 8,
-      detail: 'Читаю кадры и пишу озвучку…',
+      detail: 'Читаю текст глав…',
     });
+    let signature = '';
     try {
-      const ctx = session.analysis ?? await analyzeVoiceover(false);
-      if (!ctx) return;
-      await generateScript(ctx, plan);
+      let scenePrompts: Array<{ title: string; prompt: string }> = [];
+      if (scopeIdRef.current && window.api?.loadProject) {
+        const doc = await window.api.loadProject(scopeIdRef.current) as ProjectDoc | null;
+        scenePrompts = (doc?.scenes ?? []).map((scene) => ({ title: scene.title, prompt: scene.prompt }));
+      }
+      const chapters = plan.map((chapter) => {
+        const written = scenePrompts.find((scene) => scene.title.trim() === chapter.title.trim())?.prompt.trim();
+        return written ? { ...chapter, draft: written } : chapter;
+      }).filter((chapter) => chapter.draft.trim());
+      if (chapters.length < 2 || !window.api?.fitChapterScript) {
+        setVoiceoverProgress({
+          stage: 'script',
+          percent: 8,
+          detail: 'Читаю кадры и пишу озвучку…',
+        });
+        const ctx = session.analysis ?? await analyzeVoiceover(false);
+        if (!ctx) return;
+        await generateScript(ctx, plan);
+        return;
+      }
+      let analysis = session.analysis;
+      if (!analysis?.scene_analysis?.length) {
+        setVoiceoverProgress({
+          stage: 'script',
+          percent: 12,
+          detail: 'Смотрю, что происходит внутри глав…',
+        });
+        analysis = await analyzeVoiceover(false) ?? analysis;
+      }
+      const coverage = planChapterCoverage(chapters, pictureNotesFromAnalysis(analysis?.scene_analysis));
+      signature = coverage
+        .map((chapter) => `${chapter.title}|${chapter.script}|${chapter.targetWords}|${Math.round(chapter.durationSec)}`)
+        .join('\n');
+      if (fitGuardRef.current === signature) {
+        setVoiceoverProgress({
+          stage: 'script',
+          percent: 100,
+          detail: t('video.vo_script_fit_same'),
+        });
+        return;
+      }
+      const longest = [...coverage].sort((a, b) => b.durationSec - a.durationSec)[0];
+      setVoiceoverProgress({
+        stage: 'script',
+        percent: 28,
+        detail: longest
+          ? `«${longest.title}» ${Math.round(longest.durationSec)} с: в сценарии ${longest.authoredWords} слов, по длине нужно ${longest.targetWords}. Пишу…`
+          : 'Пишу текст по длине глав…',
+      });
+      const fitted = await window.api.fitChapterScript({
+        chapters: coverage.map((chapter) => ({
+          title: chapter.title,
+          script: chapter.script,
+          beats: chapter.beats.map((beat) => ({
+            start: beat.startSec,
+            end: beat.endSec,
+            target_words: beat.targetWords,
+            brief: beat.brief,
+            seen: beat.seen,
+          })),
+        })),
+        language: 'ru',
+        ollama_model: scriptModel,
+      });
+      const script: VoiceoverScript = {
+        segments: fitted.segments.map((seg) => ({
+          start_sec: seg.start_sec,
+          end_sec: seg.end_sec,
+          anchor_sec: seg.anchor_sec ?? seg.start_sec,
+          text: seg.text,
+          role: seg.role,
+          purpose: seg.purpose,
+          visual_summary: seg.visual_summary,
+          estimated_sec: seg.estimated_sec,
+        })),
+        meta: {
+          ...fitted.meta,
+          script_version: Date.now(),
+        },
+      };
+      if (fitted.meta.note === 'SHORT') {
+        fitGuardRef.current = signature;
+        pushNotice(t('video.vo_script_fit_short'), 'info');
+      } else {
+        fitGuardRef.current = '';
+      }
+      const nextSession = {
+        ...voiceoverRef.current,
+        script,
+        narrationLang: 'ru' as const,
+        status: 'scripted' as const,
+      };
+      voiceoverRef.current = nextSession;
+      setVoiceover(nextSession);
+      setVoiceoverProgress({
+        stage: 'voice',
+        percent: 55,
+        detail: 'Текст разложен по длине глав. Озвучиваю…',
+      });
+      await applyScriptVoiceover();
+    } catch (err) {
+      const msg = ipcMessage(err, t('video.vo_script_fail'));
+      const shown = /CHAPTER_FIT_EMPTY|CHAPTER_FIT_SHORT/i.test(msg)
+        ? t('video.vo_script_fit_empty')
+        : /OLLAMA_SCRIPT_FAILED/i.test(msg)
+          ? t('video.vo_script_ollama_fail')
+          : msg;
+      if (/CHAPTER_FIT_EMPTY|CHAPTER_FIT_SHORT/i.test(msg) && signature) fitGuardRef.current = signature;
+      setScriptError(shown);
+      pushNotice(shown);
     } finally {
       setScriptBusy(false);
     }
