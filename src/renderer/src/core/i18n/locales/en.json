@@ -493,7 +493,7 @@
     "vo_source_film": "Whole film · {{count}} chapters",
     "vo_replace_own": "Replace my narration",
     "vo_replace_own_busy": "Reading the film and writing the script…",
-    "vo_replace_own_hint": "The model watches every chapter, checks the chapter script and what you said, then writes lines for what is on screen. “Voice on A1” mutes the voice in the recording and lays the new narration on the track.",
+    "vo_replace_own_hint": "Uses each chapter’s ready text, counts the words that chapter’s length needs, and expands only when the text is short. Frame analysis does not replace the script. The voice is then placed in that same window.",
     "vo_assemble_fail": "Could not join the chapters into one film for analysis.",
     "vo_source_stale_analysis": "Analysis is shorter than this file — press Re-analyze.",
     "vo_no_video": "Add video to the timeline or sources.",

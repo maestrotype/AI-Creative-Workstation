@@ -24,7 +24,7 @@ export function v1ChapterSpans(
     .filter((clip) => clip.track === 'v1' && clip.binId)
     .map((clip) => {
       const bin = bins.find((item) => item.id === clip.binId);
-      if (!bin || bin.kind !== 'video') return null;
+      if (!bin || (bin.kind !== 'video' && bin.kind !== 'image')) return null;
       const dur = Math.max(0.5, clip.durationSec || bin.durationSec || 0);
       return {
         title: (clip.label || bin.name || '').trim() || 'Глава',

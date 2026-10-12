@@ -1,5 +1,33 @@
 # Film narration handoff
 
+Read this before touching voiceover. The current film is the marketplace listing «Новый проект» (`d15a585d-ab9d-4032-8a43-f7fdb07189c6`), not the old 62-second demo below.
+
+Python in the sidecar is not hot-reloaded. After editing `sidecar/*.py`, fully quit the app and open it again.
+
+## Current rules (do not undo one by “fixing” another)
+
+The picture on V1 is the clock, including stills. The ready chapter text is `scene.prompt` in `project.json` (Russian). Frame analysis says what is visible. It does not replace the script and it does not switch the language to English.
+
+1. Measure each chapter on the timeline (the trimmed length, not the original file).
+2. A chapter longer than 18s is several beats of about 14s. Each beat has a word budget at 130 words/minute (`chapterSpeech.ts`).
+3. The ready script is the meaning. If a beat already has about that many words, keep it. If it is short, expand it from those same facts (`expand_spoken`). If it is long, trim it. Do not invent a new English ad.
+4. After XTTS, measure the wav. Speech under 75% of the beat is still too short: expand and speak again. Speech over 15% too long is shortened, then sped up at most 15%. A small remainder is silence inside the same beat.
+5. The next line starts at its own beat. A long line must not push the later lines down the timeline (`pictureSlots` / script windows in `applyScriptVoiceover`).
+
+«Заменить мою озвучку» on a film with chapters runs this path (`replaceOwnNarration`). `generateScript` still exists for a single uploaded video and still asks for English. Do not point the chapter button at it.
+
+What went wrong when these were split:
+
+| Only this | Result |
+|-----------|--------|
+| Pack wavs one after another | A1 edges drift off V1. Hook 16.9s sits on a 12s Hero and shoves everything after it. |
+| Lock the clip to the picture and pad silence | Bars match (Hook 12s, Body 17s) but the mouth is a 3s English sentence. The ready Russian chapter (about 34–85 words) was thrown away. |
+| Generate from vision in English | “The advertisement highlights a new bag collection…” instead of the authored store script. |
+
+## Historical: 62s demo
+
+The notes below describe `8cd095b2-7f44-4e38-ac81-709d5080ad7a`. Do not re-apply “clip length = wav, never fill a window” to the marketplace film. That rule made the holes the listing film is now trying to close.
+
 Read this before touching voiceover. Trust `sidecar/script_llm.py`, `DirectorBoard.tsx` apply/generate, and the live `project.json` over older traces.
 
 **Branch:** `fix/narration-vlm-understanding`  

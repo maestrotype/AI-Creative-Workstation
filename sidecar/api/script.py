@@ -9,7 +9,7 @@ _SIDEcar_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SIDEcar_ROOT not in sys.path:
     sys.path.insert(0, _SIDEcar_ROOT)
 
-from script_llm import DEFAULT_OLLAMA_MODEL, generate_voiceover_script, shorten_spoken, translate_narration
+from script_llm import DEFAULT_OLLAMA_MODEL, expand_spoken, generate_voiceover_script, shorten_spoken, translate_narration
 
 router = APIRouter()
 
@@ -127,7 +127,7 @@ def generate_script_route(request: ScriptGenerateRequest):
 
 class ScriptShortenRequest(BaseModel):
     text: str
-    target_sec: float = Field(ge=0.8, le=60)
+    target_sec: float = Field(ge=0.8, le=240)
     language: str = "ru"
     target_wpm: int = Field(default=130, ge=80, le=200)
     visual_summary: str = ""
@@ -146,6 +146,36 @@ def shorten_script_route(request: ScriptShortenRequest):
     )
     if not text.strip():
         raise HTTPException(status_code=500, detail="Shorten produced empty text")
+    return {"text": text}
+
+
+class ScriptExpandRequest(BaseModel):
+    text: str
+    brief: str = ""
+    target_sec: float = Field(ge=0.8, le=240)
+    language: str = "ru"
+    seen: str = ""
+    measured_sec: float = 0
+    part: int = 1
+    parts: int = 1
+    target_wpm: int = Field(default=130, ge=80, le=200)
+
+
+@router.post("/script/expand")
+def expand_script_route(request: ScriptExpandRequest):
+    text = expand_spoken(
+        request.text,
+        brief=request.brief,
+        target_sec=request.target_sec,
+        language=request.language,
+        seen=request.seen,
+        measured_sec=request.measured_sec,
+        part=request.part,
+        parts=request.parts,
+        wpm=request.target_wpm,
+    )
+    if not text.strip():
+        raise HTTPException(status_code=500, detail="Expand produced empty text")
     return {"text": text}
 
 

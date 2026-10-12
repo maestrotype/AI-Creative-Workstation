@@ -179,6 +179,12 @@ class LexiconFixRequest(BaseModel):
     context_text: Optional[str] = None
 
 
+class FitSpeechRequest(BaseModel):
+    file_path: str
+    target_sec: float
+    force: bool = False
+
+
 class VoiceoverTrackPart(BaseModel):
     file_path: str
     start_sec: float = 0.0
@@ -896,6 +902,65 @@ def synthesize_batch(request: TtsBatchRequest):
     return {"status": "completed", "engine": "xtts", "results": results}
 
 
+def lock_speech_to_window(
+    src: str,
+    dest: str,
+    target_sec: float,
+    *,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """Make one spoken file occupy exactly its picture slot.
+
+    A small overrun is sped up, at most 15%. A larger overrun is left for a
+    rewrite unless force is set, in which case the tail is cut so the next
+    line can start on its own picture. Short speech is padded with silence.
+    """
+    source_sec = audio_duration_sec(src)
+    window = max(0.4, float(target_sec))
+    ratio = source_sec / window if window else 1.0
+    if ratio > 1.15 and not force:
+        return {
+            "file_path": src,
+            "source_sec": round(source_sec, 3),
+            "speech_sec": round(source_sec, 3),
+            "output_sec": round(source_sec, 3),
+            "window_sec": round(window, 3),
+            "tempo": 1.0,
+            "fitted": False,
+            "needs_shorten": True,
+        }
+    tempo = 1.0 if ratio <= 1.0 else min(1.15, ratio)
+    filters = []
+    if tempo > 1.01:
+        filters.append(f"atempo={tempo:.4f}")
+    filters.append(f"apad=whole_dur={window:.3f}")
+    cmd = [
+        _ffmpeg_bin(), "-y", "-i", src,
+        "-af", ",".join(filters),
+        "-t", f"{window:.3f}",
+        "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le",
+        dest,
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=_ffmpeg_user_error(exc.stderr or exc.stdout, "ffmpeg speech lock failed"),
+        ) from exc
+    output_sec = audio_duration_sec(dest)
+    return {
+        "file_path": dest,
+        "source_sec": round(source_sec, 3),
+        "speech_sec": round(source_sec / tempo, 3),
+        "output_sec": round(output_sec, 3),
+        "window_sec": round(window, 3),
+        "tempo": round(tempo, 4),
+        "fitted": True,
+        "needs_shorten": False,
+    }
+
+
 def _fit_speech_duration(
     src: str,
     dest: str,
@@ -951,6 +1016,17 @@ def _fit_speech_duration(
         "tempo": round(tempo, 4),
         "fitted": True,
     }
+
+
+@router.post("/audio/fit-speech")
+def fit_speech_route(request: FitSpeechRequest):
+    path = os.path.expanduser(request.file_path or "")
+    if not path or not os.path.isfile(path):
+        raise HTTPException(status_code=400, detail="File not found")
+    if request.target_sec <= 0:
+        raise HTTPException(status_code=400, detail="target_sec must be positive")
+    dest = _audio_out(f"lock-{int(time.time() * 1000)}", "wav")
+    return lock_speech_to_window(path, dest, request.target_sec, force=request.force)
 
 
 @router.post("/audio/voiceover-track")

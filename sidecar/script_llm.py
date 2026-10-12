@@ -3120,6 +3120,56 @@ Return JSON: {{ "text": "..." }}"""
     return _clip_to_budget(text, target_sec, wpm)
 
 
+def expand_spoken(
+    text: str,
+    *,
+    brief: str = "",
+    target_sec: float,
+    language: str = "ru",
+    seen: str = "",
+    measured_sec: float = 0,
+    part: int = 1,
+    parts: int = 1,
+    wpm: int = 130,
+) -> str:
+    """Grow a ready chapter line until it can fill the picture. Same facts, more words."""
+    budget = _window_words(max(1.0, target_sec), wpm)
+    chapter = re.sub(r"\s+", " ", (text or "")).strip()
+    source = re.sub(r"\s+", " ", (brief or chapter)).strip()
+    words = len([word for word in source.split() if word])
+    low = max(6, int(round(budget * 0.75)))
+    high = int(round(budget * 1.18)) + 2
+    if source and low <= words <= high and measured_sec <= 0:
+        return _fit_spoken(source, target_sec, wpm)
+    if measured_sec > 0 and words >= low:
+        return source
+    lang = "русском" if language.startswith("ru") else "English"
+    place = f"Это реплика {part} из {parts} одной главы. " if parts > 1 else ""
+    short = (
+        f"Прошлый вариант прозвучал за {measured_sec:.0f} с при кадре {target_sec:.0f} с. Напиши длиннее.\n"
+        if measured_sec > 0
+        else ""
+    )
+    ask = (
+        f"Раскрой готовый сценарий озвучки на {lang}. Не подменяй его другим продуктом и не переводи.\n"
+        f"{place}{short}"
+        f"Смысл главы, факты только отсюда:\n{chapter or source}\n\n"
+        f"Что сказать в этой реплике: {source or chapter}\n"
+        f"В кадре: {seen or 'кадр этой главы'}\n"
+        f"Нужно около {budget} слов, речь около {target_sec:.0f} секунд. "
+        "Законченные фразы. Если смысл уже короткий, развивай его по шагам, не повторяй одну и ту же фразу.\n"
+        'JSON: {"text":"..."}'
+    )
+    parsed = _try_ollama(ask, num_predict=900, temperature=0.3)
+    candidate = ""
+    if parsed:
+        candidate = re.sub(r"\s+", " ", str(parsed.get("text") or "")).strip()
+    best = candidate if candidate and len(candidate.split()) > words else source
+    if best and len(best.split()) > high:
+        return _fit_spoken(best, target_sec, wpm)
+    return best or source or chapter
+
+
 def translation_lines(expected: list[str], payload: dict[str, Any] | None) -> list[str] | None:
     """Accept a model reply only when it returns one English line per source line."""
     raw = payload.get("lines") if isinstance(payload, dict) else None

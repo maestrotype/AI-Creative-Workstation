@@ -30,6 +30,36 @@ function video(id: string, start: number, dur: number, label = 'Uploaded'): { bi
 }
 
 describe('chapter narration plan', () => {
+  it('counts a still on V1 as a chapter, including the opening card', () => {
+    const still = {
+      bin: {
+        id: 'bin-hero',
+        kind: 'image' as const,
+        path: '/tmp/hero.jpg',
+        name: 'Hero',
+        durationSec: 12,
+        inSec: 0,
+        outSec: 12,
+        durationKnown: true,
+      },
+      clip: {
+        id: 'hero',
+        binId: 'bin-hero',
+        track: 'v1' as const,
+        startSec: 0,
+        durationSec: 12,
+        sourceInSec: 0,
+        label: 'Hero',
+      },
+    };
+    const next = video('stage', 12, 17, 'Product Stage');
+    const spans = v1ChapterSpans([still.clip, next.clip], [still.bin, next.bin]);
+    expect(spans.map((span) => [span.startSec, span.endSec])).toEqual([
+      [0, 12],
+      [12, 29],
+    ]);
+  });
+
   it('uses the real clip windows, not the 35-second template', () => {
     const rows = [video('a', 0, 63.7), video('b', 63.7, 69.2)];
     const spans = v1ChapterSpans(rows.map((row) => row.clip), rows.map((row) => row.bin));
