@@ -1,20 +1,64 @@
 .dock {
-  position: fixed;
-  top: 10px;
-  right: 14px;
-  z-index: 50;
+  position: relative;
+  z-index: 5;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 8px;
-  max-width: min(22rem, calc(100vw - 5.5rem));
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 8px 12px 0;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.modal {
+  width: min(28rem, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card);
+  color: var(--color-text-primary);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+.modal[data-tone='error'] {
+  border-color: #8f3d3d;
+}
+
+.modal p {
+  margin: 0;
+  font-size: var(--text-body);
+  line-height: 1.45;
+}
+
+.modal button {
+  align-self: flex-end;
+  padding: 6px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-raised);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 }
 
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  max-width: 100%;
+  max-width: min(26rem, 100%);
   padding: 6px 10px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-full);

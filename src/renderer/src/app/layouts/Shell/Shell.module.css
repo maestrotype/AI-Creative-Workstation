@@ -36,3 +36,15 @@
   overflow: hidden;
   background-image: none;
 }
+
+.outlet {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.outletWorkspace {
+  overflow: hidden;
+}

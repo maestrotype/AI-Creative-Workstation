@@ -494,6 +494,27 @@ interface Window {
       }>;
       meta: { tone: string; language: string; words_per_min: number; provider: string; model?: string | null };
     }>;
+    fitChapterScript: (payload: {
+      chapters: Array<{
+        title: string;
+        script: string;
+        beats: Array<{ start: number; end: number; target_words: number; brief: string; seen: string }>;
+      }>;
+      language?: string;
+      ollama_model?: string;
+    }) => Promise<{
+      segments: Array<{
+        start_sec: number;
+        end_sec: number;
+        anchor_sec?: number;
+        text: string;
+        role: string;
+        purpose?: string;
+        visual_summary?: string;
+        estimated_sec?: number;
+      }>;
+      meta: { tone: string; language: string; words_per_min: number; provider: string; model?: string | null; note?: string | null };
+    }>;
     translateScript: (payload: {
       lines: string[];
       source?: string;

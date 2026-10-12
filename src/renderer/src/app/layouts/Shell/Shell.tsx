@@ -99,7 +99,9 @@ export function Shell(): ReactNode {
       />
       <main className={cx(styles.main, workspaceLayout && styles.mainWorkspace)}>
         <EngineMonitor />
-        <Outlet />
+        <div className={cx(styles.outlet, workspaceLayout && styles.outletWorkspace)}>
+          <Outlet />
+        </div>
       </main>
     </div>
   );

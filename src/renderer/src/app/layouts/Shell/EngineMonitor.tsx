@@ -4,12 +4,31 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 
 import { formatBytes } from '../../../shared/lib/formatBytes';
+import { dismissNotice, type AppNotice } from '../../../shared/lib/notice';
 import styles from './EngineMonitor.module.css';
 
 type RuntimeStatus = Awaited<ReturnType<NonNullable<Window['api']>['getRuntimeStatus']>>;
 
 function prettyModel(cacheKey: string): string {
-  return cacheKey.replaceAll('__', '/').split('/').slice(-1)[0] || cacheKey;
+  const raw = cacheKey.replaceAll('__', '/').split('/').slice(-1)[0] || cacheKey;
+  if (/qwen2\.5:14b/i.test(raw)) return 'Qwen 2.5 14B';
+  if (/qwen2\.5:7b/i.test(raw)) return 'Qwen 2.5 7B';
+  if (/qwen2\.5vl/i.test(raw)) return 'Qwen 2.5 VL';
+  return raw;
+}
+
+function uniqueModels(names: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of names) {
+    const clean = name.trim();
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+  }
+  return out;
 }
 
 function jobLabel(status: RuntimeStatus, t: (k: string, o?: Record<string, string | number>) => string): string {
@@ -30,7 +49,9 @@ export function EngineMonitor(): ReactNode {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<RuntimeStatus | null>(null);
+  const [ollamaModel, setOllamaModel] = useState('');
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [notice, setNotice] = useState<AppNotice | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,6 +59,12 @@ export function EngineMonitor(): ReactNode {
       window.api?.getRuntimeStatus?.()
         .then((next) => { if (!cancelled) setStatus(next); })
         .catch(() => { /* keep last */ });
+      window.api?.getOllamaEngineStatus?.()
+        .then((next) => {
+          if (cancelled) return;
+          setOllamaModel(next.server_running && next.model ? next.model : '');
+        })
+        .catch(() => { if (!cancelled) setOllamaModel(''); });
     };
     pull();
     const timer = window.setInterval(pull, 1500);
@@ -47,18 +74,52 @@ export function EngineMonitor(): ReactNode {
     };
   }, []);
 
-  if (!status) return null;
+  useEffect(() => {
+    const onNotice = (event: Event) => {
+      const detail = (event as CustomEvent<AppNotice>).detail;
+      if (!detail?.message) return;
+      setNotice((current) => (current?.message === detail.message ? current : detail));
+    };
+    window.addEventListener('acw-notice', onNotice);
+    return () => window.removeEventListener('acw-notice', onNotice);
+  }, []);
+
+  const closeNotice = () => {
+    if (notice) dismissNotice(notice.message);
+    setNotice(null);
+  };
+
+  const dialog = notice ? (
+    <div className={styles.backdrop} role="presentation" onClick={closeNotice}>
+      <div
+        className={styles.modal}
+        role="alertdialog"
+        aria-modal="true"
+        data-tone={notice.tone}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <p>{notice.message}</p>
+        <button type="button" onClick={closeNotice}>{t('monitor.notice_close')}</button>
+      </div>
+    </div>
+  ) : null;
+
+  if (!status) return dialog;
 
   const ramAvailable = status.ram_available ?? status.ram_free;
   const ramUsed = status.ram_used ?? Math.max(0, status.ram_total - ramAvailable);
   const usedPct = status.ram_total > 0 ? Math.round((ramUsed / status.ram_total) * 100) : 0;
   const pythonRss = status.memory.sidecar_rss_bytes;
   const working = status.job.active || status.job.stage === 'releasing';
-  const chipPct = status.job.active ? status.job.percent : usedPct;
-          const chipExtra = status.job.active
-    ? (status.job.detail ? ` · ${status.job.detail}` : ` · ${chipPct}%`)
-    : status.job.stage === 'releasing'
-      ? ''
+  const activeModels = uniqueModels([
+    status.job.active ? status.job.model_id : '',
+    ollamaModel,
+    ...status.loaded,
+  ].map(prettyModel));
+  const chipExtra = activeModels.length
+    ? ` · ${activeModels.slice(0, 2).join(' · ')}`
+    : working
+      ? (status.job.detail ? ` · ${status.job.detail}` : '')
       : pythonRss > 0
         ? ` · ${formatBytes(pythonRss)}`
         : '';
@@ -98,7 +159,9 @@ export function EngineMonitor(): ReactNode {
   };
 
   return (
-    <div className={styles.dock}>
+    <>
+      {dialog}
+      <div className={styles.dock}>
       <button
         type="button"
         className={styles.chip}
@@ -201,6 +264,7 @@ export function EngineMonitor(): ReactNode {
           )}
         </div>
       ) : null}
-    </div>
+      </div>
+    </>
   );
 }

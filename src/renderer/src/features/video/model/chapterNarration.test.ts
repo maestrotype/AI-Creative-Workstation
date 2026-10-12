@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildChapterPlan, v1ChapterSpans } from './chapterNarration';
+import { buildChapterPlan, scriptFromChapterDrafts, v1ChapterSpans } from './chapterNarration';
 import { MARKETPLACE_V0_BLOCKS } from './marketplaceVoiceoverPack';
 import type { BinItem, TimelineClip } from './directorTimeline';
 import type { VoiceoverScript } from './voiceoverScript';
@@ -75,6 +75,33 @@ describe('chapter narration plan', () => {
     expect(plan[0].startSec).toBe(0);
     expect(plan[0].endSec).toBe(40);
     expect(plan[2].startSec).not.toBe(MARKETPLACE_V0_BLOCKS[2].startSec);
+  });
+
+  it('keeps the opening and closing stills as chapters', () => {
+    const rows = [
+      video('open', 0, 12, 'Что это за продукт'),
+      video('mid', 12, 40, 'Главная'),
+      video('close', 52, 16, 'Что в архиве'),
+    ];
+    rows[0].bin.kind = 'image';
+    rows[2].bin.kind = 'image';
+    const spans = v1ChapterSpans(rows.map((row) => row.clip), rows.map((row) => row.bin));
+    expect(spans.map((span) => span.title)).toEqual([
+      'Что это за продукт',
+      'Главная',
+      'Что в архиве',
+    ]);
+    const script = scriptFromChapterDrafts(buildChapterPlan(
+      rows.map((row) => row.clip),
+      rows.map((row) => row.bin),
+    ), [
+      { title: 'Что это за продукт', prompt: 'Это готовый магазин.' },
+      { title: 'Главная', prompt: 'На главной сцена каталога.' },
+      { title: 'Что в архиве', prompt: 'В комплекте исходники.' },
+    ]);
+    expect(script?.segments).toHaveLength(3);
+    expect(script?.segments[0]).toMatchObject({ start_sec: 0, role: 'hook', text: 'Это готовый магазин.' });
+    expect(script?.segments[2]).toMatchObject({ start_sec: 52, role: 'cta', text: 'В комплекте исходники.' });
   });
 
   it('does not invent marketplace copy for an unrelated film', () => {
