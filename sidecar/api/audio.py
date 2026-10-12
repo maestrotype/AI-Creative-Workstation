@@ -124,10 +124,11 @@ def _ffmpeg_user_error(raw: Optional[str], fallback: str) -> str:
     return text[-400:]
 
 
-def _audio_out(name: str, ext: str) -> str:
-    os.makedirs(AUDIO_DIR, exist_ok=True)
+def _audio_out(name: str, ext: str, *, processing: bool = False) -> str:
+    folder = os.path.join(AUDIO_DIR, "_processing") if processing else AUDIO_DIR
+    os.makedirs(folder, exist_ok=True)
     safe = re.sub(r"[^a-zA-Z0-9._-]+", "-", name).strip("-") or "audio"
-    return os.path.join(AUDIO_DIR, f"{safe}.{ext}")
+    return os.path.join(folder, f"{safe}.{ext}")
 
 
 class ConvertAudioRequest(BaseModel):
@@ -1025,7 +1026,7 @@ def fit_speech_route(request: FitSpeechRequest):
         raise HTTPException(status_code=400, detail="File not found")
     if request.target_sec <= 0:
         raise HTTPException(status_code=400, detail="target_sec must be positive")
-    dest = _audio_out(f"lock-{int(time.time() * 1000)}", "wav")
+    dest = _audio_out(f"lock-{int(time.time() * 1000)}", "wav", processing=True)
     return lock_speech_to_window(path, dest, request.target_sec, force=request.force)
 
 
@@ -1049,7 +1050,7 @@ def mix_voiceover_track(request: VoiceoverTrackRequest):
             raise HTTPException(status_code=400, detail=f"File not found: {part.file_path}")
         work_path = path
         if part.max_duration_sec and part.max_duration_sec > 0:
-            fitted = _audio_out(f"fit-{idx}-{int(time.time())}", "wav")
+            fitted = _audio_out(f"fit-{idx}-{int(time.time())}", "wav", processing=True)
             stat = _fit_speech_duration(path, fitted, part.max_duration_sec)
             stat["index"] = idx
             fit_stats.append(stat)
