@@ -105,7 +105,10 @@ export interface ProjectAnalysisRef {
 export interface ProjectScene {
   id: string;
   title: string;
+  /** Spoken line. This is what the app voices for the chapter. */
   prompt: string;
+  /** What to do on screen while recording. Not spoken. */
+  recordSteps: string;
   effectPrompt: string;
   textOverlay: string;
   durationSec: number;
@@ -164,6 +167,7 @@ export function newScene(title = ''): ProjectScene {
     id,
     title,
     prompt: '',
+    recordSteps: '',
     effectPrompt: '',
     textOverlay: '',
     durationSec: 12,
@@ -228,9 +232,10 @@ export function shotFromGeneration(args: {
 export function templateChapters(): ProjectScene[] {
   return MARKETPLACE_V0_BLOCKS.map((block) => ({
     ...newScene(block.titleRu),
-    prompt: block.shootRu,
-    textOverlay: block.titleRu,
-    effectPrompt: 'лёгкий зум',
+    prompt: block.voiceoverRu,
+    recordSteps: block.shootRu,
+    textOverlay: block.title,
+    effectPrompt: block.viewRu,
     durationSec: Math.max(8, block.endSec - block.startSec),
     motion: 'import' as const,
   }));
@@ -306,11 +311,13 @@ export function composeClips(doc: ProjectDoc): Array<{
     const dur = Math.max(0.5, Number(scene.durationSec) || 5);
     const video = scene.clipPath;
     const still = scene.stillPath;
-    if (video || still) {
+    const useStill = scene.motion === 'still_motion' && still;
+    const path = useStill ? still : video || still;
+    if (path) {
       clips.push({
-        kind: video ? 'video' : 'image',
+        kind: useStill || (!video && still) ? 'image' : 'video',
         track: 'v1',
-        path: video || still,
+        path,
         text: null,
         start_sec: t,
         duration_sec: dur,
@@ -332,4 +339,101 @@ export function composeClips(doc: ProjectDoc): Array<{
     t += dur;
   }
   return clips;
+}
+
+export function sceneMediaRows(doc: Pick<ProjectDoc, 'scenes'>): Array<{
+  sceneId: string;
+  path: string;
+  kind: 'video' | 'image';
+  name: string;
+  durationSec: number;
+}> {
+  const rows: Array<{
+    sceneId: string;
+    path: string;
+    kind: 'video' | 'image';
+    name: string;
+    durationSec: number;
+  }> = [];
+  for (const scene of doc.scenes) {
+    const useStill = scene.motion === 'still_motion' && scene.stillPath;
+    const path = useStill ? scene.stillPath : scene.clipPath || scene.stillPath;
+    if (!path) continue;
+    rows.push({
+      sceneId: scene.id,
+      path,
+      kind: useStill || (!scene.clipPath && scene.stillPath) ? 'image' : 'video',
+      name: scene.title.trim() || 'Глава',
+      durationSec: Math.max(0.5, Number(scene.durationSec) || 5),
+    });
+  }
+  return rows;
+}
+
+export function timelinePicturePaths(timeline: FilmTimeline | null | undefined): string[] {
+  if (!timeline?.clips?.length) return [];
+  return timeline.clips
+    .filter((clip) => clip.track === 'v1')
+    .sort((a, b) => a.startSec - b.startSec)
+    .map((clip) => timeline.bins.find((bin) => bin.id === clip.binId)?.path || '')
+    .filter(Boolean);
+}
+
+/** True when the saved cut already uses the current chapter files, in order. */
+export function timelinePictureMatchesScenePaths(doc: Pick<ProjectDoc, 'scenes' | 'timeline'>): boolean {
+  const scenePaths = sceneMediaRows(doc).map((row) => row.path);
+  const picturePaths = timelinePicturePaths(doc.timeline);
+  return scenePaths.length > 0
+    && scenePaths.length === picturePaths.length
+    && scenePaths.every((path, index) => path === picturePaths[index]);
+}
+
+/** Picture track from the current chapters. Replaces a leftover cut from an earlier visit. */
+export function timelineFromScenes(
+  doc: Pick<ProjectDoc, 'scenes'>,
+  previous?: FilmTimeline | null,
+): FilmTimeline {
+  const rows = sceneMediaRows(doc);
+  const bins: FilmTimelineBin[] = [];
+  const clips: FilmTimelineClip[] = [];
+  let cursor = 0;
+  for (const row of rows) {
+    const binId = `scene-bin-${row.sceneId}`;
+    bins.push({
+      id: binId,
+      kind: row.kind,
+      path: row.path,
+      name: row.name,
+      durationSec: row.durationSec,
+      inSec: 0,
+      outSec: row.durationSec,
+      durationKnown: true,
+    });
+    clips.push({
+      id: `scene-clip-${row.sceneId}`,
+      binId,
+      track: 'v1',
+      startSec: cursor,
+      durationSec: row.durationSec,
+      sourceInSec: 0,
+      label: row.name,
+      autoLength: true,
+    });
+    cursor += row.durationSec;
+  }
+  return {
+    bins,
+    clips,
+    trackLayout: previous?.trackLayout ?? { videos: 1, audios: 1, titles: 1 },
+    overlayPos: previous?.overlayPos,
+    playhead: 0,
+    pxPerSec: previous?.pxPerSec ?? 16,
+    stillCompose: previous?.stillCompose,
+    assembly: {
+      targetSec: cursor,
+      style: 'chapters',
+      rationale: `${rows.length} глав · ${cursor.toFixed(1)}s`,
+      createdAt: Date.now(),
+    },
+  };
 }

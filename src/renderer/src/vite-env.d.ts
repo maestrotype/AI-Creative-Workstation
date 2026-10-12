@@ -122,6 +122,7 @@ interface Window {
         id: string;
         title: string;
         prompt: string;
+        recordSteps: string;
         effectPrompt: string;
         textOverlay: string;
         durationSec: number;
@@ -153,6 +154,7 @@ interface Window {
         id: string;
         title: string;
         prompt: string;
+        recordSteps: string;
         effectPrompt: string;
         textOverlay: string;
         durationSec: number;
@@ -175,6 +177,7 @@ interface Window {
     saveProject: (doc: unknown) => Promise<unknown>;
     deleteProject: (id: string) => Promise<{ deleted: boolean }>;
     importIntoProject: (payload: { projectId: string; path: string }) => Promise<{ file_path: string; poster_path?: string | null }>;
+    importPastedImageIntoProject: (payload: { projectId: string; data: ArrayBuffer; mime?: string }) => Promise<{ file_path: string; poster_path?: null }>;
     renderTimeline: (payload: {
       clips: Array<{
         kind: string;
@@ -491,6 +494,12 @@ interface Window {
       }>;
       meta: { tone: string; language: string; words_per_min: number; provider: string; model?: string | null };
     }>;
+    translateScript: (payload: {
+      lines: string[];
+      source?: string;
+      target?: string;
+      ollama_model?: string;
+    }) => Promise<{ lines: string[] }>;
     shortenScript: (payload: {
       text: string;
       target_sec: number;

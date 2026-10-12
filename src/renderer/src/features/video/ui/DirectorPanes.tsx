@@ -170,6 +170,26 @@ export function DirectorTimelinePane(): ReactNode {
           >
             {d.t('video.dir_split')}
           </button>
+          <button type="button" className={styles.toolBtn} data-on={d.cutInSec != null || undefined} onClick={d.markCutStart} title={d.t('video.dir_cut_in_hint')}>
+            {d.t('video.dir_cut_in')}{d.cutInSec != null ? ` ${formatClock(d.cutInSec)}` : ''}
+          </button>
+          <button type="button" className={styles.toolBtn} data-on={d.cutOutSec != null || undefined} onClick={d.markCutEnd} title={d.t('video.dir_cut_out_hint')}>
+            {d.t('video.dir_cut_out')}{d.cutOutSec != null ? ` ${formatClock(d.cutOutSec)}` : ''}
+          </button>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            onClick={d.exciseMarkedRange}
+            disabled={d.cutInSec == null || d.cutOutSec == null}
+            title={d.t('video.dir_excise_hint')}
+          >
+            {d.t('video.dir_excise')}
+          </button>
+          {d.cutInSec != null && d.cutOutSec != null ? (
+            <span className={styles.hintTight}>
+              {formatClock(Math.min(d.cutInSec, d.cutOutSec))}–{formatClock(Math.max(d.cutInSec, d.cutOutSec))}
+            </span>
+          ) : null}
           <button
             type="button"
             className={styles.toolBtn}
@@ -206,6 +226,25 @@ export function DirectorTimelinePane(): ReactNode {
       </div>
       <div className={styles.boardScroll} ref={d.boardScrollRef}>
         <div className={styles.board} style={{ width: LABEL_W + d.lanesPx }}>
+          {d.cutInSec != null && d.cutOutSec != null ? (
+            <div
+              className={styles.cutBand}
+              style={{
+                left: LABEL_W + Math.min(d.cutInSec, d.cutOutSec) * d.pxPerSec,
+                width: Math.max(2, Math.abs(d.cutOutSec - d.cutInSec) * d.pxPerSec),
+              }}
+            />
+          ) : null}
+          {d.cutInSec != null ? (
+            <div className={styles.cutMark} data-kind="in" style={{ transform: `translate3d(${LABEL_W + d.cutInSec * d.pxPerSec}px,0,0)` }}>
+              <span className={styles.cutMarkLabel}>{d.t('video.dir_cut_in')} {formatClock(d.cutInSec)}</span>
+            </div>
+          ) : null}
+          {d.cutOutSec != null ? (
+            <div className={styles.cutMark} data-kind="out" style={{ transform: `translate3d(${LABEL_W + d.cutOutSec * d.pxPerSec}px,0,0)` }}>
+              <span className={styles.cutMarkLabel}>{d.t('video.dir_cut_out')} {formatClock(d.cutOutSec)}</span>
+            </div>
+          ) : null}
           <div
             className={styles.ruler}
             style={{ marginLeft: LABEL_W }}
@@ -912,6 +951,16 @@ export function DirectorSourcesPane({
                     {onTimeline ? ` · ${d.t('video.dir_on_timeline')}` : ''}
                   </span>
                 </button>
+                {item.kind === 'video' ? (
+                  <button
+                    type="button"
+                    className={styles.binReplace}
+                    onClick={() => d.replaceChapterMedia(item.id)}
+                    title={d.t('video.dir_replace_clip_hint')}
+                  >
+                    {d.t('video.dir_replace_clip')}
+                  </button>
+                ) : null}
                 <button type="button" className={styles.binDelete} onClick={() => d.removeBin(item.id)}>×</button>
               </li>
             );

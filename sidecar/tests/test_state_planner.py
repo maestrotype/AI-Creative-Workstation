@@ -91,6 +91,18 @@ class LineCheckTests(unittest.TestCase):
             topic="карточка товара",
         )
 
+    def test_english_line_is_not_rejected_for_being_english(self):
+        text = "The product card lets you turn the model and put the item in the cart."
+        claims = [{
+            "claim": "the card can turn the model",
+            "evidence": "rotation control",
+            "type": "seen",
+        }]
+        problems = line_problems(
+            text, self.unit, self.frames, [], "", claims, first=False, language="en",
+        )
+        self.assertFalse(any("рус" in item or "латиница" in item for item in problems), problems)
+
     def test_rejects_ukrainian_and_caption(self):
         self.assertTrue(line_problems("Поверні модель в 3D.", self.unit, self.frames, [], "", first=False))
         self.assertTrue(line_problems("Страница магазина с 3D-моделями сумок.", self.unit, self.frames, [], "", first=False))

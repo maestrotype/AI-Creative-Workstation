@@ -2967,10 +2967,10 @@ def generate_voiceover_script(
     ollama_model: str = DEFAULT_OLLAMA_MODEL,
     project_context: str = "",
 ) -> dict[str, Any]:
-    if prefer_ollama and language.startswith("ru") and video_context.get("source_path"):
+    if prefer_ollama and video_context.get("source_path") and language[:2] in {"ru", "en"}:
         from state_planner import plan_from_video
 
-        planned = plan_from_video(video_context, ollama_model, project_context)
+        planned = plan_from_video(video_context, ollama_model, project_context, language)
         if planned:
             return {
                 "segments": planned,
@@ -3118,3 +3118,46 @@ Return JSON: {{ "text": "..." }}"""
         if candidate:
             return _clip_to_budget(candidate, target_sec, wpm)
     return _clip_to_budget(text, target_sec, wpm)
+
+
+def translation_lines(expected: list[str], payload: dict[str, Any] | None) -> list[str] | None:
+    """Accept a model reply only when it returns one English line per source line."""
+    raw = payload.get("lines") if isinstance(payload, dict) else None
+    if not isinstance(raw, list) or len(raw) != len(expected):
+        return None
+    out: list[str] = []
+    for source, item in zip(expected, raw):
+        if not str(source or "").strip():
+            out.append("")
+            continue
+        text = re.sub(r"\s+", " ", str(item or "")).strip().strip("«»\"")
+        if not text:
+            return None
+        out.append(text)
+    return out
+
+
+def translate_narration(
+    lines: list[str],
+    model: str = DEFAULT_OLLAMA_MODEL,
+    *,
+    source: str = "ru",
+    target: str = "en",
+) -> list[str]:
+    """Translate narration lines. The array length matches the input, including blanks."""
+    del source
+    if not lines:
+        return []
+    target_name = "English" if target.startswith("en") else target
+    ask = (
+        f"Translate each narration line into spoken {target_name}.\n"
+        "Keep the same meaning, the same order, and the same number of lines.\n"
+        "An empty source line stays an empty string. Do not add titles or notes.\n"
+        "Return JSON: {\"lines\": [\"...\", ...]}\n"
+        f"The array must contain exactly {len(lines)} strings.\n\n"
+        f"Lines:\n{json.dumps(lines, ensure_ascii=False)}"
+    )
+    parsed = translation_lines(lines, _try_ollama(ask, model=model, num_predict=1600, temperature=0.2))
+    if parsed is None:
+        raise ValueError("translation did not match the source lines")
+    return parsed

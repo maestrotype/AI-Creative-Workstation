@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   contiguousNarrationStarts,
+  exciseTimelineRange,
   moveClipWithRipple,
+  resizeClipAndRipple,
   sanitizeClips,
   splitClipAt,
   trimRunawayAudioClips,
@@ -45,6 +47,44 @@ describe('director timeline editing', () => {
     for (let i = 1; i < lane.length; i += 1) {
       expect(lane[i].startSec).toBeGreaterThanOrEqual(lane[i - 1].startSec + lane[i - 1].durationSec);
     }
+  });
+
+  it('cuts a middle span out and closes the gap on every track', () => {
+    const result = exciseTimelineRange([
+      clip('picture', 'v1', 0, 40),
+      clip('voice', 'a1', 0, 40),
+      clip('later', 'v1', 40, 10),
+    ], 12, 18);
+    const picture = result.filter((item) => item.track === 'v1').sort((a, b) => a.startSec - b.startSec);
+    expect(picture.map((item) => [item.startSec, item.durationSec])).toEqual([
+      [0, 12],
+      [12, 22],
+      [34, 10],
+    ]);
+    expect(picture[1].sourceInSec).toBe(19);
+    const voice = result.filter((item) => item.track === 'a1');
+    expect(voice.map((item) => [item.startSec, item.durationSec])).toEqual([[0, 12], [12, 22]]);
+  });
+
+  it('drops a clip that sits entirely inside the cut', () => {
+    const result = exciseTimelineRange([
+      clip('keep', 'v1', 0, 5),
+      clip('gone', 'v1', 6, 2),
+      clip('after', 'v1', 10, 4),
+    ], 5.5, 9);
+    expect(result.map((item) => item.id)).toEqual(['keep', 'after']);
+    expect(result.find((item) => item.id === 'after')?.startSec).toBe(6.5);
+  });
+
+  it('pushes later clips when a replaced chapter is longer', () => {
+    const result = resizeClipAndRipple([
+      clip('chapter', 'v1', 12, 20),
+      clip('next', 'v1', 32, 10),
+      clip('voice', 'a1', 32, 8),
+    ], 'chapter', 30);
+    expect(result.find((item) => item.id === 'chapter')?.durationSec).toBe(30);
+    expect(result.find((item) => item.id === 'next')?.startSec).toBe(42);
+    expect(result.find((item) => item.id === 'voice')?.startSec).toBe(42);
   });
 
   it('sanitizes legacy overlaps and trims runaway narration', () => {

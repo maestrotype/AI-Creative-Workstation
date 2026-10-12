@@ -1,5 +1,5 @@
 import type { TimelineClip } from './directorTimeline';
-import type { VoiceoverScript } from './voiceoverScript';
+import { segmentSpoken, type NarrationLang, type VoiceoverScript } from './voiceoverScript';
 
 function srtTime(sec: number): string {
   const ms = Math.max(0, Math.round(sec * 1000));
@@ -10,9 +10,13 @@ function srtTime(sec: number): string {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')},${String(millis).padStart(3, '0')}`;
 }
 
-export function captionClipsFromScript(script: VoiceoverScript, offsetSec = 0): TimelineClip[] {
+export function captionClipsFromScript(
+  script: VoiceoverScript,
+  offsetSec = 0,
+  lang: NarrationLang = 'ru',
+): TimelineClip[] {
   return script.segments
-    .filter((segment) => segment.text.trim() && segment.end_sec > segment.start_sec)
+    .filter((segment) => segmentSpoken(segment, lang) && segment.end_sec > segment.start_sec)
     .map((segment, index) => ({
       id: `caption-${Date.now().toString(36)}-${index}`,
       binId: null,
@@ -21,18 +25,22 @@ export function captionClipsFromScript(script: VoiceoverScript, offsetSec = 0): 
       durationSec: Math.max(0.4, segment.end_sec - segment.start_sec),
       sourceInSec: 0,
       label: `Caption ${index + 1}`,
-      text: segment.text.trim(),
+      text: segmentSpoken(segment, lang),
       autoLength: false,
     }));
 }
 
-export function scriptToSrt(script: VoiceoverScript, offsetSec = 0): string {
+export function scriptToSrt(
+  script: VoiceoverScript,
+  offsetSec = 0,
+  lang: NarrationLang = 'ru',
+): string {
   return script.segments
-    .filter((segment) => segment.text.trim() && segment.end_sec > segment.start_sec)
+    .filter((segment) => segmentSpoken(segment, lang) && segment.end_sec > segment.start_sec)
     .map((segment, index) => [
       String(index + 1),
       `${srtTime(segment.start_sec + offsetSec)} --> ${srtTime(segment.end_sec + offsetSec)}`,
-      segment.text.trim(),
+      segmentSpoken(segment, lang),
       '',
     ].join('\n'))
     .join('\n');

@@ -1186,6 +1186,39 @@
   position: relative;
 }
 
+.cutBand {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  pointer-events: none;
+  background: color-mix(in srgb, #e85d4c 32%, transparent);
+}
+
+.cutMark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  z-index: 6;
+  pointer-events: none;
+  background: #e85d4c;
+}
+
+.cutMarkLabel {
+  position: absolute;
+  top: 0;
+  left: 4px;
+  padding: 1px 4px;
+  border-radius: 2px;
+  background: #e85d4c;
+  color: #fff;
+  font-size: 10px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
 .ruler {
   position: relative;
   height: 1.6rem;
@@ -1346,6 +1379,26 @@
   display: flex;
   align-items: stretch;
   gap: var(--space-2);
+}
+
+.binReplace {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 0 0.45rem;
+  height: 1.75rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+
+.binReplace:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-border-default);
 }
 
 .binDelete,
@@ -1661,6 +1714,40 @@
   font: inherit;
   font-size: var(--text-body-sm);
   resize: vertical;
+}
+
+.voLangTabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  background: var(--color-bg-elevated);
+}
+
+.voLangTabs button {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.voLangTabs button[data-on='true'] {
+  color: var(--color-accent);
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-subtle);
+}
+
+.voLangTabs button:disabled {
+  cursor: default;
+  opacity: 0.7;
 }
 
 .voScriptCards {

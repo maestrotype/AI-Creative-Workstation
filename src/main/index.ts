@@ -13,6 +13,7 @@ import { eq } from 'drizzle-orm';
 import {
   createProject,
   deleteProject,
+  importImageBytesIntoProject,
   importIntoProject,
   listProjects,
   loadProject,
@@ -1463,6 +1464,20 @@ function setupIpc() {
 
   ipcMain.handle('delete-project', async (_, id: string) => ({ deleted: deleteProject(id) }));
 
+  ipcMain.handle('import-pasted-image-into-project', async (_, payload: {
+    projectId: string;
+    data: ArrayBuffer;
+    mime?: string;
+  }) => {
+    if (!payload?.projectId) throw new Error('project id is required');
+    const filePath = importImageBytesIntoProject(
+      payload.projectId,
+      Buffer.from(payload.data),
+      payload.mime,
+    );
+    return { file_path: filePath, poster_path: null };
+  });
+
   ipcMain.handle('import-into-project', async (_, payload: { projectId: string; path: string }) => {
     const filePath = importIntoProject(payload.projectId, payload.path);
     let posterPath: string | null = null;
@@ -1770,6 +1785,16 @@ function setupIpc() {
   }) => {
     await prepareOllamaForScript(broadcast);
     return sidecarJson('/api/script/generate', payload, 15 * 60 * 1000);
+  });
+
+  ipcMain.handle('translate-script', async (_, payload: {
+    lines: string[];
+    source?: string;
+    target?: string;
+    ollama_model?: string;
+  }) => {
+    await prepareOllamaForScript(broadcast);
+    return sidecarJson('/api/script/translate', payload, 3 * 60 * 1000);
   });
 
   ipcMain.handle('shorten-script', async (_, payload: {

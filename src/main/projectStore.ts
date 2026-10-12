@@ -79,6 +79,7 @@ export interface ProjectScene {
   id: string;
   title: string;
   prompt: string;
+  recordSteps: string;
   effectPrompt: string;
   textOverlay: string;
   durationSec: number;
@@ -197,6 +198,7 @@ export function emptyScene(title = ''): ProjectScene {
     id: randomUUID(),
     title,
     prompt: '',
+    recordSteps: '',
     effectPrompt: '',
     textOverlay: '',
     durationSec: 12,
@@ -331,6 +333,19 @@ export function importIntoProject(projectId: string, src: string): string {
   const ext = extname(src) || '.bin';
   const dest = join(projectDir(projectId), `${Date.now()}-${randomUUID().slice(0, 8)}${ext}`);
   copyFileSync(src, dest);
+  return dest;
+}
+
+export function importImageBytesIntoProject(projectId: string, data: Buffer, mime?: string): string {
+  if (!data.byteLength) throw new Error('Empty image');
+  mkdirSync(projectDir(projectId), { recursive: true });
+  const raw = (mime || '').toLowerCase();
+  let ext = '.png';
+  if (raw.includes('jpeg') || raw.includes('jpg')) ext = '.jpg';
+  else if (raw.includes('webp')) ext = '.webp';
+  else if (raw.includes('png')) ext = '.png';
+  const dest = join(projectDir(projectId), `${Date.now()}-${randomUUID().slice(0, 8)}${ext}`);
+  writeFileSync(dest, data);
   return dest;
 }
 

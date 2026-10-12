@@ -9,7 +9,7 @@ _SIDEcar_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SIDEcar_ROOT not in sys.path:
     sys.path.insert(0, _SIDEcar_ROOT)
 
-from script_llm import DEFAULT_OLLAMA_MODEL, generate_voiceover_script, shorten_spoken
+from script_llm import DEFAULT_OLLAMA_MODEL, generate_voiceover_script, shorten_spoken, translate_narration
 
 router = APIRouter()
 
@@ -147,3 +147,30 @@ def shorten_script_route(request: ScriptShortenRequest):
     if not text.strip():
         raise HTTPException(status_code=500, detail="Shorten produced empty text")
     return {"text": text}
+
+
+class ScriptTranslateRequest(BaseModel):
+    lines: list[str]
+    source: str = "ru"
+    target: str = "en"
+    ollama_model: str = DEFAULT_OLLAMA_MODEL
+
+
+@router.post("/script/translate")
+def translate_script_route(request: ScriptTranslateRequest):
+    if not request.lines:
+        return {"lines": []}
+    from script_llm import _list_ollama_models
+
+    if not _list_ollama_models():
+        raise HTTPException(status_code=503, detail="OLLAMA_SCRIPT_FAILED")
+    try:
+        lines = translate_narration(
+            request.lines,
+            request.ollama_model,
+            source=request.source,
+            target=request.target,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"lines": lines}

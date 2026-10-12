@@ -69,9 +69,9 @@ describe('chapter narration plan', () => {
       rows.map((row) => row.bin),
       { script, brief: 'Angular 3D Ecommerce' },
     );
-    expect(plan).toHaveLength(8);
-    expect(plan[0].title).toBe('Что это');
-    expect(plan[0].draft).toContain('Angular 3D Ecommerce');
+    expect(plan).toHaveLength(9);
+    expect(plan[0].title).toBe('Что это за продукт');
+    expect(plan[0].draft).toContain('Angular 17');
     expect(plan[0].startSec).toBe(0);
     expect(plan[0].endSec).toBe(40);
     expect(plan[2].startSec).not.toBe(MARKETPLACE_V0_BLOCKS[2].startSec);
