@@ -61,6 +61,20 @@ describe('alignedNarrationStarts', () => {
     expect(aligned.starts).toEqual([0, 12, 54.8]);
   });
 
+  it('does not move the last lines in front of line 2', () => {
+    const durations = [6.8, 4.9, 6.4, 5.9, 6.2, 7.9, 8.5, 6.4, 6.9, 6.2, 6.2, 10.4];
+    const aligned = alignedNarrationStarts(
+      durations,
+      durations.map((_, index) => (index === 0 ? 1.95 : 20 + index * 15)),
+      [
+        { title: 'Open', startSec: 12, endSec: 40 },
+        { title: 'Rest', startSec: 40, endSec: 400 },
+      ],
+    );
+    expect(aligned.starts[11]).toBeGreaterThan(aligned.starts[2]);
+    expect(aligned.starts[10]).toBeGreaterThan(aligned.starts[1]);
+  });
+
   it('keeps the next line on its picture when the previous sentence is longer', () => {
     const aligned = alignedNarrationStarts([16.8, 20], [0, 12], threeChapters.slice(0, 2));
     expect(aligned.starts).toEqual([0, 12]);

@@ -24,6 +24,7 @@ export function v1ChapterSpans(
     .filter((clip) => clip.track === 'v1' && clip.binId)
     .map((clip) => {
       const bin = bins.find((item) => item.id === clip.binId);
+      // Opening and closing cards are stills. They are chapters of the film.
       if (!bin || (bin.kind !== 'video' && bin.kind !== 'image')) return null;
       const dur = Math.max(0.5, clip.durationSec || bin.durationSec || 0);
       return {
@@ -110,4 +111,41 @@ export function chaptersPayload(chapters: ChapterWindow[]): Array<{
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/**
+ * One spoken line per chapter, from the text already written on the chapter card.
+ * Returns null when any chapter has no line, so the caller can ask the model.
+ */
+export function scriptFromChapterDrafts(
+  chapters: ChapterWindow[],
+  scenePrompts: Array<{ title: string; prompt: string }> = [],
+): VoiceoverScript | null {
+  if (chapters.length < 2) return null;
+  const byTitle = new Map(
+    scenePrompts
+      .map((scene) => [scene.title.trim(), scene.prompt.trim()] as const)
+      .filter((entry) => entry[1]),
+  );
+  const lines = chapters.map((chapter) => byTitle.get(chapter.title.trim()) || chapter.draft.trim());
+  if (lines.some((line) => !line)) return null;
+  return {
+    segments: chapters.map((chapter, index) => ({
+      start_sec: round2(chapter.startSec),
+      end_sec: round2(chapter.endSec),
+      anchor_sec: round2(chapter.startSec),
+      text: lines[index],
+      role: index === 0 ? 'hook' : index === chapters.length - 1 ? 'cta' : 'body',
+      purpose: chapter.title,
+      visual_summary: chapter.intent,
+    })),
+    meta: {
+      tone: 'commercial',
+      language: 'ru',
+      words_per_min: 130,
+      provider: 'chapters',
+      model: 'authored-chapters',
+      script_version: Date.now(),
+    },
+  };
 }

@@ -35,6 +35,7 @@ class ScriptMetaOut(BaseModel):
     scene_count: Optional[int] = None
     visual_quality: Optional[str] = None
     vision_model: Optional[str] = None
+    note: Optional[str] = None
 
 
 class ScriptGenerateRequest(BaseModel):
@@ -184,6 +185,89 @@ class ScriptTranslateRequest(BaseModel):
     source: str = "ru"
     target: str = "en"
     ollama_model: str = DEFAULT_OLLAMA_MODEL
+
+
+class FitBeatIn(BaseModel):
+    start: float
+    end: float
+    target_words: int = Field(default=12, ge=4, le=80)
+    brief: str = ""
+    seen: str = ""
+
+
+class FitChapterIn(BaseModel):
+    title: str = ""
+    script: str = ""
+    beats: list[FitBeatIn]
+
+
+class FitChaptersRequest(BaseModel):
+    chapters: list[FitChapterIn]
+    language: str = "ru"
+    ollama_model: str = DEFAULT_OLLAMA_MODEL
+
+
+@router.post("/script/fit-chapters", response_model=ScriptGenerateResponse)
+def fit_chapters_route(request: FitChaptersRequest):
+    if not request.chapters:
+        raise HTTPException(status_code=400, detail="chapters are required")
+    from api.generation import (
+        cancel_idle_release,
+        clear_runtime_job,
+        release_heavy_for_other_work,
+        run_on_gpu_blocking,
+        set_runtime_job,
+    )
+    import time as _time
+
+    from chapter_fit import fit_chapters
+    from script_llm import _list_ollama_models
+
+    cancel_idle_release()
+    set_runtime_job(
+        active=True,
+        kind="script",
+        stage="llm",
+        percent=20,
+        detail="fitting chapter length",
+        model_id=request.ollama_model,
+        started_at=_time.time(),
+        error=None,
+        cancel=False,
+    )
+    try:
+        run_on_gpu_blocking(release_heavy_for_other_work)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[script] heavy-model release skipped: {exc}", flush=True)
+    try:
+        if not _list_ollama_models():
+            raise HTTPException(status_code=503, detail="OLLAMA_SCRIPT_FAILED")
+        segments = fit_chapters(
+            [chapter.model_dump() for chapter in request.chapters],
+            request.ollama_model,
+        )
+        if not segments:
+            raise HTTPException(status_code=502, detail="CHAPTER_FIT_EMPTY")
+        short = any(bool(seg.pop("short", False)) for seg in segments)
+        return ScriptGenerateResponse(
+            segments=[ScriptSegmentOut(**seg) for seg in segments],
+            meta=ScriptMetaOut(
+                tone="directed",
+                language=request.language,
+                words_per_min=130,
+                provider="ollama",
+                model=request.ollama_model,
+                planner="chapter-length",
+                scene_count=len(request.chapters),
+                note="SHORT" if short else None,
+            ),
+        )
+    except HTTPException:
+        raise
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        clear_runtime_job()
 
 
 @router.post("/script/translate")

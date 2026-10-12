@@ -476,7 +476,7 @@ function StageBrief(): ReactNode {
           type="button"
           className={vp.toolPrimary}
           onClick={d.chapterCount >= 2 ? d.replaceOwnNarration : d.generateScript}
-          disabled={busy || (d.chapterCount < 2 && !d.voiceover.analysis)}
+          disabled={busy || !d.voiceover.analysis}
         >
           {busy
             ? d.t('video.vo_script_generating')
@@ -485,7 +485,6 @@ function StageBrief(): ReactNode {
               : d.t('video.vo_script_generate')}
         </button>
       </div>
-      {d.scriptError ? <p className={vp.error}>{d.scriptError}</p> : null}
     </div>
   );
 }

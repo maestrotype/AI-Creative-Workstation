@@ -47,6 +47,16 @@ function clock(sec: number): string {
   return `${min}:${String(rest).padStart(2, '0')}`;
 }
 
+function comparePieces(a: NarrationPiece, b: NarrationPiece): number {
+  if (a.startSec !== b.startSec) return a.startSec - b.startSec;
+  const an = Number(a.id);
+  const bn = Number(b.id);
+  const aNumeric = Number.isInteger(an) && String(an) === a.id;
+  const bNumeric = Number.isInteger(bn) && String(bn) === b.id;
+  if (aNumeric && bNumeric) return an - bn;
+  return a.id.localeCompare(b.id);
+}
+
 function chapterAt(chapters: PictureSpan[], time: number): PictureSpan | null {
   return chapters.find((chapter) => time >= chapter.startSec - 0.05 && time < chapter.endSec - 0.05) ?? null;
 }
@@ -148,10 +158,7 @@ export function planNarrationAlign(chapters: PictureSpan[], pieces: NarrationPie
   const pics = [...chapters]
     .filter((chapter) => chapter.endSec - chapter.startSec >= 0.4)
     .sort((a, b) => a.startSec - b.startSec);
-  const lines = pieces
-    .map((piece, index) => ({ piece, index }))
-    .sort((a, b) => a.piece.startSec - b.piece.startSec || a.index - b.index)
-    .map((row) => row.piece);
+  const lines = [...pieces].sort(comparePieces);
   if (!pics.length || !lines.length) {
     return {
       placements: lines.map((line) => ({ id: line.id, startSec: line.startSec })),

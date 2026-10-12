@@ -89,8 +89,10 @@ import {
 } from '../model/chapterNarration';
 import { buildRenderPlan } from '../model/renderPlan';
 import { captionClipsFromScript, scriptToSrt } from '../model/captions';
+import { pushNotice } from '../../../shared/lib/notice';
+import { pictureNotesFromAnalysis, planChapterCoverage } from '../model/chapterCoverage';
+import { countWords } from '../model/chapterSpeech';
 import { pictureSlots, planNarrationAlign, speechLockPlan } from '../model/narrationAlign';
-import { countWords, lineNeedsFit, NARRATION_WPM, planSpeechBeats } from '../model/chapterSpeech';
 
 const LABEL_W = 118;
 
@@ -573,6 +575,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const [voiceoverProgress, setVoiceoverProgress] = useState({ stage: 'idle', percent: 0, detail: '' });
   const [scriptBusy, setScriptBusy] = useState(false);
   const [scriptError, setScriptError] = useState<string | null>(null);
+  const fitGuardRef = useRef('');
   const [scriptModel, setScriptModel] = useState('qwen2.5:14b');
   const [voiceoverApplyBusy, setVoiceoverApplyBusy] = useState(false);
   const [voiceoverApplyError, setVoiceoverApplyError] = useState<string | null>(null);
@@ -2256,107 +2259,121 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       await applyScriptVoiceover();
     } catch (err) {
       const msg = ipcMessage(err, t('video.vo_script_fail'));
-      setScriptError(
-        /OLLAMA_SCRIPT_FAILED/i.test(msg) ? t('video.vo_script_ollama_fail') : msg,
-      );
+      const shown = /CHAPTER_FIT_EMPTY|CHAPTER_FIT_SHORT/i.test(msg)
+        ? t('video.vo_script_fit_empty')
+        : /OLLAMA_SCRIPT_FAILED/i.test(msg)
+          ? t('video.vo_script_ollama_fail')
+          : msg;
+      setScriptError(shown);
+      pushNotice(shown);
     } finally {
       setScriptBusy(false);
     }
   };
 
   const replaceOwnNarration = async () => {
-    const spans = v1ChapterSpans(clipsRef.current, binsRef.current);
-    if (spans.length < 2) {
-      const ctx = voiceoverRef.current.analysis ?? await analyzeVoiceover(false);
-      if (!ctx) return;
-      await generateScript(ctx);
-      return;
-    }
+    const session = voiceoverRef.current;
+    const plan = buildChapterPlan(clipsRef.current, binsRef.current, {
+      script: session.script,
+      brief: filmBrief,
+      prompt: session.scriptPrompt,
+    });
     setScriptError(null);
     setVoiceoverError(null);
     setScriptBusy(true);
     setVoiceoverProgress({
       stage: 'script',
       percent: 8,
-      detail: 'Беру готовый текст глав и считаю слова по длине кадра…',
+      detail: 'Читаю текст глав…',
     });
+    let signature = '';
     try {
-      let scripts = spans.map(() => '');
+      let scenePrompts: Array<{ title: string; prompt: string }> = [];
       if (scopeIdRef.current && window.api?.loadProject) {
         const doc = await window.api.loadProject(scopeIdRef.current) as ProjectDoc | null;
-        const scenes = doc?.scenes ?? [];
-        scripts = spans.map((span, index) => {
-          const named = scenes.find((scene) => scene.title.trim() === span.title.trim());
-          return (named?.prompt || scenes[index]?.prompt || '').trim();
-        });
+        scenePrompts = (doc?.scenes ?? []).map((scene) => ({ title: scene.title, prompt: scene.prompt }));
       }
-      const beats = planSpeechBeats(spans.map((span, index) => ({
-        title: span.title,
-        startSec: span.startSec,
-        endSec: span.endSec,
-        script: scripts[index] || '',
-      })));
-      const analysis = voiceoverRef.current.analysis;
-      const lines: VoiceoverScript['segments'] = [];
-      for (let index = 0; index < beats.length; index += 1) {
-        const beat = beats[index];
-        const windowSec = Math.max(0.8, beat.endSec - beat.startSec);
-        let text = beat.brief || beat.script;
-        if (lineNeedsFit(text, beat.targetWords) !== 'keep' && beat.script && window.api?.expandScript) {
-          setVoiceoverProgress({
-            stage: 'script',
-            percent: 12 + Math.round((index / Math.max(1, beats.length)) * 35),
-            detail: `«${beat.title}»: в сценарии ${countWords(beat.script)} слов, этой части нужно ${beat.targetWords}.`,
-          });
-          const seen = (analysis?.scene_analysis ?? [])
-            .filter((row) => Math.min(beat.endSec, row.end) - Math.max(beat.startSec, row.start) > 0.2)
-            .map((row) => row.visual_summary || row.caption || '')
-            .filter(Boolean)
-            .join(' ')
-            .slice(0, 400);
-          try {
-            const expanded = await window.api.expandScript({
-              text: beat.script,
-              brief: beat.brief,
-              target_sec: windowSec,
-              language: 'ru',
-              seen,
-              part: beat.part,
-              parts: beat.parts,
-            });
-            if (expanded.text?.trim()) text = expanded.text.trim();
-          } catch {
-            /* The ready chapter text stays. A later pass can still lengthen it after the voice is measured. */
-          }
-        }
-        lines.push({
-          start_sec: beat.startSec,
-          end_sec: beat.endSec,
-          anchor_sec: beat.startSec,
-          text,
-          role: index === 0 ? 'hook' : index === lines.length ? 'cta' : 'body',
-          purpose: beat.title,
-          visual_summary: beat.brief || beat.script,
-          estimated_sec: Math.round((countWords(text) / NARRATION_WPM) * 60 * 10) / 10,
+      const chapters = plan.map((chapter) => {
+        const written = scenePrompts.find((scene) => scene.title.trim() === chapter.title.trim())?.prompt.trim();
+        return written ? { ...chapter, draft: written } : chapter;
+      }).filter((chapter) => chapter.draft.trim());
+      if (chapters.length < 2 || !window.api?.fitChapterScript) {
+        setVoiceoverProgress({
+          stage: 'script',
+          percent: 8,
+          detail: 'Читаю кадры и пишу озвучку…',
         });
+        const ctx = session.analysis ?? await analyzeVoiceover(false);
+        if (!ctx) return;
+        await generateScript(ctx, plan);
+        return;
       }
-      lines.forEach((line, index) => {
-        line.role = index === 0 ? 'hook' : index === lines.length - 1 ? 'cta' : 'body';
+      let analysis = session.analysis;
+      if (!analysis?.scene_analysis?.length) {
+        setVoiceoverProgress({
+          stage: 'script',
+          percent: 12,
+          detail: 'Смотрю, что происходит внутри глав…',
+        });
+        analysis = await analyzeVoiceover(false) ?? analysis;
+      }
+      const coverage = planChapterCoverage(chapters, pictureNotesFromAnalysis(analysis?.scene_analysis));
+      signature = coverage
+        .map((chapter) => `${chapter.title}|${chapter.script}|${chapter.targetWords}|${Math.round(chapter.durationSec)}`)
+        .join('\n');
+      if (fitGuardRef.current === signature) {
+        setVoiceoverProgress({
+          stage: 'script',
+          percent: 100,
+          detail: t('video.vo_script_fit_same'),
+        });
+        return;
+      }
+      const longest = [...coverage].sort((a, b) => b.durationSec - a.durationSec)[0];
+      setVoiceoverProgress({
+        stage: 'script',
+        percent: 28,
+        detail: longest
+          ? `«${longest.title}» ${Math.round(longest.durationSec)} с: в сценарии ${longest.authoredWords} слов, по длине нужно ${longest.targetWords}. Пишу…`
+          : 'Пишу текст по длине глав…',
       });
-      if (!lines.some((line) => line.text.trim())) {
-        throw new Error('В главах нет готового текста.');
-      }
+      const fitted = await window.api.fitChapterScript({
+        chapters: coverage.map((chapter) => ({
+          title: chapter.title,
+          script: chapter.script,
+          beats: chapter.beats.map((beat) => ({
+            start: beat.startSec,
+            end: beat.endSec,
+            target_words: beat.targetWords,
+            brief: beat.brief,
+            seen: beat.seen,
+          })),
+        })),
+        language: 'ru',
+        ollama_model: scriptModel,
+      });
       const script: VoiceoverScript = {
-        segments: lines,
+        segments: fitted.segments.map((seg) => ({
+          start_sec: seg.start_sec,
+          end_sec: seg.end_sec,
+          anchor_sec: seg.anchor_sec ?? seg.start_sec,
+          text: seg.text,
+          role: seg.role,
+          purpose: seg.purpose,
+          visual_summary: seg.visual_summary,
+          estimated_sec: seg.estimated_sec,
+        })),
         meta: {
-          tone: 'directed',
-          language: 'ru',
-          words_per_min: NARRATION_WPM,
-          provider: 'ollama',
-          model: scriptModel,
+          ...fitted.meta,
           script_version: Date.now(),
         },
       };
+      if (fitted.meta.note === 'SHORT') {
+        fitGuardRef.current = signature;
+        pushNotice(t('video.vo_script_fit_short'), 'info');
+      } else {
+        fitGuardRef.current = '';
+      }
       const nextSession = {
         ...voiceoverRef.current,
         script,
@@ -2365,7 +2382,6 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       };
       voiceoverRef.current = nextSession;
       setVoiceover(nextSession);
-      setClips((prev) => prev.filter((clip) => clip.track !== 'a1'));
       setVoiceoverProgress({
         stage: 'voice',
         percent: 55,
@@ -2373,7 +2389,15 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       });
       await applyScriptVoiceover();
     } catch (err) {
-      setScriptError(ipcMessage(err, t('video.vo_script_fail')));
+      const msg = ipcMessage(err, t('video.vo_script_fail'));
+      const shown = /CHAPTER_FIT_EMPTY|CHAPTER_FIT_SHORT/i.test(msg)
+        ? t('video.vo_script_fit_empty')
+        : /OLLAMA_SCRIPT_FAILED/i.test(msg)
+          ? t('video.vo_script_ollama_fail')
+          : msg;
+      if (/CHAPTER_FIT_EMPTY|CHAPTER_FIT_SHORT/i.test(msg) && signature) fitGuardRef.current = signature;
+      setScriptError(shown);
+      pushNotice(shown);
     } finally {
       setScriptBusy(false);
     }

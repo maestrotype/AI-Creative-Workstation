@@ -1787,6 +1787,19 @@ function setupIpc() {
     return sidecarJson('/api/script/generate', payload, 15 * 60 * 1000);
   });
 
+  ipcMain.handle('fit-chapter-script', async (_, payload: {
+    chapters: Array<{
+      title: string;
+      script: string;
+      beats: Array<{ start: number; end: number; target_words: number; brief: string; seen: string }>;
+    }>;
+    language?: string;
+    ollama_model?: string;
+  }) => {
+    await prepareOllamaForScript(broadcast);
+    return sidecarJson('/api/script/fit-chapters', payload, 15 * 60 * 1000);
+  });
+
   ipcMain.handle('translate-script', async (_, payload: {
     lines: string[];
     source?: string;
