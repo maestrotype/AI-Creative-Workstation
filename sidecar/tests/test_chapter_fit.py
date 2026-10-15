@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chapter_fit import chapter_prompt, fit_chapters, line_gap, word_count  # noqa: E402
+from chapter_fit import chapter_prompt, drop_paraphrases, fit_chapters, line_gap, word_count  # noqa: E402
 
 FULL = "Корзина показывает имя товара, цену и итог, а дальше открывается оформление заказа."
 
@@ -66,7 +66,8 @@ class ChapterFitTests(unittest.TestCase):
 
         segments = fit_chapters([chapter()], "qwen", ask=ask)
         self.assertEqual(len(segments), 2)
-        self.assertGreaterEqual(word_count(segments[0]["text"]), 9)
+        self.assertGreaterEqual(word_count(segments[0]["text"]), 6)
+        self.assertIn("Корзина", segments[0]["text"])
         self.assertFalse(segments[0]["short"])
 
     def test_a_line_that_stays_shorter_than_the_chapter_is_still_returned(self):
@@ -84,6 +85,48 @@ class ChapterFitTests(unittest.TestCase):
         self.assertEqual(len(segments), 2)
         self.assertTrue(segments[0]["short"])
         self.assertIn("Корзина", segments[0]["text"])
+
+    def test_paraphrase_padding_is_dropped(self):
+        text = (
+            "Все файлы для магазина уже в комплекте, свой 3D-художник не нужен. "
+            "Те же файлы лежат в комплекте, магазин открывается без своего 3D-художника."
+        )
+        cleaned = drop_paraphrases(text)
+        self.assertIn("комплекте", cleaned.lower())
+        self.assertNotIn("Те же файлы", cleaned)
+
+    def test_chapter_breath_leaves_a_gap_between_chapters(self):
+        first = chapter()
+        first["title"] = "Hero"
+        first["place"] = "open"
+        first["media_kind"] = "image"
+        first["beats"] = [
+            {"start": 0.0, "end": 12.0, "target_words": 12, "brief": "Это магазин на Angular.", "seen": "титул", "job": "say"},
+        ]
+        second = chapter()
+        second["title"] = "Главная"
+        second["place"] = "mid"
+        second["beats"][0]["start"] = 12.0
+        second["beats"][0]["end"] = 24.0
+        second["beats"][1]["start"] = 24.0
+        second["beats"][1]["end"] = 36.0
+
+        def ask(_prompt: str):
+            if "Hero" in _prompt:
+                return {"lines": [FULL]}
+            return {"lines": [FULL, FULL]}
+
+        segments = fit_chapters([first, second], "qwen", ask=ask)
+        self.assertLess(segments[0]["end_sec"], 12.0)
+        self.assertGreaterEqual(segments[1]["start_sec"] - segments[0]["end_sec"], 0.5)
+
+    def test_prompt_asks_for_a_short_still_intro(self):
+        first = chapter()
+        first["place"] = "open"
+        first["media_kind"] = "image"
+        prompt = chapter_prompt(first, [])
+        self.assertIn("открывающий скрин", prompt)
+        self.assertIn("тавтология", prompt.lower())
 
 
 if __name__ == "__main__":

@@ -2361,12 +2361,15 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         chapters: coverage.map((chapter) => ({
           title: chapter.title,
           script: chapter.script,
+          place: chapter.place,
+          media_kind: chapter.mediaKind,
           beats: chapter.beats.map((beat) => ({
             start: beat.startSec,
             end: beat.endSec,
             target_words: beat.targetWords,
             brief: beat.brief,
             seen: beat.seen,
+            job: beat.job,
           })),
         })),
         language: 'ru',

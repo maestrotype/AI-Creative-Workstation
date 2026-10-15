@@ -14,12 +14,14 @@ export interface ChapterWindow {
   draft: string;
   /** What the author actually said in this window. */
   said: string;
+  /** Opening/closing cards are stills; screencast chapters are video. */
+  mediaKind: 'video' | 'image';
 }
 
 export function v1ChapterSpans(
   clips: TimelineClip[],
   bins: BinItem[],
-): Array<{ title: string; startSec: number; endSec: number }> {
+): Array<{ title: string; startSec: number; endSec: number; mediaKind: 'video' | 'image' }> {
   return clips
     .filter((clip) => clip.track === 'v1' && clip.binId)
     .map((clip) => {
@@ -31,9 +33,10 @@ export function v1ChapterSpans(
         title: (clip.label || bin.name || '').trim() || 'Глава',
         startSec: clip.startSec,
         endSec: clip.startSec + dur,
+        mediaKind: bin.kind === 'image' ? 'image' as const : 'video' as const,
       };
     })
-    .filter((row): row is { title: string; startSec: number; endSec: number } => Boolean(row))
+    .filter((row): row is { title: string; startSec: number; endSec: number; mediaKind: 'video' | 'image' } => Boolean(row))
     .sort((a, b) => a.startSec - b.startSec);
 }
 
@@ -72,6 +75,7 @@ export function buildChapterPlan(
       intent: (draft?.visual_summary || block?.shootRu || '').trim(),
       draft: (draft?.text || block?.voiceoverRu || '').trim(),
       said: '',
+      mediaKind: span.mediaKind,
     };
   });
 }

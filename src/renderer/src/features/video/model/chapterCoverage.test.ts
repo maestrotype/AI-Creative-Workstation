@@ -4,7 +4,7 @@ import { beatBounds, countWords, planChapterCoverage, wordsForSeconds } from './
 import type { ChapterWindow } from './chapterNarration';
 
 function chapter(title: string, start: number, end: number, draft: string): ChapterWindow {
-  return { title, startSec: start, endSec: end, intent: '', draft, said: '' };
+  return { title, startSec: start, endSec: end, intent: '', draft, said: '', mediaKind: 'video' };
 }
 
 describe('chapter coverage', () => {
@@ -23,10 +23,21 @@ describe('chapter coverage', () => {
     expect(long.beats.length).toBeGreaterThan(4);
     expect(long.beats[0].startSec).toBe(79.27);
     expect(long.beats[long.beats.length - 1].endSec).toBe(188.07);
-    expect(long.targetWords).toBeGreaterThan(long.authoredWords * 3);
-    expect(long.targetWords).toBeGreaterThan(wordsForSeconds(100));
+    // Without picture notes, word budgets stay near the authored meaning — no tautology pad.
+    expect(long.targetWords).toBeGreaterThan(long.authoredWords);
+    expect(long.targetWords).toBeLessThan(wordsForSeconds(100));
     const covered = long.beats.reduce((sum, beat) => sum + (beat.endSec - beat.startSec), 0);
     expect(covered).toBeCloseTo(108.8, 0);
+  });
+
+  it('asks for a full word budget when the picture note gives something new to say', () => {
+    const cart = 'Дальше корзина и оплата.';
+    const plan = planChapterCoverage(
+      [chapter('Корзина', 0, 30, cart)],
+      [{ start: 0, end: 15, text: 'окно корзины с итогом' }, { start: 15, end: 30, text: 'выбор Stripe' }],
+    );
+    expect(plan[0].beats.every((beat) => beat.seen.trim())).toBe(true);
+    expect(plan[0].targetWords).toBeGreaterThanOrEqual(wordsForSeconds(28));
   });
 
   it('follows picture cuts and keeps the ready sentence on each beat', () => {
