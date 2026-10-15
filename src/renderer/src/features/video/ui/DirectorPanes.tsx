@@ -11,7 +11,7 @@ import {
   type TrackId,
 } from '../model/directorTimeline';
 import { promptForPurpose, SHOT_DURATION_PROFILES, sameProductAsset } from '../model/autoAssemble';
-import { shotCardTitle, shotProviderShort, mediaBinDisplayName } from '../model/clipDisplayName';
+import { shotCardTitle, shotModelLabel, shotProviderShort, mediaBinDisplayName } from '../model/clipDisplayName';
 import type { ShotPurpose } from '../../projects/model/project';
 import { toAssetUrl } from '../model/directorMedia';
 import { DirectorPreview } from './DirectorPreview';
@@ -496,13 +496,17 @@ export function DirectorGeneratePane(): ReactNode {
   return (
     <div className={`${styles.paneFill} ${styles.generatePane}`}>
       <p className={styles.hintTight}>
-        Локальные модели: вставка на плейхед, замена выбранного клипа, раскадровка во вкладке «Идея».
+        {d.t('video.ai_where', {
+          time: formatClock(d.playhead),
+          name: d.activeClip?.label ? d.t('video.ai_where_name', { label: d.activeClip.label }) : '',
+        })}
       </p>
       <div className={styles.toolRow}>
         <button
           type="button"
           className={styles.toolBtn}
           disabled={d.aiBusy || !d.productStillPath}
+          title={d.t('video.ai_insert_tip')}
           onClick={() => openAi('insert')}
         >
           {d.t('video.ai_generate_insert')}
@@ -511,6 +515,7 @@ export function DirectorGeneratePane(): ReactNode {
           type="button"
           className={styles.toolBtn}
           disabled={d.aiBusy || !d.productStillPath || !canReplace}
+          title={d.t('video.ai_replace_tip')}
           onClick={() => openAi('replace')}
         >
           {d.t('video.ai_regenerate')}
@@ -519,6 +524,7 @@ export function DirectorGeneratePane(): ReactNode {
           type="button"
           className={styles.toolBtn}
           disabled={d.aiBusy || !d.productStillPath}
+          title={d.t('video.ai_shot_tip')}
           onClick={() => openAi('shot')}
         >
           {d.t('video.ai_generate_shot')}
@@ -672,6 +678,7 @@ export function DirectorSourcesPane({
             type="button"
             className={styles.toolBtn}
             disabled={d.aiBusy || !d.productStillPath}
+            title={d.t('video.ai_shot_tip')}
             onClick={() => openAi('shot')}
           >
             {d.t('video.ai_generate_shot')}
@@ -680,6 +687,7 @@ export function DirectorSourcesPane({
             type="button"
             className={styles.toolBtn}
             disabled={d.aiBusy || !d.productStillPath}
+            title={d.t('video.ai_insert_tip')}
             onClick={() => openAi('insert')}
           >
             {d.t('video.ai_generate_insert')}
@@ -688,6 +696,7 @@ export function DirectorSourcesPane({
             type="button"
             className={styles.toolBtn}
             disabled={d.aiBusy || !d.productStillPath || !d.activeClip || !d.activeClip.track.startsWith('v')}
+            title={d.t('video.ai_replace_tip')}
             onClick={() => openAi('replace')}
           >
             {d.t('video.ai_regenerate')}
@@ -766,11 +775,30 @@ export function DirectorSourcesPane({
         <div className={styles.shotBin}>
           <div className={styles.shotBinHead}>
             <strong>{d.t('video.shot_bin', { count: d.shots.length })}</strong>
-            {d.assemblyRationale ? <span>{d.assemblyRationale}</span> : null}
+            {compact ? (
+              <span>{d.t('video.shot_bin_hint')}</span>
+            ) : d.assemblyRationale ? (
+              <span>{d.assemblyRationale}</span>
+            ) : null}
           </div>
           <ul className={styles.shotList}>
-            {d.shots.map((shot) => (
-              <li key={shot.id} className={styles.shotRow} data-status={shot.validationStatus}>
+            {d.shots.map((shot) => {
+              const bin = d.bins.find((item) => item.shotId === shot.id);
+              const clip = bin ? d.clips.find((item) => item.binId === bin.id) : null;
+              const onTimeline = Boolean(clip);
+              const modelFull = shotProviderShort(shot);
+              const flags = [
+                shot.validationStatus && shot.validationStatus !== 'ok' ? shot.validationStatus : '',
+                shot.productIdentityWarning ? 'identity' : '',
+                d.productStillPath && (!shot.sourceAsset || !sameProductAsset(shot.sourceAsset, d.productStillPath)) ? 'other product' : '',
+              ].filter(Boolean);
+              return (
+              <li
+                key={shot.id}
+                className={styles.shotRow}
+                data-status={shot.validationStatus}
+                data-on={onTimeline ? 'true' : 'false'}
+              >
                 {shot.artifactPath ? (
                   <video
                     className={styles.shotThumb}
@@ -797,31 +825,41 @@ export function DirectorSourcesPane({
                       }
                     }}
                     onClick={() => previewShot(shot.id)}
-                    title={d.t('video.shot_add')}
+                    title={onTimeline ? d.t('video.shot_goto') : d.t('video.shot_place')}
                   />
                 ) : (
                   <span className={styles.shotThumb} />
                 )}
                 <div className={styles.shotMeta}>
                   <strong>{shotCardTitle(shot)}</strong>
-                  <span>
-                    {`AI · ${shotProviderShort(shot)}`}
-                    {shot.duration ? ` · ${shot.duration.toFixed(1)}s` : ''}
-                    {shot.validationStatus === 'ok' ? '' : shot.validationStatus ? ` · ${shot.validationStatus}` : ''}
-                    {shot.productIdentityWarning ? ' · identity' : ''}
-                    {d.productStillPath && (!shot.sourceAsset || !sameProductAsset(shot.sourceAsset, d.productStillPath)) ? ' · other product' : ''}
+                  <span className={styles.shotFacts}>
+                    {shot.duration ? `${shot.duration.toFixed(1)}s` : '—'}
+                    {' · '}
+                    {onTimeline ? d.t('video.dir_on_timeline') : d.t('video.shot_off_timeline')}
+                  </span>
+                  <span className={styles.shotModel} title={modelFull}>
+                    {shotModelLabel(shot)}
+                    {flags.length ? ` · ${flags.join(' · ')}` : ''}
                   </span>
                 </div>
                 <div className={styles.shotActions}>
-                  <button type="button" className={styles.toolBtn} onClick={() => d.addShotToTimeline(shot.id)}>
-                    {d.t('video.shot_add')}
+                  <button
+                    type="button"
+                    className={onTimeline ? styles.toolBtn : styles.toolPrimary}
+                    onClick={() => {
+                      if (clip) d.seekTo(clip.startSec);
+                      else d.addShotToTimeline(shot.id);
+                    }}
+                  >
+                    {onTimeline ? d.t('video.shot_goto') : d.t('video.shot_place')}
                   </button>
                   <button type="button" className={styles.toolBtn} onClick={() => d.removeShot(shot.id)}>
-                    {d.t('video.shot_remove')}
+                    {d.t(compact ? 'video.shot_dismiss' : 'video.shot_remove')}
                   </button>
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
           <div className={styles.assembleRow} hidden={compact}>
             <label>
@@ -916,6 +954,8 @@ export function DirectorSourcesPane({
       <p className={styles.hintTight}>{d.t('video.dir_voice_help')}</p>
       ) : null}
       {d.bins.length === 0 ? <p className={styles.hintTight}>{d.t('video.dir_bin_empty')}</p> : (
+        <>
+        {compact ? <p className={styles.poolLabel}>{d.t('video.media_pool')}</p> : null}
         <ul className={styles.binList}>
           {d.bins.map((item) => {
             const onTimeline = d.clips.some((c) => c.binId === item.id);
@@ -966,6 +1006,7 @@ export function DirectorSourcesPane({
             );
           })}
         </ul>
+        </>
       )}
       <div className={styles.inspector} hidden={compact}>
         {d.activeBin ? (

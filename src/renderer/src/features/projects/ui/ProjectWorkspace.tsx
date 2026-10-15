@@ -6,12 +6,16 @@ import { useTranslation } from 'react-i18next';
 import { toAssetUrl } from '../../video/model/directorMedia';
 import { assembleShots, planToTimeline, productShotPresets } from '../../video/model/autoAssemble';
 import { writeLastProjectId } from '../model/handoff';
-import { composeClips, formatForPreset, marketplaceFilmSeed, newScene, normalizePreset, normalizeShotMotion, projectDuration, sceneHasMedia, shotFromGeneration, timelineFromScenes, timelinePictureMatchesScenePaths, type FilmPreset, type ProjectDoc, type ProjectScene } from '../model/project';
+import { composeClips, formatForPreset, marketplaceFilmSeed, newScene, normalizePreset, normalizeShotMotion, projectDuration, sceneHasMedia, shotFromGeneration, timelineFromScenes, timelineNeedsSceneRebuild, type FilmPreset, type ProjectDoc, type ProjectScene } from '../model/project';
 import styles from './ProjectsPage.module.css';
 
 function ipcMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
-  return raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '').trim();
+  const cleaned = raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '').trim();
+  if (/TimeoutError|aborted due to timeout/i.test(cleaned)) {
+    return 'Склейка не успела за отведённое время. Откройте «Продолжить озвучку» без склейки или сожмите длинные главы и нажмите «Склеить ролик» снова.';
+  }
+  return cleaned;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -666,7 +670,7 @@ export function ProjectWorkspace(): ReactNode {
   const goToDirector = async (voice = false) => {
     const latest = docRef.current ?? doc;
     writeLastProjectId(latest.id);
-    if (latest.scenes.some(sceneHasMedia) && !timelinePictureMatchesScenePaths(latest)) {
+    if (timelineNeedsSceneRebuild(latest)) {
       await persist({ ...latest, timeline: timelineFromScenes(latest) });
     }
     const id = (docRef.current ?? latest).id;
@@ -795,10 +799,10 @@ export function ProjectWorkspace(): ReactNode {
       });
       const copied = await window.api.importIntoProject({ projectId: latest.id, path: rendered.file_path });
       const after = docRef.current ?? latest;
+      // Keep the director cut. Stitch only writes the preview MP4.
       await persist({
         ...after,
         assembledPath: copied.file_path,
-        timeline: timelineFromScenes(after),
       });
       setStatus(t('projects.composed_ok'));
       return copied.file_path;
@@ -814,10 +818,12 @@ export function ProjectWorkspace(): ReactNode {
     const latest = docRef.current ?? doc;
     writeLastProjectId(latest.id);
     if (latest.scenes.some(sceneHasMedia)) {
-      const assembled = await compose();
-      if (!assembled) return;
-      const fresh = docRef.current ?? latest;
-      navigate(`/video?project=${encodeURIComponent(fresh.id)}&voice=1`);
+      // Voiceover uses the chapter cut on the director desk. Full MP4 stitch is optional.
+      if (timelineNeedsSceneRebuild(latest)) {
+        await persist({ ...latest, timeline: timelineFromScenes(latest) });
+      }
+      const id = (docRef.current ?? latest).id;
+      navigate(`/video?project=${encodeURIComponent(id)}&voice=1`);
       return;
     }
     if ((latest.shots ?? []).some((shot) => shot.artifactPath)) {

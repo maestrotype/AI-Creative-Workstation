@@ -1070,10 +1070,115 @@
   font-size: var(--text-caption);
 }
 
+.shotFacts,
+.shotModel {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shotModel {
+  color: var(--color-text-tertiary);
+}
+
 .shotActions {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
+}
+
+.poolLabel {
+  margin: 2px 0 0;
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sourcesPane[data-compact='true'] .shotBin {
+  padding: 8px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sourcesPane[data-compact='true'] .shotBinHead span {
+  line-height: 1.35;
+}
+
+.sourcesPane[data-compact='true'] .shotRow {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  grid-template-areas:
+    "thumb meta"
+    "actions actions";
+  gap: 6px 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: var(--color-bg-base);
+}
+
+.sourcesPane[data-compact='true'] .shotRow[data-on='true'] {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-subtle);
+}
+
+.sourcesPane[data-compact='true'] .shotThumb {
+  grid-area: thumb;
+  width: 64px;
+  height: 40px;
+  cursor: pointer;
+}
+
+.sourcesPane[data-compact='true'] .shotMeta {
+  grid-area: meta;
+}
+
+.sourcesPane[data-compact='true'] .shotMeta strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  text-transform: none;
+}
+
+.sourcesPane[data-compact='true'] .shotActions {
+  grid-area: actions;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 4px;
+}
+
+.sourcesPane[data-compact='true'] .shotActions .toolBtn,
+.sourcesPane[data-compact='true'] .shotActions .toolPrimary {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 26px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sourcesPane[data-compact='true'] .binReplace {
+  display: none;
+}
+
+.sourcesPane[data-compact='true'] .binItem strong,
+.sourcesPane[data-compact='true'] .binItem span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .assembleRow {

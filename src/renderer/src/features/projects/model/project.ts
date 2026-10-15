@@ -78,6 +78,8 @@ export interface FilmTimeline {
     rationale: string;
     createdAt: number;
   };
+  /** User trim, split, or delete. Do not rebuild this cut from chapter files. */
+  edited?: boolean;
 }
 
 export const PROJECT_SCHEMA_VERSION = 2;
@@ -386,6 +388,41 @@ export function timelinePictureMatchesScenePaths(doc: Pick<ProjectDoc, 'scenes' 
   return scenePaths.length > 0
     && scenePaths.length === picturePaths.length
     && scenePaths.every((path, index) => path === picturePaths[index]);
+}
+
+function timelineSharesSceneMedia(doc: Pick<ProjectDoc, 'scenes' | 'timeline'>): boolean {
+  const scenePaths = new Set(sceneMediaRows(doc).map((row) => row.path));
+  return (doc.timeline?.bins ?? []).some((bin) => scenePaths.has(bin.path));
+}
+
+/** True when the saved picture is a user cut of the current chapters, not a straight layout. */
+export function timelineCutIsEdited(doc: Pick<ProjectDoc, 'scenes' | 'timeline'>): boolean {
+  if (doc.timeline?.edited) return true;
+  if (!timelineSharesSceneMedia(doc)) return false;
+  if (!timelinePictureMatchesScenePaths(doc)) return true;
+  const rows = sceneMediaRows(doc);
+  const clips = (doc.timeline?.clips ?? [])
+    .filter((clip) => clip.track === 'v1')
+    .sort((a, b) => a.startSec - b.startSec);
+  return clips.some((clip, index) => {
+    const row = rows[index];
+    if (!row) return true;
+    return Math.abs(clip.durationSec - row.durationSec) > 0.15
+      || Math.abs(clip.sourceInSec) > 0.05;
+  });
+}
+
+/**
+ * Replace the timeline with chapter files only when there is no cut yet,
+ * or the cut belongs to an older set of files. A trim, split, or deleted
+ * piece stays, even if the clip count no longer matches the chapters.
+ */
+export function timelineNeedsSceneRebuild(doc: Pick<ProjectDoc, 'scenes' | 'timeline'>): boolean {
+  if (!doc.scenes.some(sceneHasMedia)) return false;
+  const clips = doc.timeline?.clips ?? [];
+  if (!clips.some((clip) => clip.track === 'v1')) return true;
+  if (timelineCutIsEdited(doc)) return false;
+  return !timelinePictureMatchesScenePaths(doc);
 }
 
 /** Picture track from the current chapters. Replaces a leftover cut from an earlier visit. */

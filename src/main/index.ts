@@ -1528,7 +1528,8 @@ function setupIpc() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(30 * 60 * 1000),
+      // Long marketplace films re-encode every chapter; allow up to an hour.
+      signal: AbortSignal.timeout(60 * 60 * 1000),
     });
     const body = (await res.json().catch(() => ({}))) as { detail?: unknown; file_path?: string };
     if (!res.ok) {

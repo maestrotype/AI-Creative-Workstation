@@ -475,6 +475,8 @@ class RenderTimelineRequest(BaseModel):
 
 
 _SEG_AUDIO = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"]
+# Draft stitch prioritizes turnaround over archive quality.
+_SEG_VIDEO = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"]
 
 
 def _caption_font() -> Optional[str]:
@@ -687,7 +689,7 @@ def _encode_segment(ffmpeg: str, clip: TimelineClipModel, dur: float, index: int
             "-frames:v", str(frames),
             "-vf", _with_effect(_ken_burns_filter(index, w, h, frames), clip),
             "-map", "0:v", "-map", "1:a",
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", *_SEG_AUDIO,
+            *_SEG_VIDEO, *_SEG_AUDIO,
             out,
         ]
     else:
@@ -708,7 +710,7 @@ def _encode_segment(ffmpeg: str, clip: TimelineClipModel, dur: float, index: int
             "-map", "0:v", *audio_map,
             "-t", f"{dur:.3f}",
             *audio_filter,
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", *_SEG_AUDIO,
+            *_SEG_VIDEO, *_SEG_AUDIO,
             out,
         ]
     _run_ffmpeg(cmd, "ffmpeg segment failed")
@@ -720,7 +722,7 @@ def _encode_gap(ffmpeg: str, dur: float, w: int, h: int, fps: int, out: str) -> 
         "-f", "lavfi", "-t", f"{dur:.3f}", "-i", f"color=black:s={w}x{h}:r={fps}",
         "-f", "lavfi", "-t", f"{dur:.3f}", "-i", "anullsrc=r=48000:cl=stereo",
         "-vf", "format=yuv420p",
-        "-c:v", "libx264", *_SEG_AUDIO,
+        *_SEG_VIDEO, *_SEG_AUDIO,
         out,
     ]
     _run_ffmpeg(cmd, "ffmpeg gap failed")
@@ -921,7 +923,7 @@ def render_timeline(request: RenderTimelineRequest):
             "-map", vmap,
             "-map", amap,
             "-t", f"{total:.3f}",
-            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            *_SEG_VIDEO,
             "-c:a", "aac", "-b:a", "192k",
             "-movflags", "+faststart",
             output_path,
