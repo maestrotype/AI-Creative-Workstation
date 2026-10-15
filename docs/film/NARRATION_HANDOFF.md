@@ -13,6 +13,9 @@ The picture on V1 is the clock, including stills. The ready chapter text is `sce
 3. The ready script is the meaning. If a beat already has about that many words, keep it. If it is short, expand it from those same facts (`expand_spoken`). If it is long, trim it. Do not invent a new English ad.
 4. After XTTS, measure the wav. Speech under 75% of the beat is still too short: expand and speak again. Speech over 15% too long is shortened, then sped up at most 15%. A small remainder is silence inside the same beat.
 5. The next line starts at its own beat. A long line must not push the later lines down the timeline (`pictureSlots` / script windows in `applyScriptVoiceover`).
+6. `lock-*` and `fit-*` wavs under `Generated/Audio/_processing/` are pipeline temps. They are not voice samples and must not appear in «Доступные образцы голоса».
+7. Ollama sometimes returns Chinese translator chatter or JSON debris instead of a line. `valid_narration_line` rejects that; the beat falls back to the ready chapter text, not into the script card.
+8. Do not pad a beat by restating the same claim («файлы в комплекте… те же файлы…»). Extra length comes from a new picture fact or a clean close. Opening/closing stills get a short intro/outro. Leave ~0.55s breath between chapters.
 
 «Заменить мою озвучку» on a film with chapters runs this path (`replaceOwnNarration`). `generateScript` still exists for a single uploaded video and still asks for English. Do not point the chapter button at it.
 

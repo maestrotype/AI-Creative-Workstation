@@ -162,6 +162,17 @@ export function shotProviderShort(shot: FilmShot): string {
   return provider;
 }
 
+/** Short label for a narrow media card. Full id stays on the tooltip. */
+export function shotModelLabel(shot: FilmShot): string {
+  const raw = shotProviderShort(shot);
+  if (/wan\s*2\.2|wan2\.2/i.test(raw)) return 'Wan 2.2';
+  if (/^wan/i.test(raw)) return 'Wan';
+  if (/flux/i.test(raw)) return 'FLUX';
+  if (/minimax|\bh3\b/i.test(raw)) return 'MiniMax';
+  if (raw.length > 16) return `${raw.slice(0, 14)}…`;
+  return raw;
+}
+
 export function sameProductPath(a: string | null | undefined, b: string | null | undefined): boolean {
   if (!a || !b) return false;
   const norm = (p: string) => p.replace(/^file:\/\//, '').replace(/\\/g, '/').toLowerCase();

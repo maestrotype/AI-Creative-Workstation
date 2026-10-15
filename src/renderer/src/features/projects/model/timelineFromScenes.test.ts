@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   newScene,
+  timelineCutIsEdited,
   timelineFromScenes,
+  timelineNeedsSceneRebuild,
   timelinePictureMatchesScenePaths,
   type FilmTimeline,
   type ProjectScene,
@@ -61,5 +63,24 @@ describe('timeline from current chapters', () => {
     const timeline = timelineFromScenes({ scenes });
     timeline.clips[0].durationSec = 18;
     expect(timelinePictureMatchesScenePaths({ scenes, timeline })).toBe(true);
+    expect(timelineCutIsEdited({ scenes, timeline })).toBe(true);
+    expect(timelineNeedsSceneRebuild({ scenes, timeline })).toBe(false);
+  });
+
+  it('keeps a cut after a chapter was removed from the timeline', () => {
+    const scenes = [
+      scene('Hero', '/tmp/hero.mp4', 12),
+      scene('Темы', '/tmp/themes.mp4', 26),
+    ];
+    const timeline = timelineFromScenes({ scenes });
+    timeline.clips = timeline.clips.filter((clip) => clip.label !== 'Hero');
+    expect(timelinePictureMatchesScenePaths({ scenes, timeline })).toBe(false);
+    expect(timelineCutIsEdited({ scenes, timeline })).toBe(true);
+    expect(timelineNeedsSceneRebuild({ scenes, timeline })).toBe(false);
+  });
+
+  it('rebuilds a cut from a different set of files', () => {
+    const scenes = [scene('Темы', '/tmp/themes.mp4', 26)];
+    expect(timelineNeedsSceneRebuild({ scenes, timeline: leftoverCut() })).toBe(true);
   });
 });

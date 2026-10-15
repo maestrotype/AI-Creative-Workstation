@@ -51,8 +51,9 @@ import {
   defaultExportSettings,
   sceneHasMedia,
   shotFromGeneration,
+  timelineCutIsEdited,
   timelineFromScenes,
-  timelinePictureMatchesScenePaths,
+  timelineNeedsSceneRebuild,
   type FilmShot,
   type FilmTimeline,
   type ProjectDoc,
@@ -856,6 +857,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     paintPlayhead(playheadRef.current);
   }, [pxPerSec, total]);
 
+  const writeProjectRef = useRef<() => void>(() => {});
+
   useEffect(() => {
     const persist = () => {
       saveDirectorSession({
@@ -864,7 +867,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         ...sessionSnapRef.current,
       }, scopeIdRef.current);
     };
-    const timer = window.setTimeout(() => {
+    const writeProject = () => {
       persist();
       const id = scopeIdRef.current;
       if (!id || !projectHydrated.current || filmLoadError || !window.api?.loadProject || !window.api.saveProject) return;
@@ -878,6 +881,15 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           playhead: sessionSnapRef.current.playhead,
           pxPerSec: sessionSnapRef.current.pxPerSec,
           stillCompose: sessionSnapRef.current.stillCompose,
+          edited: timelineCutIsEdited({
+            scenes: (doc as ProjectDoc).scenes,
+            timeline: {
+              bins: sessionSnapRef.current.bins,
+              clips: sessionSnapRef.current.clips,
+              trackLayout: sessionSnapRef.current.trackLayout,
+              edited: (doc as ProjectDoc).timeline?.edited,
+            },
+          }),
           assembly: assemblyRef.current
             ? {
                 targetSec: sessionSnapRef.current.clips.reduce(
@@ -922,9 +934,15 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
             ?? null,
         });
       }).catch(() => { /* keep local session */ });
-    }, 400);
+    };
+    writeProjectRef.current = writeProject;
+    const timer = window.setTimeout(writeProject, 400);
     return () => window.clearTimeout(timer);
   }, [bins, clips, playhead, selectedBin, selectedClip, captionDraft, pxPerSec, trackLayout, overlayPos, voiceover, stillCompose, shots, assemblyRationale, exportSettings, filmLoadError]);
+
+  useEffect(() => () => {
+    if (projectHydrated.current) writeProjectRef.current();
+  }, []);
 
   useEffect(() => {
     const id = scopeIdRef.current;
@@ -975,8 +993,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       }
       const tl = film.timeline;
       const scenesReady = Array.isArray(film.scenes) && film.scenes.some(sceneHasMedia);
-      const pictureMatchesScenes = timelinePictureMatchesScenePaths(film);
-      if (scenesReady && !pictureMatchesScenes) {
+      if (scenesReady && timelineNeedsSceneRebuild(film)) {
         const rebuilt = timelineFromScenes(film, tl);
         setBins(rebuilt.bins as BinItem[]);
         setClips(unstackAllTracks(rebuilt.clips as TimelineClip[]));
@@ -1078,7 +1095,10 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         ...sessionSnapRef.current,
       }, scopeIdRef.current);
     };
-    const onHide = () => persist();
+    const onHide = () => {
+      persist();
+      if (projectHydrated.current) writeProjectRef.current();
+    };
     window.addEventListener('pagehide', onHide);
     window.addEventListener('beforeunload', onHide);
     return () => {
@@ -2341,12 +2361,15 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         chapters: coverage.map((chapter) => ({
           title: chapter.title,
           script: chapter.script,
+          place: chapter.place,
+          media_kind: chapter.mediaKind,
           beats: chapter.beats.map((beat) => ({
             start: beat.startSec,
             end: beat.endSec,
             target_words: beat.targetWords,
             brief: beat.brief,
             seen: beat.seen,
+            job: beat.job,
           })),
         })),
         language: 'ru',

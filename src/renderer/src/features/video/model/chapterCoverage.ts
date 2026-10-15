@@ -21,6 +21,8 @@ export interface CoverageBeat {
   brief: string;
   /** What the chapter analysis shows while this beat plays. */
   seen: string;
+  /** How this beat should land: open a fact, name the frame, or close the thought. */
+  job: 'say' | 'show' | 'close';
 }
 
 export interface ChapterCoverage {
@@ -33,6 +35,9 @@ export interface ChapterCoverage {
   /** Words already written in the ready script. */
   authoredWords: number;
   script: string;
+  /** First chapter, middle, or last — drives intro / outro tone. */
+  place: 'open' | 'mid' | 'close';
+  mediaKind: 'video' | 'image';
   beats: CoverageBeat[];
 }
 
@@ -175,13 +180,43 @@ function seenIn(start: number, end: number, notes: PictureNote[]): string {
   return parts.join(' ').slice(0, 320);
 }
 
-function briefsFor(script: string, count: number): string[] {
+function briefsFor(script: string, count: number): Array<{ brief: string; job: CoverageBeat['job'] }> {
   const sentences = sentencesOf(script);
-  if (!sentences.length) return Array.from({ length: count }, () => '');
+  if (!sentences.length) {
+    return Array.from({ length: count }, (_, index) => ({
+      brief: '',
+      job: index === count - 1 ? 'close' : 'say',
+    }));
+  }
   return Array.from({ length: count }, (_, index) => {
-    const at = Math.min(sentences.length - 1, Math.floor((index * sentences.length) / count));
-    return sentences[at];
+    if (count === 1) {
+      return { brief: sentences.join(' '), job: 'say' as const };
+    }
+    if (index < sentences.length) {
+      return {
+        brief: sentences[index],
+        job: index === count - 1 ? 'close' as const : 'say' as const,
+      };
+    }
+    if (index === count - 1) {
+      return {
+        brief: sentences[sentences.length - 1],
+        job: 'close' as const,
+      };
+    }
+    return {
+      brief: sentences[index % sentences.length],
+      job: 'show' as const,
+    };
   });
+}
+
+/** Without a fresh picture note, do not demand a long pad that restates the same fact. */
+export function wordsForBeat(roomSec: number, authoredShare: number, hasPicture: boolean): number {
+  const roomWords = wordsForSeconds(roomSec);
+  if (hasPicture) return roomWords;
+  const share = Math.max(6, authoredShare);
+  return Math.min(roomWords, Math.max(share + 4, Math.round(share * 1.55)));
 }
 
 /**
@@ -193,22 +228,30 @@ export function planChapterCoverage(
   notes: PictureNote[] = [],
 ): ChapterCoverage[] {
   const cuts = notes.map((note) => note.start);
-  return chapters
-    .filter((chapter) => chapter.endSec - chapter.startSec >= 0.5)
-    .map((chapter) => {
+  const usable = chapters.filter((chapter) => chapter.endSec - chapter.startSec >= 0.5);
+  return usable.map((chapter, chapterIndex) => {
       const bounds = beatBounds(chapter.startSec, chapter.endSec, cuts);
       const script = chapter.draft.trim();
       const briefs = briefsFor(script, bounds.length);
+      const authoredShare = Math.max(6, Math.ceil(countWords(script) / Math.max(1, bounds.length)));
       const beats = bounds.map((bound, index) => {
         const room = Math.max(4, bound.endSec - bound.startSec - 0.4);
+        const seen = seenIn(bound.startSec, bound.endSec, notes);
+        const pack = briefs[index] || { brief: script, job: 'say' as const };
         return {
           startSec: bound.startSec,
           endSec: bound.endSec,
-          targetWords: wordsForSeconds(room),
-          brief: briefs[index] || script,
-          seen: seenIn(bound.startSec, bound.endSec, notes),
+          targetWords: wordsForBeat(room, authoredShare, Boolean(seen.trim())),
+          brief: pack.brief || script,
+          seen,
+          job: pack.job,
         };
       });
+      const place: ChapterCoverage['place'] = chapterIndex === 0
+        ? 'open'
+        : chapterIndex === usable.length - 1
+          ? 'close'
+          : 'mid';
       return {
         title: chapter.title,
         startSec: chapter.startSec,
@@ -217,6 +260,8 @@ export function planChapterCoverage(
         targetWords: beats.reduce((sum, beat) => sum + beat.targetWords, 0),
         authoredWords: countWords(script),
         script,
+        place,
+        mediaKind: chapter.mediaKind || 'video',
         beats,
       };
     });

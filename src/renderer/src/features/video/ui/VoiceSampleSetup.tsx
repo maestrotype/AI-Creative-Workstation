@@ -35,7 +35,9 @@ export function VoiceSampleSetup(): ReactNode {
       // Bin titles are Hook/Body, while the file is vo-*.wav. Judge the file.
       const fileName = item.path.split(/[/\\]/).pop() || item.name;
       const kind = audioClipKind(fileName);
+      // Mic recordings and hand-picked imports only — not TTS, fit, or lock temp files.
       if (kind !== 'mic' && kind !== 'imported') continue;
+      if (/^lock[-_]/i.test(fileName) || /^vo[-_]/i.test(fileName) || /^fit[-_]/i.test(fileName)) continue;
       seen.add(item.path);
       out.push({ path: item.path, name: fileName });
     }

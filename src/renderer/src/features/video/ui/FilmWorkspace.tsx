@@ -292,7 +292,7 @@ export function FilmWorkspace({
                 data-on={mediaTab === tab || undefined}
                 onClick={() => setMediaTab(tab)}
               >
-                {tab === 'assets' ? 'Assets' : tab === 'generate' ? 'Generate' : 'Record'}
+                {tab === 'assets' ? t('video.media_tab_assets') : tab === 'generate' ? t('video.media_tab_generate') : t('video.media_tab_record')}
               </button>
             ))}
           </div>

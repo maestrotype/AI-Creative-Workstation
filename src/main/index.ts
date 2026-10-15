@@ -1528,7 +1528,8 @@ function setupIpc() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(30 * 60 * 1000),
+      // Long marketplace films re-encode every chapter; allow up to an hour.
+      signal: AbortSignal.timeout(60 * 60 * 1000),
     });
     const body = (await res.json().catch(() => ({}))) as { detail?: unknown; file_path?: string };
     if (!res.ok) {
@@ -1922,6 +1923,8 @@ function setupIpc() {
     if (existsSync(audioDir)) {
       for (const name of readdirSync(audioDir)) {
         if (!isAudioExtension(name)) continue;
+        // Temp files from speech lock / fit — not library clips or voice samples.
+        if (/^(lock|fit)-/i.test(name)) continue;
         let filePath = join(audioDir, name);
         if (TRANSCODE_AUDIO_EXTS.has(extname(name).toLowerCase())) {
           try {
@@ -2189,14 +2192,7 @@ function setupIpc() {
     file_path: string;
     target_sec: number;
     force?: boolean;
-  }) => {
-    const data = await sidecarJson('/api/audio/fit-speech', payload, 60 * 1000);
-    const locked = data.file_path;
-    if (typeof locked === 'string' && locked.trim() && locked !== payload.file_path) {
-      rememberPickedMedia(locked);
-    }
-    return data;
-  });
+  }) => sidecarJson('/api/audio/fit-speech', payload, 60 * 1000));
 
   ipcMain.handle('mix-voiceover-track', async (_, payload: {
     parts: Array<{ file_path: string; start_sec: number }>;

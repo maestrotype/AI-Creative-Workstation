@@ -193,11 +193,14 @@ class FitBeatIn(BaseModel):
     target_words: int = Field(default=12, ge=4, le=80)
     brief: str = ""
     seen: str = ""
+    job: str = "say"
 
 
 class FitChapterIn(BaseModel):
     title: str = ""
     script: str = ""
+    place: str = "mid"
+    media_kind: str = "video"
     beats: list[FitBeatIn]
 
 

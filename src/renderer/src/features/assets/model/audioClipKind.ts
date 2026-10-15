@@ -16,6 +16,7 @@ export function audioClipKind(name: string): AudioClipKind {
   if (
     stem.startsWith('vo-')
     || stem.startsWith('fit-')
+    || stem.startsWith('lock-')
     || stem.startsWith('voiceover-')
   ) {
     return 'voiceover';
@@ -28,7 +29,7 @@ export function audioClipLabel(name: string, locale?: string): string {
   const dot = name.lastIndexOf('.');
   const ext = dot > 0 ? name.slice(dot + 1).toUpperCase() : '';
   const stem = dot > 0 ? name.slice(0, dot) : name;
-  const stamped = stem.match(/^(?:mic|system|capture|tts|vo|fit|voiceover|import)[-_](\d{10,13})/i);
+  const stamped = stem.match(/^(?:mic|system|capture|tts|vo|fit|lock|voiceover|import)[-_](\d{10,13})/i);
   if (stamped) {
     const raw = Number(stamped[1]);
     const ms = stamped[1].length <= 10 ? raw * 1000 : raw;
