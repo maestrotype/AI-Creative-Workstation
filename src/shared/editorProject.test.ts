@@ -4,6 +4,7 @@ import {
   appendMediaVersion,
   frameToSeconds,
   mediaLibraryFromLegacyBins,
+  mergeMediaFromBins,
   secondsToFrame,
 } from './editorProject';
 
@@ -38,6 +39,30 @@ describe('editor project foundation', () => {
       '/film/alternative.mp4',
     ]);
     expect(next.currentVersionId).toBe('version-ai-1');
+  });
+
+  it('adds new bins without dropping existing media versions', () => {
+    const original = mediaLibraryFromLegacyBins([
+      { id: 'shot', kind: 'video', path: '/film/original.mp4', name: 'Shot', durationSec: 4 },
+    ], 100)[0];
+    const withAlt = appendMediaVersion(original, {
+      id: 'version-ai-1',
+      path: '/film/alternative.mp4',
+      durationSec: 4,
+      createdAt: 200,
+      derivedFromVersionId: original.currentVersionId,
+    });
+    const merged = mergeMediaFromBins([withAlt], [
+      { id: 'shot', kind: 'video', path: '/film/original.mp4', name: 'Shot', durationSec: 4 },
+      { id: 'voice', kind: 'audio', path: '/film/voice.wav', name: 'Voice', durationSec: 8 },
+    ], 300);
+
+    expect(merged).toHaveLength(2);
+    expect(merged[0].versions.map((item) => item.path)).toEqual([
+      '/film/original.mp4',
+      '/film/alternative.mp4',
+    ]);
+    expect(merged[1].versions[0].path).toBe('/film/voice.wav');
   });
 
   it('converts timeline positions through integer frames', () => {

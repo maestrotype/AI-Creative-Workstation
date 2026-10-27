@@ -8,7 +8,7 @@ import { assembleShots, planToTimeline, productShotPresets } from '../../video/m
 import { clearDirectorSession } from '../../video/model/directorSessionStore';
 import { writeLastProjectId } from '../model/handoff';
 import { chaptersFromProject, ECOMMERCE_TEMPLATE_ID, scenesFromTemplate } from '../model/filmTemplate';
-import { composeClips, defaultExportSettings, inferTemplateId, marketplaceFilmSeed, newScene, normalizePreset, normalizeShotMotion, projectDuration, sceneHasMedia, sceneWantsSlowZoom, shotFromGeneration, timelineFromScenes, timelineNeedsSceneRebuild, type FilmPreset, type ProjectDoc, type ProjectFormat, type ProjectScene } from '../model/project';
+import { defaultExportSettings, inferTemplateId, marketplaceFilmSeed, newScene, normalizePreset, normalizeShotMotion, projectDuration, sceneHasMedia, sceneWantsSlowZoom, shotFromGeneration, timelineFromScenes, timelineNeedsSceneRebuild, type FilmPreset, type ProjectDoc, type ProjectFormat, type ProjectScene } from '../model/project';
 import type { FilmTemplate } from '../../../../../shared/filmTemplate';
 import styles from './ProjectsPage.module.css';
 
@@ -16,7 +16,7 @@ function ipcMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   const cleaned = raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '').trim();
   if (/TimeoutError|aborted due to timeout/i.test(cleaned)) {
-    return 'Склейка не успела за отведённое время. Откройте «Продолжить озвучку» без склейки или сожмите длинные главы и нажмите «Склеить ролик» снова.';
+    return 'Операция не успела за отведённое время. Откройте монтаж и продолжите работу с таймлайна.';
   }
   return cleaned;
 }
@@ -331,7 +331,6 @@ export function ProjectWorkspace(): ReactNode {
   const [error, setError] = useState<string | null>(null);
   const [busyScene, setBusyScene] = useState<string | null>(null);
   const [busyKind, setBusyKind] = useState<'still' | 'video' | 'import' | null>(null);
-  const [composing, setComposing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [shotBusy, setShotBusy] = useState(false);
   const [assembleTarget, setAssembleTarget] = useState(15);
@@ -928,40 +927,6 @@ export function ProjectWorkspace(): ReactNode {
     }
   };
 
-  const compose = async (): Promise<string | null> => {
-    const latest = docRef.current ?? doc;
-    const clips = composeClips(latest);
-    if (!clips.some((c) => c.track === 'v1') || !window.api.renderTimeline) {
-      setError(t('projects.compose_need_media'));
-      return null;
-    }
-    setComposing(true);
-    setError(null);
-    setStatus(t('projects.composing'));
-    try {
-      const rendered = await window.api.renderTimeline({
-        clips,
-        width: latest.format === 'shorts' ? 1080 : 1920,
-        height: latest.format === 'shorts' ? 1920 : 1080,
-        fps: 30,
-      });
-      const copied = await window.api.importIntoProject({ projectId: latest.id, path: rendered.file_path });
-      const after = docRef.current ?? latest;
-      // Keep the director cut. Stitch only writes the preview MP4.
-      await persist({
-        ...after,
-        assembledPath: copied.file_path,
-      });
-      setStatus(t('projects.composed_ok'));
-      return copied.file_path;
-    } catch (err) {
-      setError(ipcMessage(err));
-      return null;
-    } finally {
-      setComposing(false);
-    }
-  };
-
   const finishInVideo = async () => {
     const latest = docRef.current ?? doc;
     writeLastProjectId(latest.id);
@@ -1317,18 +1282,18 @@ export function ProjectWorkspace(): ReactNode {
           <button
             type="button"
             className={styles.newButton}
-            disabled={composing || busyScene !== null || !canFinish}
-            onClick={() => void finishInVideo()}
+            disabled={busyScene !== null}
+            onClick={() => openDirector(false)}
           >
-            {composing ? t('projects.composing') : t('projects.finish_voice')}
+            {t('projects.open_editor')}
           </button>
           <button
             type="button"
             className={styles.ghostBtn}
-            disabled={composing || busyScene !== null || !doc.scenes.some(sceneHasMedia)}
-            onClick={() => void compose()}
+            disabled={busyScene !== null || !canFinish}
+            onClick={() => void finishInVideo()}
           >
-            {t('projects.compose')}
+            {t('projects.finish_voice')}
           </button>
         </div>
       </footer>

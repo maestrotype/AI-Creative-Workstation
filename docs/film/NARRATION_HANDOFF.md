@@ -11,8 +11,8 @@ The picture on V1 is the clock, including stills. The ready chapter text is `sce
 1. Measure each chapter on the timeline (the trimmed length, not the original file).
 2. A chapter longer than 18s is several beats of about 14s. Each beat has a word budget at 130 words/minute (`chapterSpeech.ts`).
 3. The ready script is the meaning. If a beat already has about that many words, keep it. If it is short, expand it from those same facts (`expand_spoken`). If it is long, trim it. Do not invent a new English ad.
-4. After XTTS, measure the wav. Speech under 75% of the beat is still too short: expand and speak again. Speech over 15% too long is shortened, then sped up at most 15%. A small remainder is silence inside the same beat.
-5. The next line starts at its own beat. A long line must not push the later lines down the timeline (`pictureSlots` / script windows in `applyScriptVoiceover`).
+4. After XTTS, measure the wav. If speech is under 90% of the picture window, **rewrite and speak again**. Tempo may only be 0.94–1.08. Never slow the voice 2–4× to fill a longer clip. If the line is still short after expand, leave it short and mark `needs_expand` — do not pad with stretched audio.
+5. The next line starts after the **measured mouth**, packed flush (`contiguousNarrationStarts`). Do not lock A1 clip duration to the picture slot if the voice is shorter.
 6. `lock-*` and `fit-*` wavs under `Generated/Audio/_processing/` are pipeline temps. They are not voice samples and must not appear in «Доступные образцы голоса».
 7. Ollama sometimes returns Chinese translator chatter or JSON debris instead of a line. `valid_narration_line` rejects that; the beat falls back to the ready chapter text, not into the script card.
 8. Do not pad a beat by restating the same claim («файлы в комплекте… те же файлы…»). Extra length comes from a new picture fact or a clean close. Opening/closing stills get a short intro/outro. Chapter windows abut — no silence gaps between chapters (gaps hiss). Transitions are in the wording.

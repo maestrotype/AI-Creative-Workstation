@@ -13,7 +13,7 @@ import {
   type ProjectSummary,
 } from '../model/project';
 import { ECOMMERCE_TEMPLATE_ID, scenesFromTemplate } from '../model/filmTemplate';
-import { clearLastProjectId, readLastProjectId, writeLastProjectId } from '../model/handoff';
+import { clearLastProjectId, editorHref, readLastProjectId, scriptHref, writeLastProjectId } from '../model/handoff';
 import type { FilmTemplate } from '../../../../../shared/filmTemplate';
 import styles from './ProjectsPage.module.css';
 
@@ -70,7 +70,7 @@ export function ProjectsPage(): ReactNode {
         templateId: null,
       });
       writeLastProjectId(doc.id);
-      navigate(`/projects/${doc.id}`);
+      navigate(editorHref(doc.id));
     } catch (err) {
       setError(ipcMessage(err));
     } finally {
@@ -115,7 +115,7 @@ export function ProjectsPage(): ReactNode {
         timeline: timelineFromScenes(next),
       });
       writeLastProjectId(doc.id);
-      navigate(`/video?project=${encodeURIComponent(doc.id)}&voice=1`);
+      navigate(editorHref(doc.id));
     } catch (err) {
       if (createdId) await window.api.deleteProject?.(createdId).catch(() => undefined);
       setError(ipcMessage(err));
@@ -145,7 +145,7 @@ export function ProjectsPage(): ReactNode {
         voiceover: seed.voiceover,
       });
       writeLastProjectId(doc.id);
-      navigate(`/projects/${doc.id}`);
+      navigate(scriptHref(doc.id));
     } catch (err) {
       setError(ipcMessage(err));
     } finally {
@@ -180,7 +180,7 @@ export function ProjectsPage(): ReactNode {
         voiceover: null,
       });
       writeLastProjectId(doc.id);
-      navigate(`/projects/${doc.id}`);
+      navigate(scriptHref(doc.id));
     } catch (err) {
       setError(ipcMessage(err));
     } finally {
@@ -242,7 +242,7 @@ export function ProjectsPage(): ReactNode {
         <button
           type="button"
           className={styles.continueBar}
-          onClick={() => navigate(`/projects/${lastItem.id}`)}
+          onClick={() => navigate(editorHref(lastItem.id))}
         >
           <strong>{t('projects.continue', { name: lastItem.name })}</strong>
           <span>{t('projects.continue_hint')}</span>
@@ -287,7 +287,7 @@ export function ProjectsPage(): ReactNode {
           </li>
           {items.map((item) => (
             <li key={item.id}>
-              <button type="button" className={styles.card} onClick={() => navigate(`/projects/${item.id}`)}>
+              <button type="button" className={styles.card} onClick={() => navigate(editorHref(item.id))}>
                 <div className={styles.cover}>
                   {item.coverPath ? (
                     /\.(mp4|mov|m4v|webm|mkv)$/i.test(item.coverPath) ? (
@@ -317,7 +317,7 @@ export function ProjectsPage(): ReactNode {
                   onClick={(e) => {
                     e.stopPropagation();
                     writeLastProjectId(item.id);
-                    navigate(`/video?project=${encodeURIComponent(item.id)}`);
+                    navigate(scriptHref(item.id));
                   }}
                 >
                   {t('projects.open_in_editor')}
@@ -328,7 +328,7 @@ export function ProjectsPage(): ReactNode {
                   onClick={(e) => {
                     e.stopPropagation();
                     writeLastProjectId(item.id);
-                    navigate(`/video?project=${encodeURIComponent(item.id)}&voice=1`);
+                    navigate(editorHref(item.id, true));
                   }}
                 >
                   {t('projects.narrate_film')}

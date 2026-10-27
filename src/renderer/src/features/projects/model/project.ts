@@ -127,8 +127,8 @@ export interface ProjectScene {
 
 /**
  * In this app a Film is a ProjectDoc. One identity: projectId.
- * Route `/projects/:projectId` is the Film workspace.
- * Route `/video?project=:projectId` is that same Film’s Director/narration.
+ * Route `/video?project=:projectId` is the editor (timeline, preview, AI).
+ * Route `/projects/:projectId` is optional script/storyboard planning.
  * Shots, timeline, narration-derived preview, and export live on project.json.
  * localStorage may cache director UI; it is not the source of truth.
  */

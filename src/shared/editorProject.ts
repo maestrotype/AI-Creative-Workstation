@@ -47,6 +47,20 @@ export interface LegacyTimelineBin {
   durationSec: number;
 }
 
+export function isLegacyTimelineBin(value: unknown): value is LegacyTimelineBin {
+  if (!value || typeof value !== 'object') return false;
+  const bin = value as Partial<LegacyTimelineBin>;
+  return typeof bin.id === 'string'
+    && (bin.kind === 'video' || bin.kind === 'image' || bin.kind === 'audio')
+    && typeof bin.path === 'string'
+    && typeof bin.name === 'string'
+    && typeof bin.durationSec === 'number';
+}
+
+export function legacyBinsOf(bins: unknown): LegacyTimelineBin[] {
+  return Array.isArray(bins) ? bins.filter(isLegacyTimelineBin) : [];
+}
+
 function safeId(value: string): string {
   const id = value.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
   return id || 'media';
@@ -83,6 +97,28 @@ export function mediaLibraryFromLegacyBins(
     });
   }
   return [...byPath.values()];
+}
+
+/**
+ * Keep existing versions and add any timeline bin that is not in the library yet.
+ * Load/save use this so opening a project does not drop AI alternatives.
+ */
+export function mergeMediaFromBins(
+  existing: EditorMediaAsset[] | undefined,
+  bins: LegacyTimelineBin[],
+  createdAt: number,
+): EditorMediaAsset[] {
+  const library = [...(existing ?? [])];
+  const knownPaths = new Set(
+    library.flatMap((asset) => asset.versions.map((version) => version.path.trim()).filter(Boolean)),
+  );
+  for (const asset of mediaLibraryFromLegacyBins(bins, createdAt)) {
+    const path = asset.versions[0]?.path.trim();
+    if (!path || knownPaths.has(path)) continue;
+    library.push(asset);
+    knownPaths.add(path);
+  }
+  return library;
 }
 
 /** Add an AI/imported alternative without overwriting the current file. */

@@ -63,6 +63,7 @@ import {
   type ProjectExportSettings,
   type ShotPurpose,
 } from '../../projects/model/project';
+import { mergeMediaFromBins } from '../../../../../shared/editorProject';
 import { DEFAULT_TRACK_LAYOUT } from '../model/directorTimeline';
 import { takeProjectHandoff } from '../../projects/model/handoff';
 import { loadDirectorSession, saveDirectorSession, type DirectorSession } from '../model/directorSessionStore';
@@ -922,6 +923,11 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           ...doc,
           scenes,
           schemaVersion: PROJECT_SCHEMA_VERSION,
+          media: mergeMediaFromBins(
+            (doc as ProjectDoc).media,
+            sessionSnapRef.current.bins,
+            Date.now(),
+          ),
           productStillPath: productStillPathRef.current ?? (doc as ProjectDoc).productStillPath ?? null,
           timeline,
           voiceover: sessionSnapRef.current.voiceover,

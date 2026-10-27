@@ -14,10 +14,10 @@ import { randomUUID } from 'crypto';
 
 import { inferTemplateId } from '../shared/filmTemplate';
 import {
-  mediaLibraryFromLegacyBins,
+  legacyBinsOf,
+  mergeMediaFromBins,
   type EditorGenerationJob,
   type EditorMediaAsset,
-  type LegacyTimelineBin,
 } from '../shared/editorProject';
 
 export type ProjectKind = 'video';
@@ -246,19 +246,12 @@ function parseDoc(raw: string): ProjectDoc | null {
     const voiceover = parsed.voiceover && typeof parsed.voiceover === 'object'
       ? { ...parsed.voiceover, callouts }
       : null;
-    const legacyBins = (Array.isArray(parsed.timeline?.bins) ? parsed.timeline.bins : [])
-      .filter((row): row is LegacyTimelineBin => {
-        if (!row || typeof row !== 'object') return false;
-        const bin = row as Partial<LegacyTimelineBin>;
-        return typeof bin.id === 'string'
-          && (bin.kind === 'video' || bin.kind === 'image' || bin.kind === 'audio')
-          && typeof bin.path === 'string'
-          && typeof bin.name === 'string'
-          && typeof bin.durationSec === 'number';
-      });
-    const media = Array.isArray(parsed.media) && parsed.media.length
-      ? parsed.media
-      : mediaLibraryFromLegacyBins(legacyBins, parsed.createdAt || Date.now());
+    const legacyBins = legacyBinsOf(parsed.timeline?.bins);
+    const media = mergeMediaFromBins(
+      Array.isArray(parsed.media) ? parsed.media : [],
+      legacyBins,
+      parsed.createdAt || Date.now(),
+    );
     return {
       ...base,
       ...parsed,
@@ -348,6 +341,12 @@ export function saveProject(doc: ProjectDoc): ProjectDoc {
     preset,
     templateId: inferTemplateId(doc.preset, doc.templateId),
     callouts: Array.isArray(doc.callouts) ? doc.callouts : [],
+    media: mergeMediaFromBins(
+      doc.media,
+      legacyBinsOf(doc.timeline?.bins),
+      Date.now(),
+    ),
+    generationJobs: Array.isArray(doc.generationJobs) ? doc.generationJobs : [],
     exportSettings: {
       ...defaultExportSettings(format, preset),
       ...(doc.exportSettings || {}),

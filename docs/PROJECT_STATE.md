@@ -40,6 +40,7 @@ Short version:
 
 | Area | Status |
 |------|--------|
+| Opening a saved project lands in the timeline editor | **IN PROGRESS** (`/video?project=`; script planning stays at `/projects/:id`) |
 | Projects on disk (`~/Documents/Canvas/Projects/{id}/project.json`) | **IMPLEMENTED** |
 | Scene: still, clip, prompt, overlay, Ken Burns stitch | **IMPLEMENTED** |
 | Image gen: FLUX / SDXL via Diffusers + PyTorch (MPS), not MLX | **IMPLEMENTED** |
@@ -71,7 +72,7 @@ and moved behind this model.
 
 | Phase | Goal |
 |-------|------|
-| **P0.1** | Freeze canonical project/timeline contracts and migrations |
+| **P0.1** | Freeze canonical project/timeline contracts and migrations — schema v3 `media[]` / `generationJobs[]` now persist on save |
 | **P0.2** | Make save/reopen, undo and preview/export parity dependable |
 | **P0.3** | Complete core video/audio/title track operations |
 | **P1.1** | Media derivations and non-destructive AI alternatives |
@@ -89,7 +90,10 @@ and moved behind this model.
 - Film narration: see [NARRATION_HANDOFF.md](film/NARRATION_HANDOFF.md).
   Text length must fit the picture at natural voice speed. Never fill windows by
   dramatically slowing generated speech. Sidecar Python is not live until the
-  app restarts.
+  app restarts. Existing voiced projects need **re-apply / expand script**, not
+  only “Убрать паузы в A1”.
+- Chapter workspace no longer has «Склеить ролик». Preview and export live in
+  the editor. «Склеить» was a creative-stage mistake.
 - FLUX + Ollama + XTTS must not stay co-resident. Translate with qwen, **unload**, then load FLUX. Analyze/script already call `release_heavy_for_other_work()`.
 - 3D remains an independent tool. The video editor may consume rendered media
   from it later, but does not embed the 3D system into timeline semantics.
