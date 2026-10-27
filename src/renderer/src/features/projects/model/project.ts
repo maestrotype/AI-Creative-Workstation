@@ -2,6 +2,7 @@ import type { Callout } from '../../video/model/callout';
 import type { VoiceoverSession } from '../../video/model/voiceoverSession';
 import { MARKETPLACE_BRIEF_RU, MARKETPLACE_V0_BLOCKS, marketplaceVoiceoverSession } from '../../video/model/marketplaceVoiceoverPack';
 import { inferTemplateId } from '../../../../../shared/filmTemplate';
+import type { EditorGenerationJob, EditorMediaAsset } from '../../../../../shared/editorProject';
 
 export { inferTemplateId };
 
@@ -87,7 +88,7 @@ export interface FilmTimeline {
   edited?: boolean;
 }
 
-export const PROJECT_SCHEMA_VERSION = 2;
+export const PROJECT_SCHEMA_VERSION = 3;
 
 export type ProjectAudioPolicy = 'original' | 'duck' | 'replace';
 export type ProjectExportPreset = 'draft' | 'youtube-1080p' | 'shorts-1080p';
@@ -143,6 +144,10 @@ export interface ProjectDoc {
   brief: string;
   scenes: ProjectScene[];
   shots: FilmShot[];
+  /** Canonical media and its non-destructive versions. */
+  media?: EditorMediaAsset[];
+  /** Persistent AI operations associated with this project. */
+  generationJobs?: EditorGenerationJob[];
   timeline: FilmTimeline | null;
   /** Durable editor data. localStorage is only a disposable UI cache. */
   voiceover: VoiceoverSession | null;

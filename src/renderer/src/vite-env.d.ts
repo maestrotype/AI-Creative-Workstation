@@ -424,6 +424,7 @@ interface Window {
       tempo: number;
       fitted: boolean;
       needs_shorten: boolean;
+      needs_expand: boolean;
     }>;
     mixVoiceoverTrack?: (payload: {
       parts: Array<{ file_path: string; start_sec: number; max_duration_sec?: number }>;

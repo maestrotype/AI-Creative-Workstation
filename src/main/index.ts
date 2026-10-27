@@ -2208,6 +2208,7 @@ function setupIpc() {
     file_path: string;
     target_sec: number;
     force?: boolean;
+    fill_window?: boolean;
   }) => sidecarJson('/api/audio/fit-speech', payload, 3 * 60 * 1000));
 
   ipcMain.handle('mix-voiceover-track', async (_, payload: {

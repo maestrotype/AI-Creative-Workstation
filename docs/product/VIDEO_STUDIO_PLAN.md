@@ -1,11 +1,22 @@
-# Video & Voice Studio — Living Plan
+# Video & Voice Studio — migration note
 
-> **Status:** Working plan, not a freeze.  
-> **Updated:** 1 September 2026  
+> **Status:** Legacy implementation reference. Product direction moved to
+> [AI_FIRST_VIDEO_STUDIO.md](AI_FIRST_VIDEO_STUDIO.md).
+> **Updated:** 27 October 2026
 > **Owners:** Product + sidecar (Video page, Studio catalogs, Assets TTS)  
 > **How to use:** Correct this file when we learn what local hardware can actually ship, or when goals shift. Do not treat older roadmap slides as more true than this page if they conflict with implemented behavior.
 
-Studio in the app is the **engine registry** (image / video / 3D / voice). The **job** of making a YouTube-shaped file lives on **Video**. Voice sample and prompt TTS live in **Assets**. This document is the plan for those three surfaces together — the “video studio” users mean when they want montage plus local voiceover.
+This file describes capabilities that existed before the editor-core decision.
+It remains useful as implementation history, but its surface split is no longer
+the target UX.
+
+Current decision:
+
+- **Video Studio** is the project editor: media, viewer, inspector/AI and timeline.
+- **AI tools** are contextual operations inside that editor.
+- **Models and resources** manage engines and hardware.
+- Voice samples are reusable media/resources; narration clips live in the project.
+- Export renders the timeline. “Stitch” is not a separate creative phase.
 
 Related vision (later, not current UI): [AI_DIRECTOR.md](../ux/AI_DIRECTOR.md), [ROADMAP.md](../roadmap/ROADMAP.md) V2.
 
@@ -15,9 +26,9 @@ Related vision (later, not current UI): [AI_DIRECTOR.md](../ux/AI_DIRECTOR.md), 
 
 ---
 
-## Intent (stable)
+## Preserved capabilities
 
-We want creators to produce **watchable** local video without ComfyUI graphs:
+We preserve these capabilities while changing their product structure:
 
 1. **Picture quality** from the active **image** engine (not from a missing motion model).
 2. **Assembly** that is honest ffmpeg (slideshow or cleaned screencast), not fake “AI film.”
@@ -71,7 +82,7 @@ Lines matching voiceover / озвучка / tts / speak go through XTTS. Other l
 
 ---
 
-## Near-term corrections (this track)
+## Superseded near-term plan
 
 Adjust as we ship. Suggested order, not a contract:
 
@@ -86,7 +97,16 @@ Adjust as we ship. Suggested order, not a contract:
 | V-PRON-* | Russian pronunciation pipeline + Assets/Director UI | [VOICE_PRONUNCIATION_PLAN.md](VOICE_PRONUNCIATION_PLAN.md) — **in progress** on `feat/voice-pronunciation` |
 | V-VO-* | From video: analyze → script → TTS → timeline | [VIDEO_VOICEOVER_PLAN.md](VIDEO_VOICEOVER_PLAN.md) — **planned** on `feat/video-voiceover` |
 
-Do **not** implement a full NLE (DaVinci). We generate and assemble; we do not become an editor.
+~~Do not implement a full NLE. We generate and assemble.~~
+
+**Superseded 27 October 2026.** The product requires a dependable editing core.
+It does not attempt to clone all of DaVinci Resolve, but trim/split/ripple,
+multi-track audio/video/title editing, save/reopen, undo and preview/export parity
+are foundational, not optional scope.
+
+Narration must be planned by word budget and validated after TTS. Slowing a short
+line to occupy a long picture slot is prohibited. The system rewrites the text,
+uses only small natural tempo correction, or reports incomplete coverage.
 
 ---
 

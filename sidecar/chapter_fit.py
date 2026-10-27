@@ -23,15 +23,13 @@ def word_count(text: str) -> int:
 
 def line_gap(text: str, target_words: int, *, authored_words: Optional[int] = None) -> list[str]:
     """Empty when the line will actually fill its beat."""
+    del authored_words
     spoken = re.sub(r"\s+", " ", (text or "")).strip()
     if not spoken or spoken[-1] not in ".!?":
         return ["фраза не закончена"]
     count = word_count(spoken)
     effective = target_words
-    if authored_words is not None and authored_words > 0:
-        # Do not force a long pad when the ready meaning is short.
-        effective = min(target_words, max(authored_words + 4, int(round(authored_words * 1.55))))
-    low = max(6, int(round(effective * 0.72)))
+    low = max(6, int(round(effective * 0.82)))
     high = int(round(target_words * 1.18)) + 2
     problems: list[str] = []
     if count < low:
@@ -190,8 +188,8 @@ def chapter_prompt(
         "Готовый сценарий — смысл главы. Раскрой его. Не заменяй другими фактами и не пропускай.\n"
         f"{script}\n\n"
         f"Уже сказано раньше (эти мысли и близкие пересказы не повторяй):\n{history}\n\n"
-        "Реплики по порядку. Число слов — ориентир длины, не повод набивать воду. "
-        "Лучше чуть короче и ясно, чем длинная тавтология.\n"
+        "Реплики по порядку. Число слов рассчитано из длительности кадра. "
+        "Нужно заполнить этот бюджет полезным объяснением. Тавтология недопустима.\n"
         + "\n".join(rows)
         + "\n"
         + retry
@@ -266,7 +264,7 @@ def fit_chapters(
             if line_gap(line, target, authored_words=authored):
                 line = correct_line(
                     line,
-                    min(target, max(authored + 4, int(round(authored * 1.55)))) if authored else target,
+                    target,
                     [str(beat.get("brief") or ""), str(beat.get("seen") or ""), str(chapter.get("script") or "")],
                 )
             high = int(round(target * 1.18)) + 2

@@ -3,19 +3,24 @@
 > Source of truth for **what the code does today** and what we are building next.  
 > Trust this file and the source tree over older vision docs. Those often describe planned systems as if they shipped.
 
-## Current branch / next branch
+## Current direction / branch
 
 | Branch | Role |
 |--------|------|
-| `feat/film-phase-1` | Film UX for template demos (record the theme; app chapters, stitches, voices) |
-| `fix/studio-llm-status-nav` | Ollama on-disk vs running server; Studio Script chips |
-| `fix/narration-vlm-understanding` | **Current:** Film narration planner, script↔A1 version, speech-sized A1 clips |
+| `fix/narration-locks-to-picture` | Checkpoint of the former chapter/narration workflow |
+| `feat/ai-first-video-studio-core` | **Current:** migrate to one project, media library and editor timeline |
+
+Authoritative product direction:
+[AI_FIRST_VIDEO_STUDIO.md](product/AI_FIRST_VIDEO_STUDIO.md).
 
 ## Product (now)
 
 AI Creative Workstation is an Electron + React desktop app with a Python FastAPI sidecar.
 
-**Immediate product:** local-first workstation for **videos of a store template** (design, catalog, admin, builder, payments). You record the real UI; the app cuts, titles, stitches, and voices.
+**Product:** local-first AI video studio with a classic editing core. It supports
+imported footage, product ads, tutorials, YouTube/Shorts and generated material.
+The ecommerce walkthrough remains a built-in template, not the architecture of
+every project.
 
 **Create** draws stills (FLUX): title card, storyboard frame, or catalog product. A reference photo or video frame is a **starting picture** — the prompt is the change (black leather bag → grey silk bag). It does not “undress” a character. A video reference can later be downloaded with a grade and the new still overlaid.
 
@@ -44,28 +49,35 @@ Short version:
 | 3D image → mesh | **IMPLEMENTED** (separate from video) |
 | MLX, fal.ai, SQLite job queue, Creative Asset Graph | **PARTIAL** (MLX only for Wan 2.2 TI2V subprocess; fal.ai / queue / graph are docs) |
 
-## Conceptual problem (why Phase 1)
+## Current conceptual problem
 
-Users currently choose between:
+The code has one useful editor surface, but product flow still exposes internal
+pipeline concepts: chapters, stitching, narration stages and standalone
+generators. Scenes and chapters sometimes rebuild or constrain the real edit.
 
-- **Projects** = generate product clips  
-- **Video** = narrate an existing file  
+Target:
 
-Those are one production. The film is a **template walkthrough**: recordings in chapters, then the existing analyze → script → TTS path.
+- one durable Project;
+- one project media library with derivations and alternatives;
+- one or more Timeline sequences as the edit source of truth;
+- Storyboard/Script as linked planning views, not replacement timelines;
+- contextual AI jobs that add reversible results to the project;
+- export as rendering, not a creative “stitch” step.
 
-Voiceover analyze → script → TTS must be **preserved** and attached to Film, not deleted.
+The existing ecommerce template, analysis, script and XTTS capabilities are kept
+and moved behind this model.
 
-## Phase plan
-
-Full architecture: [FILM_ARCHITECTURE.md](architecture/FILM_ARCHITECTURE.md).
+## Migration plan
 
 | Phase | Goal |
 |-------|------|
-| **1** | **Corrected:** Film labels, template chapters, recording-first default, Studio advanced grouping |
-| **2** | Persistence: Film JSON, analysis on disk, stop relying on localStorage for the film |
-| **3** | Analysis → script quality; regenerate one narration segment |
-| **4** | Disk job queue + unload after heavy jobs |
-| **5** | Docs/tests aligned with code |
+| **P0.1** | Freeze canonical project/timeline contracts and migrations |
+| **P0.2** | Make save/reopen, undo and preview/export parity dependable |
+| **P0.3** | Complete core video/audio/title track operations |
+| **P1.1** | Media derivations and non-destructive AI alternatives |
+| **P1.2** | Storyboard linked to timeline clip ids |
+| **P1.3** | Persistent generation jobs and resource scheduling |
+| **P2** | AI edit proposals and multi-format sequences |
 
 ## Known issues
 
@@ -74,9 +86,13 @@ Full architecture: [FILM_ARCHITECTURE.md](architecture/FILM_ARCHITECTURE.md).
 - Two sources of truth: `project.json` vs `acw-director-session-*` localStorage.
 - SQLite `projects` / `assets` tables exist and are unused.
 - Docs/roadmap still claim MLX FLUX, fal.ai, character graph — **false**.
-- Film narration: see [NARRATION_HANDOFF.md](film/NARRATION_HANDOFF.md). Do not change VLM / OCR / `video_analyze.py` for script wording. Sidecar Python is not live until the app restarts.
+- Film narration: see [NARRATION_HANDOFF.md](film/NARRATION_HANDOFF.md).
+  Text length must fit the picture at natural voice speed. Never fill windows by
+  dramatically slowing generated speech. Sidecar Python is not live until the
+  app restarts.
 - FLUX + Ollama + XTTS must not stay co-resident. Translate with qwen, **unload**, then load FLUX. Analyze/script already call `release_heavy_for_other_work()`.
-- 3D stays out of the film graph. Do not invent a huge identity graph / NLE / music.
+- 3D remains an independent tool. The video editor may consume rendered media
+  from it later, but does not embed the 3D system into timeline semantics.
 
 ## Incident log (read this before changing Create / CLIP / Home)
 

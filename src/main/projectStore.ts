@@ -13,6 +13,12 @@ import { extname, join } from 'path';
 import { randomUUID } from 'crypto';
 
 import { inferTemplateId } from '../shared/filmTemplate';
+import {
+  mediaLibraryFromLegacyBins,
+  type EditorGenerationJob,
+  type EditorMediaAsset,
+  type LegacyTimelineBin,
+} from '../shared/editorProject';
 
 export type ProjectKind = 'video';
 export type ProjectFormat = 'landscape' | 'shorts';
@@ -65,7 +71,7 @@ export interface FilmTimeline {
   };
 }
 
-export const PROJECT_SCHEMA_VERSION = 2;
+export const PROJECT_SCHEMA_VERSION = 3;
 
 export interface ProjectExportSettings {
   preset: 'draft' | 'youtube-1080p' | 'shorts-1080p';
@@ -101,6 +107,10 @@ export interface ProjectDoc {
   brief: string;
   scenes: ProjectScene[];
   shots: FilmShot[];
+  /** Canonical project media. Legacy timeline bins migrate here on load. */
+  media?: EditorMediaAsset[];
+  /** Persistent AI operation records; execution queue wiring follows. */
+  generationJobs?: EditorGenerationJob[];
   timeline: FilmTimeline | null;
   voiceover: Record<string, unknown> | null;
   callouts: unknown[];
@@ -185,6 +195,8 @@ function emptyProject(
     brief: '',
     scenes: [],
     shots: [],
+    media: [],
+    generationJobs: [],
     timeline: null,
     voiceover: null,
     callouts: [],
@@ -234,6 +246,19 @@ function parseDoc(raw: string): ProjectDoc | null {
     const voiceover = parsed.voiceover && typeof parsed.voiceover === 'object'
       ? { ...parsed.voiceover, callouts }
       : null;
+    const legacyBins = (Array.isArray(parsed.timeline?.bins) ? parsed.timeline.bins : [])
+      .filter((row): row is LegacyTimelineBin => {
+        if (!row || typeof row !== 'object') return false;
+        const bin = row as Partial<LegacyTimelineBin>;
+        return typeof bin.id === 'string'
+          && (bin.kind === 'video' || bin.kind === 'image' || bin.kind === 'audio')
+          && typeof bin.path === 'string'
+          && typeof bin.name === 'string'
+          && typeof bin.durationSec === 'number';
+      });
+    const media = Array.isArray(parsed.media) && parsed.media.length
+      ? parsed.media
+      : mediaLibraryFromLegacyBins(legacyBins, parsed.createdAt || Date.now());
     return {
       ...base,
       ...parsed,
@@ -244,6 +269,8 @@ function parseDoc(raw: string): ProjectDoc | null {
       templateId: inferTemplateId(parsed.preset, parsed.templateId),
       scenes,
       shots,
+      media,
+      generationJobs: Array.isArray(parsed.generationJobs) ? parsed.generationJobs : [],
       timeline: parsed.timeline && typeof parsed.timeline === 'object' ? parsed.timeline : null,
       voiceover,
       callouts,

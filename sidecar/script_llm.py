@@ -3173,7 +3173,7 @@ def expand_spoken(
     high = int(round(budget * 1.18)) + 2
     if source and low <= words <= high and measured_sec <= 0:
         return _fit_spoken(source, target_sec, wpm)
-    if measured_sec > 0 and words >= low:
+    if measured_sec >= target_sec * 0.9 and words >= low:
         return source
     lang = "русском" if language.startswith("ru") else "English"
     place = f"Это реплика {part} из {parts} одной главы. " if parts > 1 else ""
@@ -3189,7 +3189,9 @@ def expand_spoken(
         f"Что сказать в этой реплике: {source or chapter}\n"
         f"В кадре: {seen or 'кадр этой главы'}\n"
         f"Нужно около {budget} слов, речь около {target_sec:.0f} секунд. "
-        "Законченные фразы. Если смысл уже короткий, развивай его по шагам, не повторяй одну и ту же фразу.\n"
+        "Это обязательный бюджет: звук не будет искусственно замедляться. "
+        "Законченные фразы. Если смысл короткий, объясни видимые действия и пользу по шагам, "
+        "не повторяя одну и ту же фразу.\n"
         'JSON: {"text":"..."}'
     )
     parsed = _try_ollama(ask, num_predict=900, temperature=0.3)

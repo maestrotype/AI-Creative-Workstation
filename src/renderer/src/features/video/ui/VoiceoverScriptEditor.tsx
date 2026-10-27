@@ -241,7 +241,7 @@ export function VoiceoverScriptEditor(): ReactNode {
                     onClick={d.alignNarrationToPicture}
                     disabled={busy}
                   >
-                    Привязать A1 к главам V1
+                    Убрать паузы в A1
                   </button>
                   {d.narrationAlignNote ? <p className={styles.hintTight}>{d.narrationAlignNote}</p> : null}
                   {!hasValidSample ? (

@@ -970,38 +970,6 @@ def _write_finished_speech(src: str, dest: str, *, tempo: float, cut_sec: Option
         return audio_duration_sec(dest)
 
 
-def _write_window(src: str, dest: str, *, tempo: float, window: float) -> float:
-    """Stretch speech so the file is exactly the picture slot.
-
-    The fade lands on the last spoken sample. A remainder shorter than the
-    slot is only what atempo cannot cover, and the next line still starts
-    against this file.
-    """
-    src_sec = audio_duration_sec(src)
-    spoken_out = src_sec / tempo if tempo else src_sec
-    fade_at = max(0.0, min(window, spoken_out) - 0.02)
-    filters = [
-        *_atempo_chain(tempo),
-        f"afade=t=in:st=0:d={_SPEECH_FADE_SEC:.3f}",
-        f"afade=t=out:st={fade_at:.3f}:d=0.02",
-        f"apad=whole_dur={window:.3f}",
-    ]
-    cmd = [
-        _ffmpeg_bin(), "-y", "-i", src, "-vn",
-        "-af", ",".join(filters),
-        "-t", f"{window:.3f}",
-        "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le", dest,
-    ]
-    try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=_ffmpeg_user_error(exc.stderr or exc.stdout, "ffmpeg speech lock failed"),
-        ) from exc
-    return audio_duration_sec(dest)
-
-
 def lock_speech_to_window(
     src: str,
     dest: str,
@@ -1012,9 +980,9 @@ def lock_speech_to_window(
 ) -> Dict[str, Any]:
     """Finish one spoken line so the next line can sit against it.
 
-    With fill_window the file is exactly the slot: speech is slowed or sped
-    to meet the next line, and only an uncoverable remainder is silence.
-    Without it, a small overrun can be sped up and the silent tail is cut.
+    fill_window validates against the slot but never stretches speech to hide
+    missing text. Tempo correction is deliberately limited to 0.94–1.08.
+    Larger differences must be fixed in the script before synthesis.
     """
     source_sec = audio_duration_sec(src)
     window = max(0.4, float(target_sec))
@@ -1025,8 +993,9 @@ def lock_speech_to_window(
     if fill_window:
         trimmed = f"{dest}.speech.wav"
         speech_sec = _write_finished_speech(src, trimmed, tempo=1.0, cut_sec=None)
-        tempo = max(0.25, min(2.0, speech_sec / window))
-        output_sec = _write_window(trimmed, dest, tempo=tempo, window=window)
+        ratio = speech_sec / window if window else 1.0
+        tempo = max(0.94, min(1.08, ratio))
+        output_sec = _write_finished_speech(trimmed, dest, tempo=tempo, cut_sec=None)
         try:
             os.remove(trimmed)
         except OSError:
@@ -1039,7 +1008,8 @@ def lock_speech_to_window(
             "window_sec": round(window, 3),
             "tempo": round(tempo, 4),
             "fitted": True,
-            "needs_shorten": False,
+            "needs_shorten": output_sec > window * 1.08,
+            "needs_expand": output_sec < window * 0.90,
         }
     if ratio > 1.15 and not force:
         needs_shorten = True
@@ -1058,6 +1028,7 @@ def lock_speech_to_window(
         "tempo": round(tempo, 4),
         "fitted": True,
         "needs_shorten": needs_shorten,
+        "needs_expand": False,
     }
 
 
