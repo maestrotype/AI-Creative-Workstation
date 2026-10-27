@@ -674,7 +674,124 @@
   height: auto;
   flex: 0 0 auto;
   padding: 8px;
+  gap: 10px;
+}
+
+.aiSteps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.aiSteps li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: var(--color-bg-card);
+}
+
+.aiSteps li[data-done='true'] {
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-border-subtle));
+}
+
+.aiSteps strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.aiSteps p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.aiStillRow {
+  display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+.aiStillThumb {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-elevated);
+  flex: none;
+}
+
+.aiStillEmpty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  border: 1px dashed var(--color-border-default);
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  text-align: center;
+  padding: 4px;
+  flex: none;
+}
+
+.aiActionList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.aiActionCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  background: var(--color-bg-elevated);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.aiActionCard span {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.aiActionCard small {
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.aiActionCard:hover:not(:disabled) {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-subtle);
+}
+
+.aiActionCard:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.aiFormLead {
+  margin: 0;
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 .densePane .card {

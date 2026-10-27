@@ -934,7 +934,9 @@ def _t5_constraints(text: str, job: str = "title") -> str:
     if job == "product":
         return (
             "Photorealistic product photo matching the prompt. "
-            "Not a title card, not a website screenshot."
+            "Product fully inside the frame with clear margins from every edge. "
+            "No cropped text, no website chrome, no browser UI, not a title card, "
+            "not a storefront screenshot."
         )
     if job == "frame":
         return "Cinematic still for a video storyboard. Grounded, not a cute isometric toy."

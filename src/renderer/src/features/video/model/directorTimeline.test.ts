@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   contiguousNarrationStarts,
+  flushNarrationTrack,
   exciseTimelineRange,
   moveClipWithRipple,
   resizeClipAndRipple,
   sanitizeClips,
   splitClipAt,
+  splitVideoTrackAtScenes,
   trimRunawayAudioClips,
   type TimelineClip,
 } from './directorTimeline';
@@ -28,12 +30,40 @@ describe('director timeline editing', () => {
     expect(contiguousNarrationStarts([33.68, 8.06, 7.5])).toEqual([0, 33.68, 41.74]);
   });
 
+  it('closes gaps between narration clips without changing their length', () => {
+    const packed = flushNarrationTrack([
+      clip('a', 'a1', 0, 10),
+      clip('b', 'a1', 18, 6.6),
+      clip('c', 'a1', 30, 8),
+      clip('v', 'v1', 0, 40),
+    ]);
+    const audio = packed.filter((item) => item.track === 'a1').sort((a, b) => a.startSec - b.startSec);
+    expect(audio.map((item) => item.startSec)).toEqual([0, 10, 16.6]);
+    expect(audio.map((item) => item.durationSec)).toEqual([10, 6.6, 8]);
+    expect(packed.find((item) => item.id === 'v')?.startSec).toBe(0);
+  });
+
   it('splits without changing source coverage', () => {
     const result = splitClipAt([clip('a', 'v1', 2, 6)], 'a', 5);
     expect(result).toHaveLength(2);
     expect(result[0].durationSec + result[1].durationSec).toBe(6);
     expect(result[1].sourceInSec).toBe(4);
     expect(result[1].startSec).toBe(5);
+  });
+
+  it('turns detected scenes into labeled picture chapters', () => {
+    const result = splitVideoTrackAtScenes([
+      { ...clip('video', 'v1', 0, 12), sourceInSec: 0 },
+    ], [
+      { start: 0, end: 4, title: 'Intro' },
+      { start: 4, end: 9, title: 'Catalog' },
+      { start: 9, end: 12, title: 'Checkout' },
+    ]);
+    expect(result.map((item) => [item.startSec, item.durationSec, item.sourceInSec, item.label])).toEqual([
+      [0, 4, 0, 'Intro'],
+      [4, 5, 4, 'Catalog'],
+      [9, 3, 9, 'Checkout'],
+    ]);
   });
 
   it('ripples clips without overlap', () => {

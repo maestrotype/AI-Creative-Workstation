@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { alignedNarrationStarts, pictureSlots, planNarrationAlign, speechLockPlan } from './narrationAlign';
+import { abutSlots, alignedNarrationStarts, pictureSlots, planNarrationAlign, speechLockPlan } from './narrationAlign';
 
 const threeChapters = [
   { title: 'Hero', startSec: 0, endSec: 12 },
@@ -91,6 +91,15 @@ describe('alignedNarrationStarts', () => {
     expect(slots[1].startSec).toBeCloseTo(225.13, 1);
     const covered = slots.reduce((sum, slot) => sum + (slot.endSec - slot.startSec), 0);
     expect(covered).toBeCloseTo(100.5, 1);
+  });
+
+  it('closes the hole between picture chapters', () => {
+    const slots = abutSlots([
+      { startSec: 0, endSec: 12 },
+      { startSec: 18, endSec: 30 },
+    ]);
+    expect(slots[0].endSec).toBe(18);
+    expect(slots[1].startSec).toBe(18);
   });
 });
 

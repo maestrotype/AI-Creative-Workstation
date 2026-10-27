@@ -699,7 +699,9 @@ def write_script(
                 text if attempt else "", problems if attempt else None,
                 language=language,
             )
-            reply = _sl._try_ollama(prompt, model=model, num_predict=400, temperature=0.45) or {}
+            reply = _sl._try_ollama(
+                prompt, model=model, num_predict=400, temperature=0.45, timeout=120,
+            ) or {}
             text = re.sub(r"\s+", " ", str(reply.get("text") or "")).strip().strip("«»\"")
             claims = reply.get("claims") if isinstance(reply.get("claims"), list) else []
             problems = line_problems(

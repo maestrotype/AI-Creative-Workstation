@@ -595,6 +595,7 @@ def _try_ollama(
     *,
     num_predict: int = 4096,
     temperature: float = 0.25,
+    timeout: int = 300,
 ) -> dict[str, Any] | None:
     resolved = _resolve_ollama_model(model) or model
     payload = json.dumps(
@@ -618,7 +619,7 @@ def _try_ollama(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=300) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = json.loads(resp.read().decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
         return None
@@ -2899,6 +2900,7 @@ def _plan_tour(
                 model=model,
                 num_predict=260,
                 temperature=0.2,
+                timeout=120,
             )
             if not result or result.get("speak") is False:
                 rejected = "фраза пропущена"

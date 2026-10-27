@@ -84,6 +84,12 @@ export function FilmWorkspace({
   }, [openNarration, d]);
 
   useEffect(() => {
+    const onShotReady = () => setMediaTab('assets');
+    window.addEventListener('acw-ai-shot-ready', onShotReady);
+    return () => window.removeEventListener('acw-ai-shot-ready', onShotReady);
+  }, []);
+
+  useEffect(() => {
     const root = rootRef.current;
     if (!root) return undefined;
     const measure = () => {
@@ -175,6 +181,7 @@ export function FilmWorkspace({
         gridTemplateRows: 'auto var(--frame-h, 420px) 8px minmax(0, 1fr)',
       }}
     >
+      <div className={s.topChrome}>
       <header className={s.toolbar}>
         <div className={s.brand}>
           {productThumb ? <img className={s.productMark} src={productThumb} alt="" /> : null}
@@ -230,6 +237,15 @@ export function FilmWorkspace({
           <button
             type="button"
             className={s.ghost}
+            onClick={d.saveTimelineAsTemplate}
+            disabled={!d.clips.some((clip) => clip.track === 'v1')}
+            title={t('video.save_template_hint')}
+          >
+            {t('projects.save_template')}
+          </button>
+          <button
+            type="button"
+            className={s.ghost}
             data-on={d.cutInSec != null || undefined}
             onClick={d.markCutStart}
             title={t('video.dir_cut_in_hint')}
@@ -271,8 +287,35 @@ export function FilmWorkspace({
           >
             {d.exportBusy ? t('video.dir_exporting') : t('video.dir_export')}
           </button>
+          {d.exportPath && !d.exportSavedTo ? (
+            <button type="button" className={s.exportSave} onClick={d.saveExportAs}>
+              {t('video.save_as')}
+            </button>
+          ) : null}
         </div>
       </header>
+      {d.exportError || d.exportPath ? (
+        <div className={s.exportBar} role="status">
+          {d.exportError ? <p className={s.exportError}>{d.exportError}</p> : null}
+          {d.exportSavedTo ? (
+            <p className={s.exportOk}>
+              {t('video.saved_to')} <code>{d.exportSavedTo}</code>
+              {' '}
+              <button
+                type="button"
+                className={s.exportLink}
+                onClick={() => { void window.api?.openPath?.(d.exportSavedTo!); }}
+              >
+                {t('video.dir_open_folder')}
+              </button>
+            </p>
+          ) : null}
+          {d.exportPath && !d.exportSavedTo && !d.exportError ? (
+            <p className={s.exportOk}>{t('video.dir_export_done')}</p>
+          ) : null}
+        </div>
+      ) : null}
+      </div>
 
       <div
         className={s.stage}

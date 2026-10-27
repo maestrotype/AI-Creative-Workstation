@@ -5,8 +5,11 @@ import { useTranslation } from 'react-i18next';
 
 import { toAssetUrl } from '../../video/model/directorMedia';
 import { assembleShots, planToTimeline, productShotPresets } from '../../video/model/autoAssemble';
+import { clearDirectorSession } from '../../video/model/directorSessionStore';
 import { writeLastProjectId } from '../model/handoff';
-import { composeClips, formatForPreset, marketplaceFilmSeed, newScene, normalizePreset, normalizeShotMotion, projectDuration, sceneHasMedia, shotFromGeneration, timelineFromScenes, timelineNeedsSceneRebuild, type FilmPreset, type ProjectDoc, type ProjectScene } from '../model/project';
+import { chaptersFromProject, ECOMMERCE_TEMPLATE_ID, scenesFromTemplate } from '../model/filmTemplate';
+import { composeClips, defaultExportSettings, inferTemplateId, marketplaceFilmSeed, newScene, normalizePreset, normalizeShotMotion, projectDuration, sceneHasMedia, sceneWantsSlowZoom, shotFromGeneration, timelineFromScenes, timelineNeedsSceneRebuild, type FilmPreset, type ProjectDoc, type ProjectFormat, type ProjectScene } from '../model/project';
+import type { FilmTemplate } from '../../../../../shared/filmTemplate';
 import styles from './ProjectsPage.module.css';
 
 function ipcMessage(err: unknown): string {
@@ -336,6 +339,7 @@ export function ProjectWorkspace(): ReactNode {
   const [showBroll, setShowBroll] = useState(false);
   const [dragOverSceneId, setDragOverSceneId] = useState<string | null>(null);
   const [focusedSceneId, setFocusedSceneId] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<FilmTemplate[]>([]);
 
   const docRef = useRef<ProjectDoc | null>(null);
   docRef.current = doc;
@@ -351,6 +355,19 @@ export function ProjectWorkspace(): ReactNode {
       setError(ipcMessage(err));
     }
   }, []);
+
+  const refreshTemplates = useCallback(async () => {
+    if (!window.api?.listFilmTemplates) return;
+    try {
+      setTemplates(await window.api.listFilmTemplates());
+    } catch (err) {
+      setError(ipcMessage(err));
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshTemplates();
+  }, [refreshTemplates]);
 
   const attachStillToScene = useCallback(async (sceneId: string, file: File) => {
     const latest = docRef.current;
@@ -426,13 +443,15 @@ export function ProjectWorkspace(): ReactNode {
       const next = {
         ...loaded,
         preset: normalizePreset(loaded.preset),
+        templateId: inferTemplateId(loaded.preset, loaded.templateId),
         brief: loaded.brief,
         scenes: loaded.scenes.map((scene) => ({
           ...newScene(scene.title),
           ...scene,
           motion: normalizeShotMotion(scene.motion) || (scene.clipPath ? 'import' : scene.stillPath ? 'still_motion' : 'import'),
           prompt: scene.prompt.trim() ? scene.prompt : scene.title,
-          effectPrompt: scene.effectPrompt.trim() ? scene.effectPrompt : t('projects.effect_default'),
+          // Keep empty / authored look. Never invent a zoom effect on load.
+          effectPrompt: scene.effectPrompt ?? '',
         })),
         shots: (Array.isArray(loaded.shots) ? loaded.shots : []) as ProjectDoc['shots'],
         timeline: (loaded.timeline ?? null) as ProjectDoc['timeline'],
@@ -463,10 +482,20 @@ export function ProjectWorkspace(): ReactNode {
 
   const patchScene = (id: string, partial: Partial<ProjectScene>) => {
     const latest = docRef.current ?? doc;
-    void persist({
-      ...latest,
-      scenes: latest.scenes.map((scene) => (scene.id === id ? { ...scene, ...partial } : scene)),
-    });
+    const scenes = latest.scenes.map((scene) => (scene.id === id ? { ...scene, ...partial } : scene));
+    let timeline = latest.timeline;
+    // Keep stitch effects in sync when the Look field changes (zoom on/off is via checkbox).
+    if (partial.effectPrompt !== undefined && timeline) {
+      const clipId = `scene-clip-${id}`;
+      const nextEffect = (partial.effectPrompt || '').trim() || undefined;
+      timeline = {
+        ...timeline,
+        clips: timeline.clips.map((clip) => (
+          clip.id === clipId ? { ...clip, effect: nextEffect } : clip
+        )),
+      };
+    }
+    void persist({ ...latest, scenes, timeline });
   };
 
   const addScene = () => {
@@ -477,19 +506,138 @@ export function ProjectWorkspace(): ReactNode {
     });
   };
 
-  const seedTemplateChapters = () => {
+  const applyFilmTemplate = (id: string) => {
     const latest = docRef.current ?? doc;
-    const seed = marketplaceFilmSeed();
+    if (!latest) return;
+    const format = latest.format === 'shorts' ? 'shorts' : 'landscape';
+    clearDirectorSession(latest.id);
+    if (id === ECOMMERCE_TEMPLATE_ID) {
+      const seed = marketplaceFilmSeed();
+      const preset: FilmPreset = format === 'shorts' ? 'shorts' : 'marketplace';
+      void persist({
+        ...latest,
+        templateId: ECOMMERCE_TEMPLATE_ID,
+        preset,
+        format,
+        brief: seed.brief,
+        scenes: seed.scenes,
+        voiceover: seed.voiceover,
+        callouts: [],
+        assembledPath: null,
+        timeline: null,
+        exportSettings: {
+          ...latest.exportSettings,
+          ...defaultExportSettings(format, preset),
+        },
+      });
+      return;
+    }
+    const template = templates.find((row) => row.id === id);
+    if (!template) return;
+    const preset: FilmPreset = format === 'shorts' ? 'shorts' : 'youtube';
     void persist({
       ...latest,
-      preset: 'marketplace',
-      format: 'landscape',
-      brief: seed.brief,
-      scenes: seed.scenes,
-      voiceover: seed.voiceover,
+      templateId: template.id,
+      preset,
+      format,
+      brief: template.brief,
+      scenes: scenesFromTemplate(template.chapters),
+      voiceover: null,
+      callouts: [],
       assembledPath: null,
       timeline: null,
+      exportSettings: {
+        ...latest.exportSettings,
+        ...defaultExportSettings(format, preset),
+      },
     });
+  };
+
+  const templateName = (id: string) => (
+    id === ECOMMERCE_TEMPLATE_ID
+      ? t('projects.template_ecommerce')
+      : templates.find((row) => row.id === id)?.name ?? id
+  );
+
+  const onTemplateChange = (id: string) => {
+    const latest = docRef.current ?? doc;
+    if (!latest) return;
+    if (!id) {
+      void persist({
+        ...latest,
+        templateId: null,
+        preset: latest.format === 'shorts' ? 'shorts' : latest.preset === 'marketplace' ? 'youtube' : latest.preset,
+      });
+      return;
+    }
+    if (id === latest.templateId) return;
+    if (latest.scenes.length > 0 && !window.confirm(t('projects.apply_template_confirm', { name: templateName(id) }))) {
+      return;
+    }
+    applyFilmTemplate(id);
+  };
+
+  const setFormat = (format: ProjectFormat) => {
+    const latest = docRef.current ?? doc;
+    if (!latest || latest.format === format) return;
+    const preset: FilmPreset = format === 'shorts'
+      ? 'shorts'
+      : latest.templateId === ECOMMERCE_TEMPLATE_ID
+        ? 'marketplace'
+        : latest.preset === 'shorts' || latest.preset === 'marketplace'
+          ? 'youtube'
+          : latest.preset;
+    void persist({
+      ...latest,
+      format,
+      preset,
+      exportSettings: {
+        ...latest.exportSettings,
+        ...defaultExportSettings(format, preset),
+      },
+    });
+  };
+
+  const saveAsTemplate = async () => {
+    const latest = docRef.current ?? doc;
+    if (!latest || !window.api?.saveFilmTemplate) return;
+    if (latest.scenes.length === 0) {
+      setStatus(t('projects.save_template_need_chapters'));
+      return;
+    }
+    const name = window.prompt(t('projects.save_template_name'), latest.name)?.trim();
+    if (!name) return;
+    try {
+      const saved = await window.api.saveFilmTemplate({
+        name,
+        brief: latest.brief,
+        format: latest.format === 'shorts' ? 'shorts' : 'landscape',
+        chapters: chaptersFromProject(latest),
+      });
+      await refreshTemplates();
+      await persist({
+        ...latest,
+        templateId: saved.id,
+        preset: latest.format === 'shorts' ? 'shorts' : 'youtube',
+      });
+      setStatus(t('projects.save_template_ok', { name: saved.name }));
+    } catch (err) {
+      setError(ipcMessage(err));
+    }
+  };
+
+  const removeTemplate = async () => {
+    const latest = docRef.current ?? doc;
+    const id = latest?.templateId;
+    if (!latest || !id || id === ECOMMERCE_TEMPLATE_ID || !window.api?.deleteFilmTemplate) return;
+    if (!window.confirm(t('projects.delete_template_confirm', { name: templateName(id) }))) return;
+    try {
+      await window.api.deleteFilmTemplate(id);
+      await refreshTemplates();
+      await persist({ ...latest, templateId: null });
+    } catch (err) {
+      setError(ipcMessage(err));
+    }
   };
 
   const removeScene = (id: string) => {
@@ -834,7 +982,7 @@ export function ProjectWorkspace(): ReactNode {
     setError(t('projects.compose_need_media'));
   };
 
-  const useStillMotion = (scene: ProjectScene) => {
+  const setSlowZoom = (scene: ProjectScene, on: boolean) => {
     if (!scene.stillPath) {
       setError(t('projects.need_product_still'));
       return;
@@ -843,15 +991,26 @@ export function ProjectWorkspace(): ReactNode {
     const next: ProjectDoc = {
       ...latest,
       assembledPath: null,
-      scenes: latest.scenes.map((row) => (
-        row.id === scene.id ? { ...row, motion: 'still_motion', clipPath: null } : row
-      )),
+      scenes: latest.scenes.map((row) => {
+        if (row.id !== scene.id) return row;
+        if (on) {
+          return {
+            ...row,
+            // Screenshot on V1; recording file stays attached but unused while zoom is on.
+            motion: 'still_motion' as const,
+            effectPrompt: t('projects.effect_zoom'),
+          };
+        }
+        return {
+          ...row,
+          effectPrompt: t('projects.effect_static'),
+        };
+      }),
     };
     void persist({ ...next, timeline: timelineFromScenes(next) });
-    setStatus(t('projects.still_motion_ok'));
+    setStatus(on ? t('projects.still_motion_ok') : t('projects.still_static_ok'));
   };
 
-  const preset = doc.preset ?? 'marketplace';
   const hasShots = (doc.shots ?? []).some((shot) => shot.artifactPath);
   const hasSceneMedia = doc.scenes.some(sceneHasMedia);
   const canFinish = hasShots || hasSceneMedia;
@@ -865,19 +1024,17 @@ export function ProjectWorkspace(): ReactNode {
           value={doc.name}
           onChange={(e) => patch({ name: e.target.value })}
         />
-        <select
-          className={styles.select}
-          value={preset}
-          onChange={(e) => {
-            const next = e.target.value as FilmPreset;
-            patch({ preset: next, format: formatForPreset(next) });
-          }}
-        >
-          <option value="marketplace">{t('projects.preset_marketplace')}</option>
-          <option value="hero">{t('projects.preset_hero')}</option>
-          <option value="youtube">{t('projects.preset_youtube')}</option>
-          <option value="shorts">{t('projects.preset_shorts')}</option>
-        </select>
+        <label className={styles.headSelect}>
+          <span>{t('projects.format_label')}</span>
+          <select
+            className={styles.select}
+            value={doc.format === 'shorts' ? 'shorts' : 'landscape'}
+            onChange={(e) => setFormat(e.target.value === 'shorts' ? 'shorts' : 'landscape')}
+          >
+            <option value="landscape">{t('projects.format_landscape')}</option>
+            <option value="shorts">{t('projects.format_shorts')}</option>
+          </select>
+        </label>
       </header>
 
       <nav className={styles.filmSteps} aria-label="Этапы фильма">
@@ -906,7 +1063,31 @@ export function ProjectWorkspace(): ReactNode {
           {t('projects.step_voice')}
         </button>
       </nav>
-      <p className={styles.lead}>{t(`projects.preset_lead_${preset}`)}</p>
+      <p className={styles.lead}>{t('projects.format_template_lead')}</p>
+      <div className={styles.templateBar}>
+        <label className={styles.headSelect}>
+          <span>{t('projects.template_label')}</span>
+          <select
+            className={styles.select}
+            value={doc.templateId ?? ''}
+            onChange={(e) => onTemplateChange(e.target.value)}
+          >
+            <option value="">{t('projects.template_none')}</option>
+            <option value={ECOMMERCE_TEMPLATE_ID}>{t('projects.template_ecommerce')}</option>
+            {templates.map((row) => (
+              <option key={row.id} value={row.id}>{row.name}</option>
+            ))}
+          </select>
+        </label>
+        <button type="button" className={styles.ghostBtn} onClick={() => void saveAsTemplate()}>
+          {t('projects.save_template')}
+        </button>
+        {doc.templateId && doc.templateId !== ECOMMERCE_TEMPLATE_ID ? (
+          <button type="button" className={styles.ghostBtn} onClick={() => void removeTemplate()}>
+            {t('projects.delete_template')}
+          </button>
+        ) : null}
+      </div>
 
       <label className={styles.field}>
         <span>{t('projects.brief')}</span>
@@ -924,8 +1105,12 @@ export function ProjectWorkspace(): ReactNode {
           <span className={styles.count}>{doc.scenes.length} · {formatClock(projectDuration(doc))}</span>
         </h2>
         {doc.scenes.length === 0 ? (
-          <button type="button" className={styles.newButton} onClick={seedTemplateChapters}>
-            {t('projects.seed_chapters')}
+          <button
+            type="button"
+            className={styles.newButton}
+            onClick={() => applyFilmTemplate(doc.templateId || ECOMMERCE_TEMPLATE_ID)}
+          >
+            {doc.templateId ? t('projects.seed_chapters') : t('projects.seed_ecommerce')}
           </button>
         ) : null}
         <button type="button" className={styles.ghostBtn} onClick={addScene}>
@@ -1072,14 +1257,6 @@ export function ProjectWorkspace(): ReactNode {
                     </button>
                     <button
                       type="button"
-                      className={styles.ghostBtn}
-                      disabled={busyScene === scene.id || !scene.stillPath}
-                      onClick={() => useStillMotion(scene)}
-                    >
-                      {t('projects.use_still_motion')}
-                    </button>
-                    <button
-                      type="button"
                       className={styles.textBtn}
                       disabled={busyScene === scene.id || !scene.stillPath}
                       onClick={() => void generateSceneVideo(scene)}
@@ -1091,9 +1268,26 @@ export function ProjectWorkspace(): ReactNode {
                         ✓ {t('projects.clip_attached')} ({scene.durationSec}s)
                       </span>
                     ) : scene.stillPath ? (
-                      <span className={styles.ok}>{t('projects.motion_still_motion')}</span>
+                      <span className={styles.ok}>
+                        ✓ {sceneWantsSlowZoom(scene.effectPrompt)
+                          ? t('projects.motion_still_motion')
+                          : t('projects.motion_still_static')}
+                      </span>
                     ) : null}
                   </div>
+                  {scene.stillPath ? (
+                    <label className={styles.zoomToggle} title={t('projects.slow_zoom_hint')}>
+                      <input
+                        type="checkbox"
+                        checked={sceneWantsSlowZoom(scene.effectPrompt)}
+                        onChange={(e) => setSlowZoom(scene, e.target.checked)}
+                      />
+                      <span>
+                        <strong>{t('projects.use_still_motion')}</strong>
+                        <small>{t('projects.slow_zoom_hint')}</small>
+                      </span>
+                    </label>
+                  ) : null}
                 </div>
               </li>
             );
@@ -1141,22 +1335,23 @@ export function ProjectWorkspace(): ReactNode {
       {status ? <p className={styles.status}>{status}</p> : null}
       {error ? <p className={styles.error}>{error}</p> : null}
 
-      {/* ── Дополнительно: Генерация B-roll из фото товара ─── */}
-      <ProductBrollPanel
-        doc={doc}
-        shotBusy={shotBusy}
-        busyScene={busyScene}
-        shotLength={shotLength}
-        setShotLength={setShotLength}
-        assembleTarget={assembleTarget}
-        setAssembleTarget={setAssembleTarget}
-        pickProductStill={pickProductStill}
-        generateProductShots={generateProductShots}
-        openEditorFromShots={openEditorFromShots}
-        openDirector={openDirector}
-        showBroll={showBroll}
-        setShowBroll={setShowBroll}
-      />
+      {doc.templateId === ECOMMERCE_TEMPLATE_ID ? (
+        <ProductBrollPanel
+          doc={doc}
+          shotBusy={shotBusy}
+          busyScene={busyScene}
+          shotLength={shotLength}
+          setShotLength={setShotLength}
+          assembleTarget={assembleTarget}
+          setAssembleTarget={setAssembleTarget}
+          pickProductStill={pickProductStill}
+          generateProductShots={generateProductShots}
+          openEditorFromShots={openEditorFromShots}
+          openDirector={openDirector}
+          showBroll={showBroll}
+          setShowBroll={setShowBroll}
+        />
+      ) : null}
     </div>
   );
 }

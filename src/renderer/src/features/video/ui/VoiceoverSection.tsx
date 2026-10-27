@@ -123,6 +123,21 @@ export function VoiceoverSection(): ReactNode {
               words: ctx.transcript.full_text.split(/\s+/).filter(Boolean).length,
             })}
           </p>
+          <div className={styles.toolRow}>
+            <button
+              type="button"
+              className={styles.toolPrimary}
+              onClick={d.splitByAnalysis}
+              disabled={ctx.scenes.length < 2}
+            >
+              {d.t('video.vo_split_chapters')}
+            </button>
+            <button type="button" className={styles.toolBtn} onClick={d.saveTimelineAsTemplate}>
+              {d.t('projects.save_template')}
+            </button>
+          </div>
+          <p className={styles.hintTight}>{d.t('video.vo_split_hint')}</p>
+          {d.templateNotice ? <p className={styles.nextHint}>{d.templateNotice}</p> : null}
           {!d.voiceoverBusy && (ctx.warnings?.includes('VISION_MODEL_MISSING') || ctx.warnings?.includes('VISION_CAPTION_FAILED')) ? (
             <p className={styles.error}>{d.t('video.pipe_vision_missing')}</p>
           ) : null}

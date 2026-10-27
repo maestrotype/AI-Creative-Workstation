@@ -79,12 +79,6 @@ export function DirectorPreview({
     return out;
   }, [layout.videos]);
 
-  const audioTrackIds = useMemo(() => {
-    const out: string[] = [];
-    for (let i = 1; i <= layout.audios; i += 1) out.push(`a${i}`);
-    return out;
-  }, [layout.audios]);
-
   const v1 = clipAtTime(clips, 'v1', playhead);
   const overlayClips = overlayTrackIds.map((id) => ({ id, clip: clipAtTime(clips, id as `v${number}`, playhead) }));
   const liveOverlays = overlayClips.filter((o): o is { id: string; clip: TimelineClip } => Boolean(o.clip));
@@ -127,32 +121,50 @@ export function DirectorPreview({
   const v1IsVideo = effectiveV1Bin?.kind === 'video' && Boolean(v1Url) && !v1Busy;
   const v1IsImage = effectiveV1Bin?.kind === 'image' && Boolean(v1Url);
   const pipOverlays = liveOverlays.filter((o) => o.id !== promoted?.id);
-  const timelineT = playing ? playheadRef.current : playhead;
-  const audioClips = audioTrackIds.map((id) => ({ id, clip: clipAtTime(clips, id as `a${number}`, timelineT) }));
+  const narrationClips = useMemo(
+    () => clips
+      .filter((clip) => clip.track.startsWith('a') && !clip.muted)
+      .sort((a, b) => a.startSec - b.startSec || a.id.localeCompare(b.id)),
+    [clips],
+  );
+  const narrationActive = narrationClips.some(
+    (clip) => playhead >= clip.startSec && playhead < clip.startSec + clip.durationSec,
+  );
   const titleClips = clips
     .filter((c) => c.track.startsWith('t') && c.text && playhead >= c.startSec && playhead < c.startSec + c.durationSec);
 
   useEffect(() => {
-    if (!playing || !active) return undefined;
+    if (!playing || !active) {
+      for (const el of Object.values(audioRefs.current)) el?.pause();
+      return undefined;
+    }
     let raf = 0;
+    const xfade = 0.03;
     const pumpAudio = () => {
       const t = playheadLiveRef?.current ?? playheadRef.current;
-      for (const id of audioTrackIds) {
-        const el = audioRefs.current[id];
+      for (const clip of narrationClips) {
+        const el = audioRefs.current[clip.id];
         if (!el) continue;
-        const clip = clipAtTime(clips, id as `a${number}`, t);
-        if (!clip || clip.muted) continue;
-        const url = playbackUrl(binFor(clip, bins), blobs);
-        if (!url || (el.src !== url && el.currentSrc !== url)) continue;
-        const mediaT = mediaTimeForClip(clip, t);
+        const local = t - clip.startSec;
+        const dur = clip.durationSec;
+        const inside = local >= -xfade && local < dur;
+        if (!inside) {
+          if (!el.paused) el.pause();
+          continue;
+        }
+        const mediaT = clip.sourceInSec + Math.max(0, local);
         if (Math.abs(el.currentTime - mediaT) > 0.15) el.currentTime = mediaT;
+        let gain = clip.volume ?? 1;
+        if (local < 0) gain *= (local + xfade) / xfade;
+        else if (dur - local < xfade) gain *= (dur - local) / xfade;
+        el.volume = Math.max(0, Math.min(1, gain));
         if (el.paused) void el.play().catch(() => undefined);
       }
       raf = requestAnimationFrame(pumpAudio);
     };
     raf = requestAnimationFrame(pumpAudio);
     return () => cancelAnimationFrame(raf);
-  }, [playing, active, clips, audioTrackIds, playheadLiveRef, playhead]);
+  }, [playing, active, narrationClips, playheadLiveRef]);
 
   useEffect(() => {
     const seekChanged = seekNonce !== prevSeekNonceRef.current;
@@ -207,7 +219,6 @@ export function DirectorPreview({
       }
     };
 
-    const narrationActive = audioClips.some((item) => item.clip && !item.clip.muted);
     const sourceMuted = Boolean(effectiveMainClip?.muted)
       || (narrationActive && audioPolicy === 'replace');
     const sourceGain = (effectiveMainClip?.volume ?? 1)
@@ -221,18 +232,6 @@ export function DirectorPreview({
       attach(overlayRefs.current[id], isVideo ? url : null, isVideo ? clip : null, playing && active, true);
     }
 
-    for (const { id, clip } of audioClips) {
-      const bin = binFor(clip, bins);
-      attach(
-        audioRefs.current[id],
-        playbackUrl(bin, blobs),
-        clip,
-        playing && active,
-        Boolean(clip?.muted),
-        clip?.volume ?? 1,
-        true,
-      );
-    }
   }, [
     effectiveMainClip?.id,
     effectiveMainClip?.muted,
@@ -247,10 +246,11 @@ export function DirectorPreview({
     blobs,
     playhead,
     pipOverlays.map((o) => o.clip.id).join('|'),
-    audioClips.map((a) => `${a.clip?.id}:${a.clip?.muted ? 1 : 0}:${a.clip?.volume ?? 1}`).join('|'),
+    narrationClips.map((clip) => clip.id).join('|'),
+    narrationActive,
   ]);
 
-  const hasAny = Boolean(effectiveMainClip || overlayClips.some((o) => o.clip) || titleClips.length || audioClips.some((a) => a.clip));
+  const hasAny = Boolean(effectiveMainClip || overlayClips.some((o) => o.clip) || titleClips.length || narrationClips.length);
   const waiting = Boolean(effectiveV1Bin?.proxying || (effectiveV1Bin?.kind === 'video' && !v1Url && !effectiveV1Bin.proxying));
 
   return (
@@ -323,9 +323,17 @@ export function DirectorPreview({
         <p key={clip.id} className={styles.stageCaption}>{clip.text}</p>
       ))}
 
-      {audioTrackIds.map((id) => (
-        <audio key={id} ref={(el) => { audioRefs.current[id] = el; }} preload="auto" />
-      ))}
+      {narrationClips.map((clip) => {
+        const url = playbackUrl(binFor(clip, bins), blobs);
+        return (
+          <audio
+            key={clip.id}
+            ref={(el) => { audioRefs.current[clip.id] = el; }}
+            src={url ?? undefined}
+            preload="auto"
+          />
+        );
+      })}
 
       {!hasAny ? (
         <div className={styles.stageEmpty}>

@@ -239,9 +239,9 @@ export function VoiceoverScriptEditor(): ReactNode {
                     type="button"
                     className={styles.toolBtn}
                     onClick={d.alignNarrationToPicture}
-                    disabled={busy || d.chapterCount < 2}
+                    disabled={busy}
                   >
-                    Подогнать звук к главам
+                    Привязать A1 к главам V1
                   </button>
                   {d.narrationAlignNote ? <p className={styles.hintTight}>{d.narrationAlignNote}</p> : null}
                   {!hasValidSample ? (

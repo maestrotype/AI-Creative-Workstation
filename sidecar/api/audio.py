@@ -184,6 +184,7 @@ class FitSpeechRequest(BaseModel):
     file_path: str
     target_sec: float
     force: bool = False
+    fill_window: bool = False
 
 
 class VoiceoverTrackPart(BaseModel):
@@ -903,44 +904,93 @@ def synthesize_batch(request: TtsBatchRequest):
     return {"status": "completed", "engine": "xtts", "results": results}
 
 
-def lock_speech_to_window(
-    src: str,
-    dest: str,
-    target_sec: float,
-    *,
-    force: bool = False,
-) -> Dict[str, Any]:
-    """Make one spoken file occupy exactly its picture slot.
+_SPEECH_FADE_SEC = 0.015
 
-    A small overrun is sped up, at most 15%. A larger overrun is left for a
-    rewrite unless force is set, in which case the tail is cut so the next
-    line can start on its own picture. Short speech is padded with silence.
+
+def _atempo_chain(tempo: float) -> List[str]:
+    """ffmpeg atempo accepts only 0.5–2.0, so slower or faster rates are chained."""
+    filters: List[str] = []
+    remaining = tempo
+    while remaining > 2.0 + 1e-3:
+        filters.append("atempo=2.0")
+        remaining /= 2.0
+    while remaining < 0.5 - 1e-3:
+        filters.append("atempo=0.5")
+        remaining /= 0.5
+    if abs(remaining - 1.0) > 0.01:
+        filters.append(f"atempo={max(0.5, min(2.0, remaining)):.4f}")
+    return filters
+
+
+def _speech_finish_filters(tempo: float, cut_sec: Optional[float], *, trim: bool) -> List[str]:
+    """Drop edge silence and land each join on a zero sample.
+
+    A silent tail inside the file is what makes a 10s block go quiet at 7s.
+    The fade is short enough that two flush clips do not open a hole.
     """
-    source_sec = audio_duration_sec(src)
-    window = max(0.4, float(target_sec))
-    ratio = source_sec / window if window else 1.0
-    if ratio > 1.15 and not force:
-        return {
-            "file_path": src,
-            "source_sec": round(source_sec, 3),
-            "speech_sec": round(source_sec, 3),
-            "output_sec": round(source_sec, 3),
-            "window_sec": round(window, 3),
-            "tempo": 1.0,
-            "fitted": False,
-            "needs_shorten": True,
-        }
-    tempo = 1.0 if ratio <= 1.0 else min(1.15, ratio)
-    filters = []
-    if tempo > 1.01:
-        filters.append(f"atempo={tempo:.4f}")
-    filters.append(f"apad=whole_dur={window:.3f}")
+    filters: List[str] = []
+    filters.extend(_atempo_chain(tempo))
+    if trim:
+        gate = "silenceremove=start_periods=1:start_duration=0.02:start_threshold=-42dB:detection=peak"
+        filters.extend([gate, "areverse", gate, "areverse"])
+    fade = f"afade=t=in:st=0:d={_SPEECH_FADE_SEC:.3f}"
+    if cut_sec and cut_sec > 0.08:
+        filters.append(fade)
+        filters.append(f"afade=t=out:st={max(0.0, cut_sec - 0.02):.3f}:d=0.02")
+    else:
+        filters.extend([fade, "areverse", fade, "areverse"])
+    return filters
+
+
+def _write_finished_speech(src: str, dest: str, *, tempo: float, cut_sec: Optional[float]) -> float:
+    def run(trim: bool) -> None:
+        cmd = [
+            _ffmpeg_bin(), "-y", "-i", src, "-vn",
+            "-af", ",".join(_speech_finish_filters(tempo, cut_sec, trim=trim)),
+        ]
+        if cut_sec and cut_sec > 0.08:
+            cmd += ["-t", f"{cut_sec:.3f}"]
+        cmd += ["-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le", dest]
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+    try:
+        run(True)
+        dur = audio_duration_sec(dest) if os.path.isfile(dest) else 0.0
+        if dur < 0.2:
+            raise RuntimeError("silence trim removed the voice")
+        return dur
+    except (subprocess.CalledProcessError, RuntimeError, OSError):
+        try:
+            run(False)
+        except subprocess.CalledProcessError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=_ffmpeg_user_error(exc.stderr or exc.stdout, "ffmpeg speech lock failed"),
+            ) from exc
+        return audio_duration_sec(dest)
+
+
+def _write_window(src: str, dest: str, *, tempo: float, window: float) -> float:
+    """Stretch speech so the file is exactly the picture slot.
+
+    The fade lands on the last spoken sample. A remainder shorter than the
+    slot is only what atempo cannot cover, and the next line still starts
+    against this file.
+    """
+    src_sec = audio_duration_sec(src)
+    spoken_out = src_sec / tempo if tempo else src_sec
+    fade_at = max(0.0, min(window, spoken_out) - 0.02)
+    filters = [
+        *_atempo_chain(tempo),
+        f"afade=t=in:st=0:d={_SPEECH_FADE_SEC:.3f}",
+        f"afade=t=out:st={fade_at:.3f}:d=0.02",
+        f"apad=whole_dur={window:.3f}",
+    ]
     cmd = [
-        _ffmpeg_bin(), "-y", "-i", src,
+        _ffmpeg_bin(), "-y", "-i", src, "-vn",
         "-af", ",".join(filters),
         "-t", f"{window:.3f}",
-        "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le",
-        dest,
+        "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le", dest,
     ]
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
@@ -949,16 +999,65 @@ def lock_speech_to_window(
             status_code=500,
             detail=_ffmpeg_user_error(exc.stderr or exc.stdout, "ffmpeg speech lock failed"),
         ) from exc
-    output_sec = audio_duration_sec(dest)
+    return audio_duration_sec(dest)
+
+
+def lock_speech_to_window(
+    src: str,
+    dest: str,
+    target_sec: float,
+    *,
+    force: bool = False,
+    fill_window: bool = False,
+) -> Dict[str, Any]:
+    """Finish one spoken line so the next line can sit against it.
+
+    With fill_window the file is exactly the slot: speech is slowed or sped
+    to meet the next line, and only an uncoverable remainder is silence.
+    Without it, a small overrun can be sped up and the silent tail is cut.
+    """
+    source_sec = audio_duration_sec(src)
+    window = max(0.4, float(target_sec))
+    ratio = source_sec / window if window else 1.0
+    tempo = 1.0
+    cut_sec: Optional[float] = None
+    needs_shorten = False
+    if fill_window:
+        trimmed = f"{dest}.speech.wav"
+        speech_sec = _write_finished_speech(src, trimmed, tempo=1.0, cut_sec=None)
+        tempo = max(0.25, min(2.0, speech_sec / window))
+        output_sec = _write_window(trimmed, dest, tempo=tempo, window=window)
+        try:
+            os.remove(trimmed)
+        except OSError:
+            pass
+        return {
+            "file_path": dest,
+            "source_sec": round(source_sec, 3),
+            "speech_sec": round(speech_sec, 3),
+            "output_sec": round(output_sec, 3),
+            "window_sec": round(window, 3),
+            "tempo": round(tempo, 4),
+            "fitted": True,
+            "needs_shorten": False,
+        }
+    if ratio > 1.15 and not force:
+        needs_shorten = True
+    elif ratio > 1.01:
+        tempo = min(1.15, ratio)
+        spoken = source_sec / tempo
+        if force and spoken > window + 0.05:
+            cut_sec = window
+    output_sec = _write_finished_speech(src, dest, tempo=tempo, cut_sec=cut_sec)
     return {
         "file_path": dest,
         "source_sec": round(source_sec, 3),
-        "speech_sec": round(source_sec / tempo, 3),
+        "speech_sec": round(output_sec, 3),
         "output_sec": round(output_sec, 3),
         "window_sec": round(window, 3),
         "tempo": round(tempo, 4),
         "fitted": True,
-        "needs_shorten": False,
+        "needs_shorten": needs_shorten,
     }
 
 
@@ -1027,7 +1126,13 @@ def fit_speech_route(request: FitSpeechRequest):
     if request.target_sec <= 0:
         raise HTTPException(status_code=400, detail="target_sec must be positive")
     dest = _audio_out(f"lock-{int(time.time() * 1000)}", "wav", processing=True)
-    return lock_speech_to_window(path, dest, request.target_sec, force=request.force)
+    return lock_speech_to_window(
+        path,
+        dest,
+        request.target_sec,
+        force=request.force,
+        fill_window=request.fill_window,
+    )
 
 
 @router.post("/audio/voiceover-track")

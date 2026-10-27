@@ -21,6 +21,8 @@ import {
   type ProjectDoc,
   type ProjectFormat,
 } from './projectStore';
+import { deleteFilmTemplate, listFilmTemplates, saveFilmTemplate } from './templateStore';
+import { ECOMMERCE_TEMPLATE_ID, type FilmTemplateDraft } from '../shared/filmTemplate';
 import { registerOllamaIpc, stopOllamaIfStartedByApp, prepareOllamaForScript } from './ollamaEngine';
 
 app.setName('AI Creative Workstation');
@@ -1447,13 +1449,27 @@ function setupIpc() {
     name?: string;
     format?: ProjectFormat;
     preset?: 'marketplace' | 'hero' | 'youtube' | 'shorts';
+    templateId?: string | null;
   } = {}) => {
-    const preset = payload.preset === 'hero' || payload.preset === 'youtube' || payload.preset === 'shorts'
+    const preset = payload.preset === 'hero' || payload.preset === 'youtube' || payload.preset === 'shorts' || payload.preset === 'marketplace'
       ? payload.preset
-      : 'marketplace';
+      : 'youtube';
     const format = preset === 'shorts' || payload.format === 'shorts' ? 'shorts' : 'landscape';
-    return createProject(payload.name || 'Новый фильм', format, preset);
+    const templateId = typeof payload.templateId === 'string' && payload.templateId.trim()
+      ? payload.templateId.trim()
+      : payload.templateId === null
+        ? null
+        : preset === 'marketplace'
+          ? ECOMMERCE_TEMPLATE_ID
+          : null;
+    return createProject(payload.name || 'Новый фильм', format, preset, templateId);
   });
+
+  ipcMain.handle('list-film-templates', async () => listFilmTemplates());
+
+  ipcMain.handle('save-film-template', async (_, draft: FilmTemplateDraft) => saveFilmTemplate(draft));
+
+  ipcMain.handle('delete-film-template', async (_, id: string) => ({ deleted: deleteFilmTemplate(id) }));
 
   ipcMain.handle('load-project', async (_, id: string) => loadProject(id));
 
@@ -1785,7 +1801,7 @@ function setupIpc() {
     ollama_model?: string;
   }) => {
     await prepareOllamaForScript(broadcast);
-    return sidecarJson('/api/script/generate', payload, 15 * 60 * 1000);
+    return sidecarJson('/api/script/generate', payload, 60 * 60 * 1000);
   });
 
   ipcMain.handle('fit-chapter-script', async (_, payload: {
@@ -1798,7 +1814,7 @@ function setupIpc() {
     ollama_model?: string;
   }) => {
     await prepareOllamaForScript(broadcast);
-    return sidecarJson('/api/script/fit-chapters', payload, 15 * 60 * 1000);
+    return sidecarJson('/api/script/fit-chapters', payload, 45 * 60 * 1000);
   });
 
   ipcMain.handle('translate-script', async (_, payload: {
@@ -2192,7 +2208,7 @@ function setupIpc() {
     file_path: string;
     target_sec: number;
     force?: boolean;
-  }) => sidecarJson('/api/audio/fit-speech', payload, 60 * 1000));
+  }) => sidecarJson('/api/audio/fit-speech', payload, 3 * 60 * 1000));
 
   ipcMain.handle('mix-voiceover-track', async (_, payload: {
     parts: Array<{ file_path: string; start_sec: number }>;
@@ -2341,14 +2357,21 @@ function setupIpc() {
     return result.filePath;
   });
 
-  ipcMain.handle('save-video-as', async (_, sourcePath: string) => {
+  ipcMain.handle('save-video-as', async (_, sourcePath: string, defaultName?: string) => {
     const resolved = resolveAllowedVideoFile(sourcePath);
     if (!resolved) {
       throw new Error('No video draft to save');
     }
+    const exportDir = join(homedir(), 'Documents/Canvas/Generated/Video');
+    mkdirSync(exportDir, { recursive: true });
+    const stem = (defaultName || 'video')
+      .replace(/\.mp4$/i, '')
+      .replace(/[^a-zA-Z0-9._\u0400-\u04FF-]+/g, '-')
+      .replace(/-+/g, '-')
+      .slice(0, 80) || 'video';
     const result = await dialog.showSaveDialog({
       title: 'Save video',
-      defaultPath: 'video.mp4',
+      defaultPath: join(exportDir, `${stem}.mp4`),
       filters: [{ name: 'MP4', extensions: ['mp4'] }],
     });
     if (result.canceled || !result.filePath) return null;

@@ -143,6 +143,15 @@ export function pictureSlots(chapters: PictureSpan[], lineCount: number): Pictur
   });
 }
 
+/** Each line runs until the next one starts, so A1 has no hole between chapters. */
+export function abutSlots(slots: PictureSlot[]): PictureSlot[] {
+  return slots.map((slot, index) => {
+    const next = slots[index + 1];
+    if (!next || next.startSec <= slot.startSec + 0.05) return slot;
+    return { startSec: slot.startSec, endSec: round2(Math.max(slot.endSec, next.startSec)) };
+  });
+}
+
 /** Speech longer than the picture is rewritten. A small overrun can be sped up. Short speech is padded with silence. */
 export function speechLockPlan(speechSec: number, windowSec: number): 'keep' | 'pad' | 'tempo' | 'shorten' | 'expand' {
   const window = Math.max(0.4, windowSec);

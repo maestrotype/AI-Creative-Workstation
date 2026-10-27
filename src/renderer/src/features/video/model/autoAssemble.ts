@@ -323,7 +323,14 @@ export function purposeWord(purpose: ShotPurpose): string {
 export function promptForPurpose(purpose: ShotPurpose, brief = ''): string {
   const context = brief.trim();
   const prefix = context ? `Ecommerce product film. Brief: ${context} ` : '';
-  const lock = 'This is the exact product shown in the reference image. Preserve its shape, colors, materials, proportions and visible details. Do not add another product or replace it.';
+  const lock = [
+    'This is the exact product shown in the reference image.',
+    'Preserve its shape, colors, materials, proportions and visible details.',
+    'Do not add another product or replace it.',
+    'Frame the product fully in view with clear margins from every edge.',
+    'No website chrome, no cropped headline text, no cut-off UI labels, no browser window.',
+    'Studio product photo look, not a storefront screenshot.',
+  ].join(' ');
   switch (purpose) {
     case 'HOOK':
       return `${prefix}Opening look at the exact product shown in the reference image. Slow cinematic push-in. ${lock}`;

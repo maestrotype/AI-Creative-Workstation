@@ -4,8 +4,17 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { toAssetUrl } from '../../video/model/directorMedia';
-import { marketplaceFilmSeed, type ProjectSummary } from '../model/project';
+import { fileName } from '../../video/model/directorTimeline';
+import {
+  marketplaceFilmSeed,
+  newScene,
+  timelineFromScenes,
+  type ProjectDoc,
+  type ProjectSummary,
+} from '../model/project';
+import { ECOMMERCE_TEMPLATE_ID, scenesFromTemplate } from '../model/filmTemplate';
 import { clearLastProjectId, readLastProjectId, writeLastProjectId } from '../model/handoff';
+import type { FilmTemplate } from '../../../../../shared/filmTemplate';
 import styles from './ProjectsPage.module.css';
 
 function ipcMessage(err: unknown): string {
@@ -28,6 +37,8 @@ export function ProjectsPage(): ReactNode {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [items, setItems] = useState<ProjectSummary[]>([]);
+  const [templates, setTemplates] = useState<FilmTemplate[]>([]);
+  const [templateId, setTemplateId] = useState(ECOMMERCE_TEMPLATE_ID);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -43,6 +54,8 @@ export function ProjectsPage(): ReactNode {
 
   useEffect(() => {
     void refresh();
+    if (!window.api?.listFilmTemplates) return;
+    void window.api.listFilmTemplates().then(setTemplates).catch((err) => setError(ipcMessage(err)));
   }, []);
 
   const create = async () => {
@@ -52,11 +65,59 @@ export function ProjectsPage(): ReactNode {
     try {
       const doc = await window.api.createProject({
         name: t('projects.untitled'),
+        format: 'landscape',
         preset: 'youtube',
+        templateId: null,
       });
       writeLastProjectId(doc.id);
       navigate(`/projects/${doc.id}`);
     } catch (err) {
+      setError(ipcMessage(err));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const importVideo = async () => {
+    if (!window.api?.pickVideo || !window.api.createProject || !window.api.importIntoProject) return;
+    const picked = await window.api.pickVideo();
+    if (!picked) return;
+    setCreating(true);
+    setError(null);
+    let createdId: string | null = null;
+    try {
+      const sourceName = fileName(picked);
+      const name = sourceName.replace(/\.[^.]+$/, '') || t('projects.untitled');
+      const doc = await window.api.createProject({
+        name,
+        format: 'landscape',
+        preset: 'youtube',
+        templateId: null,
+      });
+      createdId = doc.id;
+      const copied = await window.api.importIntoProject({ projectId: doc.id, path: picked });
+      const duration = await window.api.probeMediaDuration(copied.file_path).catch(() => 12);
+      const scene = {
+        ...newScene(t('projects.imported_video_chapter')),
+        clipPath: copied.file_path,
+        stillPath: copied.poster_path ?? null,
+        durationSec: Math.max(0.5, Math.round(duration * 10) / 10),
+        motion: 'import' as const,
+      };
+      const next = {
+        ...doc,
+        templateId: null,
+        brief: '',
+        scenes: [scene],
+      } as ProjectDoc;
+      await window.api.saveProject({
+        ...next,
+        timeline: timelineFromScenes(next),
+      });
+      writeLastProjectId(doc.id);
+      navigate(`/video?project=${encodeURIComponent(doc.id)}&voice=1`);
+    } catch (err) {
+      if (createdId) await window.api.deleteProject?.(createdId).catch(() => undefined);
       setError(ipcMessage(err));
     } finally {
       setCreating(false);
@@ -78,9 +139,45 @@ export function ProjectsPage(): ReactNode {
         name: seed.name,
         preset: 'marketplace',
         format: 'landscape',
+        templateId: ECOMMERCE_TEMPLATE_ID,
         brief: seed.brief,
         scenes: seed.scenes,
         voiceover: seed.voiceover,
+      });
+      writeLastProjectId(doc.id);
+      navigate(`/projects/${doc.id}`);
+    } catch (err) {
+      setError(ipcMessage(err));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const createFromTemplate = async () => {
+    if (templateId === ECOMMERCE_TEMPLATE_ID) {
+      await createTemplate();
+      return;
+    }
+    const template = templates.find((row) => row.id === templateId);
+    if (!template || !window.api?.createProject || !window.api.saveProject) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const doc = await window.api.createProject({
+        name: template.name,
+        format: template.format,
+        preset: template.format === 'shorts' ? 'shorts' : 'youtube',
+        templateId: template.id,
+      });
+      await window.api.saveProject({
+        ...doc,
+        name: template.name,
+        preset: template.format === 'shorts' ? 'shorts' : 'youtube',
+        format: template.format,
+        templateId: template.id,
+        brief: template.brief,
+        scenes: scenesFromTemplate(template.chapters),
+        voiceover: null,
       });
       writeLastProjectId(doc.id);
       navigate(`/projects/${doc.id}`);
@@ -102,6 +199,28 @@ export function ProjectsPage(): ReactNode {
   const lastId = readLastProjectId();
   const lastItem = lastId ? items.find((item) => item.id === lastId) : undefined;
 
+  const templateStart = () => (
+    <>
+      <label className={styles.headSelect}>
+        <span>{t('projects.template_label')}</span>
+        <select
+          className={styles.select}
+          value={templateId}
+          onChange={(e) => setTemplateId(e.target.value)}
+          disabled={creating}
+        >
+          <option value={ECOMMERCE_TEMPLATE_ID}>{t('projects.template_ecommerce')}</option>
+          {templates.map((row) => (
+            <option key={row.id} value={row.id}>{row.name}</option>
+          ))}
+        </select>
+      </label>
+      <button type="button" className={styles.ghostBtn} onClick={() => void createFromTemplate()} disabled={creating}>
+        {t('projects.create_from_template')}
+      </button>
+    </>
+  );
+
   return (
     <div className={styles.container}>
       <header className={styles.header}>
@@ -113,9 +232,6 @@ export function ProjectsPage(): ReactNode {
           <Link className={styles.ghostBtn} to="/video">
             {t('projects.dub_existing')}
           </Link>
-          <button type="button" className={styles.ghostBtn} onClick={() => void createTemplate()} disabled={creating}>
-            {t('projects.new_template')}
-          </button>
           <button type="button" className={styles.newButton} onClick={() => void create()} disabled={creating}>
             {creating ? t('projects.creating') : t('projects.new_project')}
           </button>
@@ -135,15 +251,25 @@ export function ProjectsPage(): ReactNode {
 
       {error ? <p className={styles.error}>{error}</p> : null}
 
+      <section className={styles.startOptions}>
+        <button type="button" className={styles.startOption} onClick={() => void create()} disabled={creating}>
+          <strong>{t('projects.start_blank')}</strong>
+          <span>{t('projects.start_blank_hint')}</span>
+        </button>
+        <button type="button" className={styles.startOption} onClick={() => void importVideo()} disabled={creating}>
+          <strong>{t('projects.start_import')}</strong>
+          <span>{t('projects.start_import_hint')}</span>
+        </button>
+        <div className={styles.startOption}>
+          <strong>{t('projects.start_template')}</strong>
+          <span>{t('projects.start_template_hint')}</span>
+          <div className={styles.startTemplateControls}>{templateStart()}</div>
+        </div>
+      </section>
+
       {items.length === 0 ? (
         <div className={styles.placeholder}>
           <p>{t('projects.empty')}</p>
-          <button type="button" className={styles.ghostBtn} onClick={() => void createTemplate()} disabled={creating}>
-            {t('projects.new_template')}
-          </button>
-          <button type="button" className={styles.newButton} onClick={() => void create()} disabled={creating}>
-            {t('projects.new_project')}
-          </button>
         </div>
       ) : (
         <ul className={styles.grid}>

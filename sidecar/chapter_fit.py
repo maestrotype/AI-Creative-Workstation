@@ -10,7 +10,6 @@ import re
 from typing import Any, Callable, Optional
 
 WPM = 130
-CHAPTER_BREATH_SEC = 0.55
 _STOP = {
     "и", "в", "во", "на", "по", "к", "ко", "с", "со", "о", "об", "от", "для",
     "это", "эта", "этот", "эти", "как", "что", "чтобы", "или", "а", "но", "же",
@@ -150,7 +149,10 @@ def _place_hint(place: str, media_kind: str) -> str:
                 "Без новых фактов из середины ролика.\n"
             )
         return "Это последняя глава. Закрой рассказ законченной фразой, не обрывай на полусмысле.\n"
-    return "Между этой и соседними главами будет короткая пауза. Не цепляй конец к следующей главе союзом «и».\n"
+    return (
+        "Следующая глава начнётся сразу после этой. "
+        "Закончи мысль так, чтобы переход звучал естественно, без висящего «и…» и без просьбы подождать.\n"
+    )
 
 
 def chapter_prompt(
@@ -203,27 +205,6 @@ def _clip_long(text: str, target_words: int) -> str:
 
     window = max(4.0, target_words * 60 / WPM)
     return drop_paraphrases(_fit_spoken(text, window, WPM))
-
-
-def _apply_chapter_breath(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Leave a short silence between chapters so cuts do not sound rushed."""
-    if len(segments) < 2:
-        return segments
-    for index in range(len(segments) - 1):
-        current = segments[index]
-        nxt = segments[index + 1]
-        if str(current.get("purpose") or "") == str(nxt.get("purpose") or ""):
-            continue
-        end = float(current.get("end_sec") or 0)
-        start = float(current.get("start_sec") or 0)
-        nxt_start = float(nxt.get("start_sec") or 0)
-        room = end - start
-        if room < 1.2:
-            continue
-        target_end = min(end, nxt_start - CHAPTER_BREATH_SEC)
-        if target_end >= start + 0.8:
-            current["end_sec"] = round(target_end, 2)
-    return segments
 
 
 def fit_chapters(
@@ -317,7 +298,6 @@ def fit_chapters(
                 "short": bool(line_gap(text, target, authored_words=word_count(str(beat.get("brief") or "")))),
             })
             said.append(text)
-    segments = _apply_chapter_breath(segments)
     if segments:
         segments[0]["role"] = "hook"
         segments[-1]["role"] = "cta"

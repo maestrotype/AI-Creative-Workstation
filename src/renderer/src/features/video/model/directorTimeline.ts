@@ -308,6 +308,22 @@ export function contiguousNarrationStarts(durations: number[], origin = 0): numb
   return starts;
 }
 
+/** Close gaps on A1. Each line starts where the previous voice ends. */
+export function flushNarrationTrack(clips: TimelineClip[], origin?: number): TimelineClip[] {
+  const audio = clips
+    .filter((clip) => clip.track === 'a1')
+    .sort((a, b) => a.startSec - b.startSec || a.id.localeCompare(b.id));
+  if (audio.length === 0) return clips;
+  const startAt = origin != null ? Math.max(0, origin) : audio[0].startSec;
+  const starts = contiguousNarrationStarts(audio.map((clip) => clip.durationSec), startAt);
+  const byId = new Map(audio.map((clip, index) => [clip.id, starts[index]]));
+  return clips.map((clip) => {
+    const start = byId.get(clip.id);
+    if (start == null || Math.abs(clip.startSec - start) < 0.001) return clip;
+    return { ...clip, startSec: start };
+  });
+}
+
 export function trackHasGap(clips: TimelineClip[], track: TrackId): boolean {
   const on = clips
     .filter((c) => c.track === track)
@@ -772,6 +788,39 @@ export function splitClipAt(
     autoLength: false,
   };
   return clips.flatMap((item) => (item.id === clipId ? [left, right] : [item]));
+}
+
+export function splitVideoTrackAtScenes(
+  clips: TimelineClip[],
+  scenes: Array<{ start: number; end: number; title?: string }>,
+): TimelineClip[] {
+  const ordered = scenes
+    .filter((scene) => Number.isFinite(scene.start) && Number.isFinite(scene.end) && scene.end > scene.start)
+    .sort((a, b) => a.start - b.start);
+  if (ordered.length < 2) return clips;
+
+  let next = clips;
+  for (const scene of ordered.slice(1)) {
+    const at = scene.start;
+    const target = next.find((clip) => (
+      clip.track === 'v1'
+      && at > clip.startSec + 0.19
+      && at < clip.startSec + clip.durationSec - 0.19
+    ));
+    if (target) next = splitClipAt(next, target.id, at);
+  }
+
+  const picture = next
+    .filter((clip) => clip.track === 'v1')
+    .sort((a, b) => a.startSec - b.startSec);
+  if (picture.length !== ordered.length) return next;
+  const labels = new Map(picture.map((clip, index) => [
+    clip.id,
+    ordered[index].title?.trim() || `Chapter ${index + 1}`,
+  ]));
+  return next.map((clip) => (
+    labels.has(clip.id) ? { ...clip, label: labels.get(clip.id)! } : clip
+  ));
 }
 
 export function detachAudioFromClip(
