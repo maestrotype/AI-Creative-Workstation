@@ -43,6 +43,24 @@ def extract_audio_wav(video_path: str, dest_wav: str) -> None:
     subprocess.run(cmd, check=True, capture_output=True, text=True)
 
 
+def transcribe_media(
+    media_path: str,
+    language: Optional[str] = None,
+    model_size: str = "small",
+    on_progress: ProgressFn = None,
+) -> Dict[str, Any]:
+    """Transcribe a voice message, audio file, or video. ffmpeg extracts the speech."""
+    path = (media_path or "").strip()
+    if not path or not os.path.isfile(path):
+        return {
+            "segments": [],
+            "language": language or "unknown",
+            "full_text": "",
+            "warnings": ["FILE_NOT_FOUND"],
+        }
+    return transcribe_video(path, language=language, model_size=model_size, on_progress=on_progress)
+
+
 def transcribe_video(
     video_path: str,
     language: Optional[str] = None,

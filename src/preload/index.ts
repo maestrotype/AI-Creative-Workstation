@@ -252,6 +252,13 @@ const api = {
     start_sec?: number;
     end_sec?: number;
   }) => ipcRenderer.invoke('erase-video-region', payload) as Promise<{ file_path: string }>,
+  transcribeAudio: (payload: { path: string; language?: string }) =>
+    ipcRenderer.invoke('transcribe-audio', payload) as Promise<{
+      segments: Array<{ start: number; end: number; text: string }>;
+      language: string;
+      full_text: string;
+      warnings: string[];
+    }>,
   analyzeVideo: (payload: {
     video_path: string;
     transcribe?: boolean;

@@ -94,6 +94,20 @@ and moved behind this model.
   only “Убрать паузы в A1”.
 - Chapter workspace no longer has «Склеить ролик». Preview and export live in
   the editor. «Склеить» was a creative-stage mistake.
+- Narration on a project with no authored chapters was hardcoded to English
+  (`generateScript` → `language: 'en'`). The state planner then wrote mixed
+  Russian notes plus an English monologue, and `autoLength` stretched each wav
+  over the next line. Russian is the default again. One line is capped at 16s.
+  Existing voiced projects keep the old English track until the user generates again.
+- Voice message → text is in the narration script prompt: record or pick an audio
+  file, faster-whisper writes the words into the prompt. It does not replace the
+  TTS voice sample. Whisper must be installed (`requirements-analyze.txt`).
+  Restart the app after the sidecar change.
+- The editor screen is still the old director (media / narration / assemble MP4).
+  Renaming the sidebar did not build the studio in
+  [AI_FIRST_VIDEO_STUDIO.md](product/AI_FIRST_VIDEO_STUDIO.md): selecting a clip
+  and running AI on that clip, a real media library, and a storyboard linked to
+  the timeline are still ahead.
 - FLUX + Ollama + XTTS must not stay co-resident. Translate with qwen, **unload**, then load FLUX. Analyze/script already call `release_heavy_for_other_work()`.
 - 3D remains an independent tool. The video editor may consume rendered media
   from it later, but does not embed the 3D system into timeline semantics.

@@ -103,6 +103,22 @@ class LineCheckTests(unittest.TestCase):
         )
         self.assertFalse(any("рус" in item or "латиница" in item for item in problems), problems)
 
+    def test_rejects_mixed_language_and_a_monologue(self):
+        mixed = (
+            "язык интерфейса + 3D-моделирование + живой каталог. "
+            "This product supports an English interface and a new shoe style."
+        )
+        wide, _frames = _unit(0, 40, "Каталог.", ["catalog"], topic="catalog")
+        mixed_problems = line_problems(
+            mixed, wide, self.frames, [], "", first=False, language="en",
+        )
+        self.assertTrue(any("mixed language" in item for item in mixed_problems), mixed_problems)
+        ramble = ("The shop page keeps showing the same catalog. " * 12).strip()
+        long_problems = line_problems(
+            ramble, wide, self.frames, [], "", first=False, language="en",
+        )
+        self.assertTrue(any("longer than one thought" in item for item in long_problems), long_problems)
+
     def test_rejects_ukrainian_and_caption(self):
         self.assertTrue(line_problems("Поверні модель в 3D.", self.unit, self.frames, [], "", first=False))
         self.assertTrue(line_problems("Страница магазина с 3D-моделями сумок.", self.unit, self.frames, [], "", first=False))

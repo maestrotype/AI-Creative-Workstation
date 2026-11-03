@@ -22,6 +22,8 @@ DARK_LUMA = 80.0
 CHROME_SHARE = 0.5
 # A finished spoken thought needs about this long on this machine (XTTS).
 MIN_THOUGHT_SEC = 3.6
+# One thought. A long shot is not a license to write a monologue.
+MAX_LINE_SEC = 16.0
 # Absolute floor: shorter than this, do not attempt a caption.
 MIN_SPEECH_SEC = 2.8
 GAP_SEC = 0.4
@@ -460,6 +462,19 @@ _EN_CAPTION = re.compile(
 _EN_BOSSY = re.compile(r"^(click|open|press|tap|scroll|look)\b", re.IGNORECASE)
 
 
+def _spoken_limit(unit: Dict[str, Any]) -> float:
+    return min(float(unit.get("budget") or MAX_LINE_SEC), MAX_LINE_SEC)
+
+
+def _repeats_clause(text: str) -> bool:
+    parts = [
+        re.sub(r"\s+", " ", part).strip().lower()
+        for part in re.split(r"[.!?]+", text or "")
+        if len(part.strip()) >= 24
+    ]
+    return len(parts) != len(set(parts))
+
+
 def _english_line_problems(
     text: str,
     unit: Dict[str, Any],
@@ -477,8 +492,15 @@ def _english_line_problems(
         problems.append("starts like a caption or a command")
     if any(_sl._same_spoken(spoken, line) for line in said):
         problems.append("repeats something already said")
-    if speech_sec(spoken) > float(unit["budget"]) + 0.25:
-        problems.append(f"longer than the shot: {speech_sec(spoken):.1f}s in a {unit['budget']:.1f}s window")
+    if _repeats_clause(spoken):
+        problems.append("repeats the same sentence")
+    letters = [ch for ch in spoken if ch.isalpha()]
+    cyrillic = sum(1 for ch in letters if "\u0400" <= ch <= "\u04FF" or ch in "ёЁ")
+    if letters and cyrillic / len(letters) > 0.12:
+        problems.append("mixed language: write English only")
+    limit = _spoken_limit(unit)
+    if speech_sec(spoken) > limit + 0.25:
+        problems.append(f"longer than one thought: {speech_sec(spoken):.1f}s in a {limit:.1f}s line")
     if claims is not None and not claims:
         problems.append("no grounded claims")
     for claim in claims or []:
@@ -558,8 +580,11 @@ def line_problems(
             problems.append(f"опора утверждения не из этого кадра: {body[:60]}")
     if claims is not None and not claims:
         problems.append("нет утверждений с опорой")
-    if speech_sec(spoken) > float(unit["budget"]) + 0.25:
-        problems.append(f"длиннее кадра: {speech_sec(spoken):.1f}с при окне {unit['budget']:.1f}с")
+    if _repeats_clause(spoken):
+        problems.append("повтор одной и той же фразы")
+    limit = _spoken_limit(unit)
+    if speech_sec(spoken) > limit + 0.25:
+        problems.append(f"длиннее одной мысли: {speech_sec(spoken):.1f}с при лимите {limit:.1f}с")
     return problems
 
 
@@ -617,7 +642,7 @@ def _line_prompt(
     problems: Optional[List[str]] = None,
     language: str = "ru",
 ) -> str:
-    hint = _word_hint(unit["budget"])
+    hint = _word_hint(_spoken_limit(unit))
     topics = "\n".join(
         f"- {t['topic']}"
         + (f" (появляется с {t['from']:.1f} с)" if t.get("from") else "")
@@ -648,7 +673,7 @@ def _line_prompt(
             f"On screen now ({unit['start']:.1f}–{unit['limit']:.1f}s). What this moment means:\n{topics}\n"
             f"Visible facts (grounding, not words to read aloud): {visible}\n"
             f"{role_en}{retry_en}"
-            f"Length: a finished thought of about {hint} words, so it fits in {unit['budget']:.1f}s. "
+            f"Length: a finished thought of about {hint} words, so it fits in {_spoken_limit(unit):.1f}s. "
             "Do not shrink it into a caption.\n"
             "Return the claims in the line. Type \"seen\" is literally on screen; "
             "\"interpretation\" is the obvious meaning of what is visible; "
@@ -670,7 +695,7 @@ def _line_prompt(
         f"Сейчас на экране ({unit['start']:.1f}–{unit['limit']:.1f} с). Смысл момента:\n{topics}\n"
         f"Видимые факты (опора, не текст для зачитывания): {visible}\n"
         f"{role}{retry}"
-        f"Длина — законченная мысль примерно из {hint} слов, чтобы уложиться в {unit['budget']:.1f} с. "
+        f"Длина — законченная мысль примерно из {hint} слов, чтобы уложиться в {_spoken_limit(unit):.1f} с. "
         "Не укорачивай до подписи.\n"
         "Верни утверждения реплики. Тип «видно» — прямо на экране; «толкование» — очевидный смысл "
         "видимого; «оценка» — качество, которого в кадре нет (такие не пиши).\n"
@@ -683,7 +708,7 @@ def write_script(
     frames: List[Dict[str, Any]],
     model: str,
     project_context: str,
-    language: str = "en",
+    language: str = "ru",
 ) -> List[Dict[str, Any]]:
     """One line per unit, in order, with memory of what was already said."""
     name = project_name(project_context)
@@ -790,7 +815,7 @@ def plan_story(
     duration: float,
     model: str,
     project_context: str = "",
-    language: str = "en",
+    language: str = "ru",
 ) -> Dict[str, Any]:
     frames = visual_map(states, duration)
     topics = story_map(frames, model, project_context)
@@ -814,7 +839,7 @@ def plan_from_video(
     video_context: Dict[str, Any],
     model: str,
     project_context: str = "",
-    language: str = "en",
+    language: str = "ru",
 ) -> List[Dict[str, Any]]:
     from visual_timeline import build_dense_timeline
 

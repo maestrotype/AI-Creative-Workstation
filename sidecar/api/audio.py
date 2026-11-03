@@ -1403,3 +1403,24 @@ async def extract_audio_from_video(body: ExtractAudioRequest):
         "duration_sec": duration,
     }
 
+
+class TranscribeAudioRequest(BaseModel):
+    path: str
+    language: str = "ru"
+
+
+@router.post("/audio/transcribe")
+def transcribe_audio_route(body: TranscribeAudioRequest):
+    """Turn a voice message or audio file into text. Does not change the TTS voice sample."""
+    from transcribe import transcribe_media
+
+    result = transcribe_media(os.path.expanduser(body.path.strip()), language=body.language or "ru")
+    warnings = result.get("warnings") or []
+    if "FILE_NOT_FOUND" in warnings:
+        raise HTTPException(status_code=404, detail="Audio file not found")
+    if "WHISPER_NOT_INSTALLED" in warnings:
+        raise HTTPException(status_code=503, detail="WHISPER_NOT_INSTALLED")
+    if any(str(item).startswith("WHISPER_LOAD_FAILED") for item in warnings):
+        raise HTTPException(status_code=503, detail=str(warnings[0]))
+    return result
+

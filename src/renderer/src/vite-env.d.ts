@@ -523,6 +523,12 @@ interface Window {
       start_sec?: number;
       end_sec?: number;
     }) => Promise<{ file_path: string }>;
+    transcribeAudio: (payload: { path: string; language?: string }) => Promise<{
+      segments: Array<{ start: number; end: number; text: string }>;
+      language: string;
+      full_text: string;
+      warnings: string[];
+    }>;
     analyzeVideo: (payload: {
       video_path: string;
       transcribe?: boolean;

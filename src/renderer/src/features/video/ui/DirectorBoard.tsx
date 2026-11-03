@@ -377,7 +377,7 @@ function mergeShotBins(bins: BinItem[], shots: FilmShot[]): BinItem[] {
 }
 
 export function DirectorProvider({ children, projectId = null }: DirectorProviderProps): ReactNode {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const bootPack = useRef(resolveBoot(projectId)).current;
   const boot = bootPack.session;
   const scopeIdRef = useRef(bootPack.scopeId);
@@ -1762,7 +1762,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       name: label ?? fileName(remembered),
       durationSec: dur,
       inSec: 0,
-      outSec: dur,
+      outSec: spanSec && spanSec > 0.4 ? Math.min(dur, spanSec) : dur,
       durationKnown: known,
     };
     setBins((prev) => [...prev, item]);
@@ -1781,7 +1781,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         durationSec: timelineDur,
         sourceInSec: 0,
         label: item.name,
-        autoLength: true,
+        autoLength: !(spanSec && spanSec > 0.4),
         muted: false,
         volume: 1,
       };
@@ -2264,7 +2264,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       title: analysisChapterTitle(ctx, scene, index),
     }));
     const next = splitVideoTrackAtScenes(clipsRef.current, chapters);
-    if (next === clipsRef.current || next.length === clipsRef.current.length) {
+    if (next === clipsRef.current) {
       setVoiceoverError(t('video.vo_split_unavailable'));
       return;
     }
@@ -2342,8 +2342,11 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       }),
       ctx.transcript?.segments ?? [],
     );
+    const narrationLang: NarrationLang = i18n.language.toLowerCase().startsWith('en') ? 'en' : 'ru';
     const chapterNote = chapters.length
-      ? 'Replace the author narration. A minute of picture is several lines as the shot changes, not one sentence for the whole chapter. Write what is visible and what changes. Write the narration in English.'
+      ? narrationLang === 'en'
+        ? 'Replace the author narration. One finished thought per shot, about what is visible. A shot longer than 16 seconds still gets one thought of about 16 seconds, not a monologue.'
+        : 'Замени авторскую озвучку. Одна законченная мысль на кадр, только по-русски, о том, что видно. Кадр длиннее 16 секунд — всё равно одна мысль примерно на 16 секунд, не монолог.'
       : '';
     setScriptBusy(true);
     setScriptError(null);
@@ -2360,15 +2363,15 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         },
         prompt: [session.scriptPrompt, chapterNote].filter(Boolean).join('\n\n'),
         project_context: session.projectContext,
-        language: 'en',
+        language: narrationLang,
         target_wpm: 130,
         ollama_model: scriptModel,
       });
       const script: VoiceoverScript = {
         segments: result.segments.map((seg) => ({
           ...seg,
-          text: '',
-          text_en: seg.text,
+          text: narrationLang === 'en' ? '' : seg.text,
+          text_en: narrationLang === 'en' ? seg.text : '',
           audio_path: undefined,
           speech_sec: undefined,
         })),
@@ -2380,7 +2383,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       const nextSession = {
         ...voiceoverRef.current,
         script,
-        narrationLang: 'en' as const,
+        narrationLang,
         status: 'scripted' as const,
       };
       voiceoverRef.current = nextSession;
@@ -2824,7 +2827,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           detail: t('video.vo_voice_segment', { n: i + 1, time: formatClock(slot.startSec) }),
         });
         const spoken = segmentSpoken(entry.seg, narrationLang);
-        const windowSec = Math.max(0.4, slot.endSec - slot.startSec);
+        // One spoken thought. A long picture clip is not a reason to grow the line into a monologue.
+        const windowSec = Math.max(0.4, Math.min(16, slot.endSec - slot.startSec));
         const locked = await lockFile(
           part.file_path,
           spoken,

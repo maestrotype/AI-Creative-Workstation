@@ -17,7 +17,7 @@ The picture on V1 is the clock, including stills. The ready chapter text is `sce
 7. Ollama sometimes returns Chinese translator chatter or JSON debris instead of a line. `valid_narration_line` rejects that; the beat falls back to the ready chapter text, not into the script card.
 8. Do not pad a beat by restating the same claim («файлы в комплекте… те же файлы…»). Extra length comes from a new picture fact or a clean close. Opening/closing stills get a short intro/outro. Chapter windows abut — no silence gaps between chapters (gaps hiss). Transitions are in the wording.
 
-«Заменить мою озвучку» on a film with chapters runs this path (`replaceOwnNarration`). `generateScript` still exists for a single uploaded video and still asks for English. Do not point the chapter button at it.
+«Заменить мою озвучку» on a film with written Russian chapters runs `replaceOwnNarration`. A project with no chapter text falls through to `generateScript`. That path follows the app language (Russian in this UI). It must not be hardcoded to English. One spoken line is at most 16 seconds: a 4-minute recording is not one CTA, and the wav must not grow the A1 block past the line (`autoLength` stays off).
 
 What went wrong when these were split:
 

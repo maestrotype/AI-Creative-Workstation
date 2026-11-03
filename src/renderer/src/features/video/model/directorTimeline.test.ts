@@ -66,6 +66,26 @@ describe('director timeline editing', () => {
     ]);
   });
 
+  it('rebuilds an earlier cut of the same recording from analysis boundaries', () => {
+    const voice = { ...clip('voice', 'a1', 0, 9), binId: 'voice-bin' };
+    const result = splitVideoTrackAtScenes([
+      { ...clip('left', 'v1', 0, 6), binId: 'film', sourceInSec: 0, label: 'old' },
+      { ...clip('right', 'v1', 6, 6), binId: 'film', sourceInSec: 6, label: 'old' },
+      voice,
+    ], [
+      { start: 0, end: 4, title: 'Каталог' },
+      { start: 4, end: 9, title: 'Товар' },
+      { start: 9, end: 12, title: 'Оплата' },
+    ]);
+    const picture = result.filter((item) => item.track === 'v1').sort((a, b) => a.startSec - b.startSec);
+    expect(picture.map((item) => [item.startSec, item.durationSec, item.sourceInSec, item.label])).toEqual([
+      [0, 4, 0, 'Каталог'],
+      [4, 5, 4, 'Товар'],
+      [9, 3, 9, 'Оплата'],
+    ]);
+    expect(result.find((item) => item.id === 'voice')).toEqual(voice);
+  });
+
   it('ripples clips without overlap', () => {
     const result = moveClipWithRipple([
       clip('a', 'v1', 0, 2),

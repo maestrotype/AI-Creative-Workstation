@@ -790,6 +790,74 @@ export function splitClipAt(
   return clips.flatMap((item) => (item.id === clipId ? [left, right] : [item]));
 }
 
+function pictureOnV1(clips: TimelineClip[]): TimelineClip[] {
+  return clips
+    .filter((clip) => clip.track === 'v1')
+    .sort((a, b) => a.startSec - b.startSec || a.id.localeCompare(b.id));
+}
+
+/** One source file laid out in order, without a gap or a second recording. */
+function isContinuousTake(picture: TimelineClip[]): boolean {
+  if (!picture.length || !picture[0].binId) return false;
+  const binId = picture[0].binId;
+  for (let index = 0; index < picture.length; index += 1) {
+    const clip = picture[index];
+    if (clip.binId !== binId) return false;
+    if (index === 0) continue;
+    const prev = picture[index - 1];
+    if (Math.abs(clip.startSec - (prev.startSec + prev.durationSec)) > 0.35) return false;
+    if (Math.abs(clip.sourceInSec - (prev.sourceInSec + prev.durationSec)) > 0.35) return false;
+  }
+  return true;
+}
+
+function withSceneLabels(
+  clips: TimelineClip[],
+  scenes: Array<{ start: number; end: number; title?: string }>,
+): TimelineClip[] | null {
+  const picture = pictureOnV1(clips);
+  if (picture.length !== scenes.length) return null;
+  const labels = new Map(picture.map((clip, index) => [
+    clip.id,
+    scenes[index].title?.trim() || `Chapter ${index + 1}`,
+  ]));
+  return clips.map((clip) => (
+    labels.has(clip.id) ? { ...clip, label: labels.get(clip.id)!, autoLength: false } : clip
+  ));
+}
+
+/**
+ * Replace a previous cut of the same recording with the analysis chapters.
+ * Mixed files on V1 are left untouched.
+ */
+function rebuildContinuousTake(
+  clips: TimelineClip[],
+  scenes: Array<{ start: number; end: number; title?: string }>,
+): TimelineClip[] | null {
+  const picture = pictureOnV1(clips);
+  if (!isContinuousTake(picture)) return null;
+  const first = picture[0];
+  const last = picture[picture.length - 1];
+  const covered = last.startSec + last.durationSec - first.startSec;
+  const sceneSpan = scenes[scenes.length - 1].end - scenes[0].start;
+  if (sceneSpan > covered + 0.75 || scenes[0].start < -0.2) return null;
+  const removed = new Set(picture.map((clip) => clip.id));
+  const chapters = scenes.map((scene) => {
+    const offset = scene.start - scenes[0].start;
+    return {
+      id: newId('clip'),
+      binId: first.binId,
+      track: 'v1' as const,
+      startSec: round2(first.startSec + offset),
+      durationSec: round2(Math.max(0.4, scene.end - scene.start)),
+      sourceInSec: round2(first.sourceInSec + offset),
+      label: scene.title?.trim() || 'Глава',
+      autoLength: false,
+    };
+  });
+  return [...clips.filter((clip) => !removed.has(clip.id)), ...chapters];
+}
+
 export function splitVideoTrackAtScenes(
   clips: TimelineClip[],
   scenes: Array<{ start: number; end: number; title?: string }>,
@@ -810,17 +878,9 @@ export function splitVideoTrackAtScenes(
     if (target) next = splitClipAt(next, target.id, at);
   }
 
-  const picture = next
-    .filter((clip) => clip.track === 'v1')
-    .sort((a, b) => a.startSec - b.startSec);
-  if (picture.length !== ordered.length) return next;
-  const labels = new Map(picture.map((clip, index) => [
-    clip.id,
-    ordered[index].title?.trim() || `Chapter ${index + 1}`,
-  ]));
-  return next.map((clip) => (
-    labels.has(clip.id) ? { ...clip, label: labels.get(clip.id)! } : clip
-  ));
+  const labeled = withSceneLabels(next, ordered);
+  if (labeled) return labeled;
+  return rebuildContinuousTake(clips, ordered) ?? clips;
 }
 
 export function detachAudioFromClip(

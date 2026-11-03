@@ -1757,6 +1757,10 @@ function setupIpc() {
     return sidecarJson('/api/video/erase-region', payload, 30 * 60 * 1000);
   });
 
+  ipcMain.handle('transcribe-audio', async (_, payload: { path: string; language?: string }) => {
+    return sidecarJson('/api/audio/transcribe', payload, 15 * 60 * 1000);
+  });
+
   ipcMain.handle('analyze-video', async (_, payload: {
     video_path: string;
     transcribe?: boolean;
