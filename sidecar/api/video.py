@@ -114,24 +114,36 @@ def assemble_video(request: AssembleRequest):
     return {"status": "completed", "file_path": output_path}
 
 
+def _wants_still_zoom(clip: "TimelineClipModel") -> bool:
+    """Slow push-in only when the Look/effect field asks for it — never by default."""
+    raw = (clip.effect or "").lower()
+    return bool(re.search(
+        r"приближ|наезд|zoom|зум|ken\s*burns|slow\s*push|camera\s*move|лёгк\w*\s*зум|легк\w*\s*зум",
+        raw,
+    ))
+
+
 def _ken_burns_filter(index: int, w: int, h: int, frames: int) -> str:
-    """Visible camera move on a still. Not generative motion — just Ken Burns."""
+    """Gentle push-in that starts from a full-frame fit (same as the preview).
+
+    Older cover-crop zoom cut storefront headlines off the left edge. We fit the
+    whole still first, then ease in only a little so WYSIWYG stays intact.
+    """
     last = max(1, frames - 1)
-    # Scale large so zoom/pan has pixels to travel.
-    prep = f"scale={w * 2}:{h * 2}:force_original_aspect_ratio=increase,crop={w * 2}:{h * 2}"
-    kind = index % 6
+    prep = (
+        f"scale={w}:{h}:force_original_aspect_ratio=decrease:flags=lanczos,"
+        f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=0x101018"
+    )
+    kind = index % 4
+    # Cap zoom near 1.08 so edge text on a banner still stays readable.
     if kind == 0:
-        z, x, y = "min(1+0.0018*on,1.32)", "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
+        z, x, y = "min(1+0.00035*on,1.08)", "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
     elif kind == 1:
-        z, x, y = "min(1+0.0014*on,1.28)", f"min((iw-iw/zoom)*on/{last},iw-iw/zoom)", "ih/2-(ih/zoom/2)"
+        z, x, y = "min(1+0.0003*on,1.07)", f"iw/2-(iw/zoom/2)+((iw-iw/zoom)*0.08*on/{last})", "ih/2-(ih/zoom/2)"
     elif kind == 2:
-        z, x, y = "min(1+0.0014*on,1.28)", f"max((iw-iw/zoom)*(1-on/{last}),0)", "ih/2-(ih/zoom/2)"
-    elif kind == 3:
-        z, x, y = "if(lte(on,1),1.28,max(1.28-0.0015*on,1.02))", "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
-    elif kind == 4:
-        z, x, y = "min(1+0.0013*on,1.24)", "iw/2-(iw/zoom/2)", f"min((ih-ih/zoom)*on/{last},ih-ih/zoom)"
+        z, x, y = "min(1+0.0003*on,1.07)", f"iw/2-(iw/zoom/2)-((iw-iw/zoom)*0.08*on/{last})", "ih/2-(ih/zoom/2)"
     else:
-        z, x, y = "min(1+0.0016*on,1.3)", "iw/2-(iw/zoom/2)", f"max((ih-ih/zoom)*(1-on/{last}),0)"
+        z, x, y = "min(1+0.00028*on,1.06)", "iw/2-(iw/zoom/2)", f"ih/2-(ih/zoom/2)+((ih-ih/zoom)*0.06*on/{last})"
     return f"{prep},zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps=30"
 
 
@@ -684,10 +696,16 @@ def _encode_segment(ffmpeg: str, clip: TimelineClipModel, dur: float, index: int
     silence = ["-f", "lavfi", "-t", f"{dur:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
     if clip.kind == "image":
         frames = max(2, int(round(dur * fps)))
+        # Match the director preview: whole still visible. Zoom only if requested.
+        image_vf = (
+            _ken_burns_filter(index, w, h, frames)
+            if _wants_still_zoom(clip)
+            else _fit_filter(w, h, fps)
+        )
         cmd = [
             ffmpeg, "-y", "-loop", "1", "-t", f"{dur:.3f}", "-i", src, *silence,
             "-frames:v", str(frames),
-            "-vf", _with_effect(_ken_burns_filter(index, w, h, frames), clip),
+            "-vf", _with_effect(image_vf, clip),
             "-map", "0:v", "-map", "1:a",
             *_SEG_VIDEO, *_SEG_AUDIO,
             out,
@@ -899,8 +917,12 @@ def render_timeline(request: RenderTimelineRequest):
                 "-t", f"{clip.duration_sec:.3f}", "-i", src,
             ]
             ms = int(round(clip.start_sec * 1000))
+            fade = min(0.012, max(0.004, clip.duration_sec / 10))
+            out_at = max(0.0, clip.duration_sec - fade)
             parts.append(
-                f"[{input_idx}:a]aresample=48000,volume={max(0.0, min(2.0, clip.volume)):.3f},"
+                f"[{input_idx}:a]aresample=48000,"
+                f"afade=t=in:st=0:d={fade:.3f},afade=t=out:st={out_at:.3f}:d={fade:.3f},"
+                f"volume={max(0.0, min(2.0, clip.volume)):.3f},"
                 f"adelay={ms}:all=1[au{k}]"
             )
             audio_labels.append(f"[au{k}]")
@@ -909,7 +931,7 @@ def render_timeline(request: RenderTimelineRequest):
         if len(audio_labels) > 1:
             parts.append(
                 f"{''.join(audio_labels)}amix=inputs={len(audio_labels)}:"
-                f"duration=first:dropout_transition=0:normalize=0[aout]"
+                f"duration=first:dropout_transition=0.02:normalize=0[aout]"
             )
             amap = "[aout]"
         else:

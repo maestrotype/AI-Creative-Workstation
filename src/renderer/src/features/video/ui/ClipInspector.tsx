@@ -278,10 +278,16 @@ export function ClipInspector({
             )}
           </div>
         ) : null}
-        <div className={s.row}>
-          <span className={s.key}>Shot</span>
-          <span className={s.val}>{title}</span>
-        </div>
+        <label className={s.row}>
+          <span className={s.key}>Chapter</span>
+          <input
+            className={s.durInput}
+            type="text"
+            value={clip.label}
+            onChange={(event) => d.patchClip(clip.id, { label: event.target.value })}
+            aria-label="Chapter title"
+          />
+        </label>
         <div className={s.row}>
           <span className={s.key}>Type</span>
           <span className={s.val}>

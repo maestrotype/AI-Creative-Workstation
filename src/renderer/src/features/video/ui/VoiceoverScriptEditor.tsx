@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 import { studioHref } from '../../studio/model/studioReturn';
 import { useDirector } from './DirectorBoard';
@@ -18,6 +19,88 @@ function scriptCoverageSec(script: NonNullable<ReturnType<typeof useDirector>['v
 
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function VoiceDictation(): ReactNode {
+  const d = useDirector();
+  const { i18n } = useTranslation();
+  const [recording, setRecording] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const language = i18n.language.toLowerCase().startsWith('en') ? 'en' : 'ru';
+
+  const applyText = (text: string) => {
+    const spoken = text.trim();
+    if (!spoken) {
+      setError(d.t('video.vo_dictate_empty'));
+      return;
+    }
+    const current = d.voiceover.scriptPrompt.trim();
+    d.setScriptPrompt(current ? `${current}\n${spoken}` : spoken);
+    setError(null);
+  };
+
+  const transcribePath = async (path: string) => {
+    if (!window.api?.transcribeAudio) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await window.api.transcribeAudio({ path, language });
+      applyText(result.full_text || '');
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      setError(/WHISPER_NOT_INSTALLED/i.test(raw) ? d.t('video.vo_whisper_missing') : raw);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggle = async () => {
+    if (!window.api?.startMicRecord || !window.api.stopMicRecord) return;
+    if (d.voiceRecording || d.voiceSampleRecording) {
+      setError(d.t('video.vo_voice_sample_busy'));
+      return;
+    }
+    if (recording) {
+      setBusy(true);
+      try {
+        const stopped = await window.api.stopMicRecord();
+        setRecording(false);
+        await transcribePath(stopped.file_path);
+      } catch (err) {
+        setRecording(false);
+        setError(err instanceof Error ? err.message : d.t('video.dir_voice_fail'));
+        setBusy(false);
+      }
+      return;
+    }
+    setError(null);
+    try {
+      await window.api.startMicRecord('wav');
+      setRecording(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : d.t('video.dir_voice_fail'));
+    }
+  };
+
+  const fromFile = async () => {
+    const picked = await window.api?.pickAudio?.();
+    if (picked) await transcribePath(picked);
+  };
+
+  return (
+    <>
+      <div className={styles.toolRow}>
+        <button type="button" className={recording ? styles.toolPrimary : styles.toolBtn} onClick={() => { void toggle(); }} disabled={busy}>
+          {recording ? d.t('video.vo_dictate_stop') : d.t('video.vo_dictate_record')}
+        </button>
+        <button type="button" className={styles.toolBtn} onClick={() => { void fromFile(); }} disabled={busy || recording}>
+          {busy ? d.t('video.vo_dictate_working') : d.t('video.vo_dictate_file')}
+        </button>
+      </div>
+      {error ? <p className={styles.error}>{error}</p> : null}
+    </>
+  );
 }
 
 export function VoiceoverScriptEditor(): ReactNode {
@@ -84,6 +167,8 @@ export function VoiceoverScriptEditor(): ReactNode {
           disabled={busy}
         />
       </label>
+      <p className={styles.hintTight}>{d.t('video.vo_dictate_hint')}</p>
+      <VoiceDictation />
       <div className={styles.toolRow}>
         <button
           type="button"
@@ -239,9 +324,9 @@ export function VoiceoverScriptEditor(): ReactNode {
                     type="button"
                     className={styles.toolBtn}
                     onClick={d.alignNarrationToPicture}
-                    disabled={busy || d.chapterCount < 2}
+                    disabled={busy}
                   >
-                    Подогнать звук к главам
+                    Убрать паузы в A1
                   </button>
                   {d.narrationAlignNote ? <p className={styles.hintTight}>{d.narrationAlignNote}</p> : null}
                   {!hasValidSample ? (

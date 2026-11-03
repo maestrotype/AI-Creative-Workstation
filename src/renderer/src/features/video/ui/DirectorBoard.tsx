@@ -9,12 +9,14 @@ import {
   canRemoveEmptyTrack,
   clipAtTime,
   clipSpan,
+  contiguousNarrationStarts,
   defaultTrackForKind,
   effectiveTrackLayout,
   ensureTrackVisible,
   isAudioTrack,
   isVideoTrack,
   endOfTrack,
+  flushNarrationTrack,
   fileName,
   formatClock,
   kindFromFileName,
@@ -23,6 +25,7 @@ import {
   packAllGaps,
   packTrack,
   splitClipAt,
+  splitVideoTrackAtScenes,
   detachAudioFromClip,
   insertClipOnTrack,
   trackHasGap,
@@ -60,6 +63,7 @@ import {
   type ProjectExportSettings,
   type ShotPurpose,
 } from '../../projects/model/project';
+import { mergeMediaFromBins } from '../../../../../shared/editorProject';
 import { DEFAULT_TRACK_LAYOUT } from '../model/directorTimeline';
 import { takeProjectHandoff } from '../../projects/model/handoff';
 import { loadDirectorSession, saveDirectorSession, type DirectorSession } from '../model/directorSessionStore';
@@ -93,7 +97,7 @@ import { captionClipsFromScript, scriptToSrt } from '../model/captions';
 import { pushNotice } from '../../../shared/lib/notice';
 import { pictureNotesFromAnalysis, planChapterCoverage } from '../model/chapterCoverage';
 import { countWords } from '../model/chapterSpeech';
-import { pictureSlots, planNarrationAlign, speechLockPlan } from '../model/narrationAlign';
+import { abutSlots, pictureSlots } from '../model/narrationAlign';
 
 const LABEL_W = 118;
 
@@ -247,6 +251,9 @@ type DirectorSnap = {
   openVoiceover: () => void;
   analyzeVoiceover: () => void;
   reanalyzeVoiceover: () => void;
+  splitByAnalysis: () => void;
+  saveTimelineAsTemplate: () => void;
+  templateNotice: string | null;
   replaceOwnNarration: () => void;
   chapterCount: number;
   replaceVoiceoverVideo: (specificPath?: string) => Promise<void>;
@@ -370,7 +377,7 @@ function mergeShotBins(bins: BinItem[], shots: FilmShot[]): BinItem[] {
 }
 
 export function DirectorProvider({ children, projectId = null }: DirectorProviderProps): ReactNode {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const bootPack = useRef(resolveBoot(projectId)).current;
   const boot = bootPack.session;
   const scopeIdRef = useRef(bootPack.scopeId);
@@ -574,6 +581,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const [voiceoverBusy, setVoiceoverBusy] = useState(false);
   const [voiceoverError, setVoiceoverError] = useState<string | null>(null);
   const [voiceoverProgress, setVoiceoverProgress] = useState({ stage: 'idle', percent: 0, detail: '' });
+  const [templateNotice, setTemplateNotice] = useState<string | null>(null);
   const [scriptBusy, setScriptBusy] = useState(false);
   const [scriptError, setScriptError] = useState<string | null>(null);
   const fitGuardRef = useRef('');
@@ -915,6 +923,11 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           ...doc,
           scenes,
           schemaVersion: PROJECT_SCHEMA_VERSION,
+          media: mergeMediaFromBins(
+            (doc as ProjectDoc).media,
+            sessionSnapRef.current.bins,
+            Date.now(),
+          ),
           productStillPath: productStillPathRef.current ?? (doc as ProjectDoc).productStillPath ?? null,
           timeline,
           voiceover: sessionSnapRef.current.voiceover,
@@ -1387,10 +1400,17 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     }
   };
 
+  const exportDefaultName = () => {
+    const name = scopeName.trim() || 'video';
+    return name.replace(/\.mp4$/i, '');
+  };
+
   const exportVideo = async () => {
     if (clipsRef.current.length === 0 || !window.api?.renderTimeline) return;
     setExportBusy(true);
     setExportError(null);
+    setExportPath(null);
+    setExportSavedTo(null);
     try {
       const result = await window.api.renderTimeline(buildRenderPlan({
         bins: binsRef.current,
@@ -1403,6 +1423,14 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       }));
       setExportPath(result.file_path);
       setExportSavedTo(null);
+      pushNotice(t('video.dir_export_done'), 'info');
+      if (window.api.saveVideoAs) {
+        const dest = await window.api.saveVideoAs(result.file_path, exportDefaultName());
+        if (dest) {
+          setExportSavedTo(dest);
+          pushNotice(t('video.saved_to', { path: dest }), 'info');
+        }
+      }
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);
       setExportError(raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, ''));
@@ -1414,8 +1442,11 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const saveExportAs = async () => {
     if (!exportPath || !window.api?.saveVideoAs) return;
     try {
-      const dest = await window.api.saveVideoAs(exportPath);
-      if (dest) setExportSavedTo(dest);
+      const dest = await window.api.saveVideoAs(exportPath, exportDefaultName());
+      if (dest) {
+        setExportSavedTo(dest);
+        pushNotice(t('video.saved_to', { path: dest }), 'info');
+      }
     } catch (err) {
       setExportError(err instanceof Error ? err.message : String(err));
     }
@@ -1714,7 +1745,13 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     addBin('audio', remembered, dur, 'a1', known);
   };
 
-  const ingestAudioPathAt = async (path: string, startSec: number, label?: string, spanSec?: number) => {
+  const ingestAudioPathAt = async (
+    path: string,
+    startSec: number,
+    label?: string,
+    spanSec?: number,
+    opts?: { replaceStart?: number; packOrigin?: number },
+  ) => {
     const remembered = (await window.api?.rememberDroppedMedia?.(path)) ?? path;
     const { dur, known } = await probeDuration(remembered, 'audio');
     const timelineDur = spanSec && spanSec > 0.4 ? spanSec : dur;
@@ -1725,12 +1762,17 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       name: label ?? fileName(remembered),
       durationSec: dur,
       inSec: 0,
-      outSec: dur,
+      outSec: spanSec && spanSec > 0.4 ? Math.min(dur, spanSec) : dur,
       durationKnown: known,
     };
     setBins((prev) => [...prev, item]);
     setTrackLayout((layout) => ensureTrackVisible(layout, 'a1'));
     setClips((prev) => {
+      const stripped = opts?.replaceStart == null
+        ? prev
+        : prev.filter((clip) => !(
+          clip.track === 'a1' && Math.abs(clip.startSec - opts.replaceStart!) < 0.35
+        ));
       const clip: TimelineClip = {
         id: newId('clip'),
         binId: item.id,
@@ -1739,11 +1781,12 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         durationSec: timelineDur,
         sourceInSec: 0,
         label: item.name,
-        autoLength: true,
+        autoLength: !(spanSec && spanSec > 0.4),
         muted: false,
         volume: 1,
       };
-      return [...prev, clip];
+      const next = [...stripped, clip];
+      return opts?.packOrigin == null ? next : flushNarrationTrack(next, opts.packOrigin);
     });
     try {
       await window.api?.readMediaFile?.(remembered);
@@ -2197,6 +2240,78 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     void analyzeVoiceover(true);
   };
 
+  const analysisChapterTitle = (
+    ctx: VideoAnalysisContext,
+    scene: VideoAnalysisContext['scenes'][number],
+    index: number,
+  ): string => {
+    const detail = ctx.scene_analysis?.find((row) => row.index === scene.index)
+      ?? ctx.scene_analysis?.[index];
+    const raw = detail?.screen_type
+      || detail?.demonstrated_feature
+      || detail?.caption
+      || detail?.visual_summary
+      || '';
+    const short = raw.split(/[\n.!?]/)[0]?.trim().slice(0, 72);
+    return short || t('video.chapter_n', { n: index + 1 });
+  };
+
+  const splitByAnalysis = () => {
+    const ctx = voiceover.analysis;
+    if (!ctx?.scenes?.length) return;
+    const chapters = ctx.scenes.map((scene, index) => ({
+      ...scene,
+      title: analysisChapterTitle(ctx, scene, index),
+    }));
+    const next = splitVideoTrackAtScenes(clipsRef.current, chapters);
+    if (next === clipsRef.current) {
+      setVoiceoverError(t('video.vo_split_unavailable'));
+      return;
+    }
+    pushHistory();
+    setClips(next);
+    setSelectedClip(null);
+    setVoiceoverError(null);
+    setTemplateNotice(t('video.vo_split_done', { count: chapters.length }));
+  };
+
+  const saveTimelineAsTemplate = async () => {
+    if (!window.api?.saveFilmTemplate) return;
+    const picture = clipsRef.current
+      .filter((clip) => clip.track === 'v1')
+      .sort((a, b) => a.startSec - b.startSec);
+    if (!picture.length) {
+      setVoiceoverError(t('video.template_no_chapters'));
+      return;
+    }
+    const name = window.prompt(t('projects.save_template_name'), scopeName || t('projects.untitled'))?.trim();
+    if (!name) return;
+    const analysis = voiceover.analysis;
+    try {
+      const saved = await window.api.saveFilmTemplate({
+        name,
+        brief: filmBrief,
+        format: filmFormat,
+        chapters: picture.map((clip, index) => {
+          const detail = analysis?.scene_analysis?.[index];
+          return {
+            title: clip.label || t('video.chapter_n', { n: index + 1 }),
+            prompt: '',
+            recordSteps: detail?.visual_summary || '',
+            effectPrompt: '',
+            textOverlay: '',
+            durationSec: Math.max(0.5, clip.durationSec),
+            motion: 'import' as const,
+          };
+        }),
+      });
+      setTemplateNotice(t('projects.save_template_ok', { name: saved.name }));
+      setVoiceoverError(null);
+    } catch (err) {
+      setVoiceoverError(ipcMessage(err, t('video.template_save_failed')));
+    }
+  };
+
   const setScriptPrompt = (prompt: string) => {
     setVoiceover((prev) => ({ ...prev, scriptPrompt: prompt }));
   };
@@ -2227,8 +2342,11 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       }),
       ctx.transcript?.segments ?? [],
     );
+    const narrationLang: NarrationLang = i18n.language.toLowerCase().startsWith('en') ? 'en' : 'ru';
     const chapterNote = chapters.length
-      ? 'Replace the author narration. A minute of picture is several lines as the shot changes, not one sentence for the whole chapter. Write what is visible and what changes. Write the narration in English.'
+      ? narrationLang === 'en'
+        ? 'Replace the author narration. One finished thought per shot, about what is visible. A shot longer than 16 seconds still gets one thought of about 16 seconds, not a monologue.'
+        : 'Замени авторскую озвучку. Одна законченная мысль на кадр, только по-русски, о том, что видно. Кадр длиннее 16 секунд — всё равно одна мысль примерно на 16 секунд, не монолог.'
       : '';
     setScriptBusy(true);
     setScriptError(null);
@@ -2245,15 +2363,15 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         },
         prompt: [session.scriptPrompt, chapterNote].filter(Boolean).join('\n\n'),
         project_context: session.projectContext,
-        language: 'en',
+        language: narrationLang,
         target_wpm: 130,
         ollama_model: scriptModel,
       });
       const script: VoiceoverScript = {
         segments: result.segments.map((seg) => ({
           ...seg,
-          text: '',
-          text_en: seg.text,
+          text: narrationLang === 'en' ? '' : seg.text,
+          text_en: narrationLang === 'en' ? seg.text : '',
           audio_path: undefined,
           speech_sec: undefined,
         })),
@@ -2265,7 +2383,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       const nextSession = {
         ...voiceoverRef.current,
         script,
-        narrationLang: 'en' as const,
+        narrationLang,
         status: 'scripted' as const,
       };
       voiceoverRef.current = nextSession;
@@ -2279,11 +2397,13 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       await applyScriptVoiceover();
     } catch (err) {
       const msg = ipcMessage(err, t('video.vo_script_fail'));
-      const shown = /CHAPTER_FIT_EMPTY|CHAPTER_FIT_SHORT/i.test(msg)
-        ? t('video.vo_script_fit_empty')
-        : /OLLAMA_SCRIPT_FAILED/i.test(msg)
-          ? t('video.vo_script_ollama_fail')
-          : msg;
+      const shown = /TimeoutError|aborted due to timeout/i.test(msg)
+        ? t('video.job_timeout')
+        : /CHAPTER_FIT_EMPTY|CHAPTER_FIT_SHORT/i.test(msg)
+          ? t('video.vo_script_fit_empty')
+          : /OLLAMA_SCRIPT_FAILED/i.test(msg)
+            ? t('video.vo_script_ollama_fail')
+            : msg;
       setScriptError(shown);
       pushNotice(shown);
     } finally {
@@ -2413,11 +2533,13 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       await applyScriptVoiceover();
     } catch (err) {
       const msg = ipcMessage(err, t('video.vo_script_fail'));
-      const shown = /CHAPTER_FIT_EMPTY|CHAPTER_FIT_SHORT/i.test(msg)
-        ? t('video.vo_script_fit_empty')
-        : /OLLAMA_SCRIPT_FAILED/i.test(msg)
-          ? t('video.vo_script_ollama_fail')
-          : msg;
+      const shown = /TimeoutError|aborted due to timeout/i.test(msg)
+        ? t('video.job_timeout')
+        : /CHAPTER_FIT_EMPTY|CHAPTER_FIT_SHORT/i.test(msg)
+          ? t('video.vo_script_fit_empty')
+          : /OLLAMA_SCRIPT_FAILED/i.test(msg)
+            ? t('video.vo_script_ollama_fail')
+            : msg;
       if (/CHAPTER_FIT_EMPTY|CHAPTER_FIT_SHORT/i.test(msg) && signature) fitGuardRef.current = signature;
       setScriptError(shown);
       pushNotice(shown);
@@ -2589,28 +2711,20 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         .map((part, index) => ({ part, scriptIndex: partScriptIndexes[index] }))
         .sort((a, b) => a.scriptIndex - b.scriptIndex);
       const pictureChapters = v1ChapterSpans(clipsRef.current, binsRef.current);
-      const scriptSlots = rows.map((row) => {
-        const entry = voicedSegments.find((item) => item.scriptIndex === row.scriptIndex);
-        const startSec = entry?.seg.start_sec ?? Math.max(0, row.part.start_sec);
-        const endSec = entry?.seg.end_sec ?? startSec + Math.max(0.4, row.part.max_duration_sec || 0.4);
-        return { startSec, endSec };
-      });
-      const scriptWindows = scriptSlots.length > 0 && scriptSlots.every((slot, index) => (
-        slot.endSec > slot.startSec + 0.3
-        && (index === 0 || slot.startSec >= scriptSlots[index - 1].startSec - 0.05)
-      ));
-      const slots = scriptWindows
-        ? scriptSlots
-        : pictureChapters.length
-        ? pictureSlots(pictureChapters, rows.length)
+      const slots = pictureChapters.length
+        ? abutSlots(pictureSlots(pictureChapters, rows.length))
         : rows.map((row) => {
-          const startSec = Math.max(0, row.part.start_sec);
-          return {
-            startSec,
-            endSec: startSec + Math.max(0.4, row.part.max_duration_sec || 0.4),
-          };
+          const entry = voicedSegments.find((item) => item.scriptIndex === row.scriptIndex);
+          const startSec = entry?.seg.start_sec ?? Math.max(0, row.part.start_sec);
+          const endSec = entry?.seg.end_sec ?? startSec + Math.max(0.4, row.part.max_duration_sec || 0.4);
+          return { startSec, endSec };
         });
       const lockNotes: string[] = [];
+      if (pictureChapters.length && rows.length < pictureChapters.length) {
+        lockNotes.push(
+          `Реплик ${rows.length} при ${pictureChapters.length} главах — хвост ролика без голоса. Перегенерируйте сценарий по главам.`,
+        );
+      }
       const lockFile = async (
         filePath: string,
         text: string,
@@ -2621,15 +2735,22 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         let path = filePath;
         let spoken = text;
         let dur = (await probeDuration(path, 'audio')).dur;
-        if (speechLockPlan(dur, windowSec) === 'expand' && window.api?.expandScript && window.api.synthesizeVoice) {
+        for (
+          let attempt = 0;
+          attempt < 3
+          && dur < windowSec * 0.9
+          && window.api?.expandScript
+          && window.api.synthesizeVoice;
+          attempt += 1
+        ) {
           setVoiceoverApplyProgress({
             current: 0,
             total: rows.length,
-            detail: 'Речь короче кадра, дописываю текст по сценарию…',
+            detail: `Речь короче кадра, дописываю текст (${attempt + 1}/3)…`,
           });
           const expanded = await window.api.expandScript({
             text: spoken,
-            brief: spoken,
+            brief: [purpose, spoken].filter(Boolean).join('. '),
             target_sec: windowSec,
             measured_sec: dur,
             language: narrationLang,
@@ -2641,9 +2762,11 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
             path = again.file_path;
             spoken = nextText;
             dur = (await probeDuration(path, 'audio')).dur;
+          } else {
+            break;
           }
         }
-        if (speechLockPlan(dur, windowSec) === 'shorten' && window.api?.shortenScript && window.api.synthesizeVoice) {
+        if (dur > windowSec * 1.08 && window.api?.shortenScript && window.api.synthesizeVoice) {
           setVoiceoverApplyProgress({
             current: 0,
             total: rows.length,
@@ -2664,19 +2787,23 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
             dur = (await probeDuration(path, 'audio')).dur;
           }
         }
-        const stillLong = speechLockPlan(dur, windowSec) === 'shorten';
+        const stillLong = dur > windowSec * 1.08;
         if (window.api?.fitSpeechDuration) {
           const fitted = await window.api.fitSpeechDuration({
             file_path: path,
             target_sec: windowSec,
             force: stillLong,
+            fill_window: true,
           });
+          const playSec = fitted.output_sec || dur;
           return {
             filePath: fitted.file_path || path,
             text: spoken,
             speechSec: fitted.speech_sec || dur,
-            playSec: fitted.output_sec || windowSec,
+            playSec,
             tempo: fitted.tempo || 1,
+            needsExpand: Boolean(fitted.needs_expand),
+            needsShorten: Boolean(fitted.needs_shorten),
           };
         }
         return {
@@ -2685,6 +2812,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           speechSec: dur,
           playSec: Math.min(dur, windowSec),
           tempo: 1,
+          needsExpand: dur < windowSec * 0.9,
+          needsShorten: dur > windowSec * 1.08,
         };
       };
       for (let i = 0; i < rows.length; i += 1) {
@@ -2692,8 +2821,14 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         const entry = voicedSegments.find((item) => item.scriptIndex === scriptIndex);
         const slot = slots[i];
         if (!entry || !slot) continue;
+        setVoiceoverApplyProgress({
+          current: i + 1,
+          total: rows.length,
+          detail: t('video.vo_voice_segment', { n: i + 1, time: formatClock(slot.startSec) }),
+        });
         const spoken = segmentSpoken(entry.seg, narrationLang);
-        const windowSec = Math.max(0.4, slot.endSec - slot.startSec);
+        // One spoken thought. A long picture clip is not a reason to grow the line into a monologue.
+        const windowSec = Math.max(0.4, Math.min(16, slot.endSec - slot.startSec));
         const locked = await lockFile(
           part.file_path,
           spoken,
@@ -2705,7 +2840,16 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           lockNotes.push(`Реплика ${i + 1} укорочена под кадр ${windowSec.toFixed(1)} с.`);
         }
         const start = Math.round(slot.startSec * 100) / 100;
-        const end = Math.round((start + locked.playSec) * 100) / 100;
+        const playSec = Math.max(0.4, Math.min(locked.playSec, windowSec));
+        const end = Math.round((start + playSec) * 100) / 100;
+        if (locked.needsExpand) {
+          lockNotes.push(
+            `Реплика ${i + 1} короче окна на ${(windowSec - playSec).toFixed(1)} с — текст нужно дополнить.`,
+          );
+        }
+        if (locked.needsShorten) {
+          lockNotes.push(`Реплика ${i + 1} всё ещё длиннее своего окна.`);
+        }
         speechUpdates.push({
           scriptIndex,
           speech_sec: locked.speechSec,
@@ -2717,9 +2861,17 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         });
         const role = String(entry.seg.role || 'body').toLowerCase();
         const roleLabel = role === 'hook' ? 'Hook' : role === 'cta' ? 'CTA' : role === 'outro' ? 'Outro' : 'Body';
-        await ingestAudioPathAt(locked.filePath, start, roleLabel, locked.playSec);
+        await ingestAudioPathAt(locked.filePath, start, roleLabel, playSec);
       }
-      setNarrationAlignNote(lockNotes.join(' ') || 'Реплики стоят на своих кадрах.');
+      const v1End = pictureChapters.at(-1)?.endSec ?? 0;
+      const voicedEnd = speechUpdates.at(-1)?.end_sec ?? 0;
+      if (v1End - voicedEnd > 1.2) {
+        lockNotes.push(`Озвучка заканчивается на ${formatClock(voicedEnd)}, а видео — на ${formatClock(v1End)}.`);
+      }
+      setNarrationAlignNote(
+        lockNotes.join(' ')
+        || 'Реплики стоят на своих главах; длина подогнана под кадр без тишины внутри блока.',
+      );
       if (!parts.length) {
         throw new Error(t('video.vo_voice_apply_fail'));
       }
@@ -2763,57 +2915,88 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     }
   };
 
-  const alignNarrationToPicture = () => {
+  const alignNarrationToPicture = async () => {
+    const narrationLang: NarrationLang = voiceoverRef.current.narrationLang === 'en' ? 'en' : 'ru';
     const chapters = v1ChapterSpans(clipsRef.current, binsRef.current);
     const audio = clipsRef.current
       .filter((clip) => clip.track === 'a1')
       .sort((a, b) => a.startSec - b.startSec || a.id.localeCompare(b.id));
-    const segments = voiceoverRef.current.script?.segments ?? [];
-    const slots = pictureSlots(chapters, audio.length);
-    const plan = planNarrationAlign(
-      chapters,
-      audio.map((clip, index) => ({
-        id: clip.id,
-        label: clip.label || `Реплика ${index + 1}`,
-        startSec: clip.startSec,
-        durationSec: clip.durationSec,
-        anchorSec: segments[index]?.anchor_sec,
-      })),
-    );
-    setNarrationAlignNote(plan.summary);
-    if (!slots.length) return;
-    pushHistory();
-    const placed = new Map(audio.map((clip, index) => [clip.id, slots[index]]));
-    setClips((prev) => prev.map((clip) => {
-      const slot = placed.get(clip.id);
-      if (!slot) return clip;
-      const span = Math.max(0.4, slot.endSec - slot.startSec);
-      return {
-        ...clip,
-        startSec: slot.startSec,
-        durationSec: span,
-      };
-    }));
-    if (segments.length === audio.length) {
+    if (audio.length < 1 || chapters.length < 1) {
+      setNarrationAlignNote('Нужны главы на V1 и клипы на A1.');
+      return;
+    }
+    const bins = binsRef.current;
+    setVoiceoverApplyBusy(true);
+    setVoiceoverApplyError(null);
+    try {
+      const rows: Array<{ label: string; filePath: string; dur: number }> = [];
+      for (let i = 0; i < audio.length; i += 1) {
+        const clip = audio[i];
+        const bin = bins.find((item) => item.id === clip.binId);
+        let filePath = bin?.path || '';
+        let dur = clip.durationSec;
+        if (filePath && window.api?.fitSpeechDuration) {
+          setVoiceoverApplyProgress({
+            current: i + 1,
+            total: audio.length,
+            detail: 'Убираю краевую тишину без изменения голоса…',
+          });
+          const fitted = await window.api.fitSpeechDuration({
+            file_path: filePath,
+            target_sec: Math.max(0.4, bin?.durationSec || clip.durationSec),
+            force: false,
+            fill_window: false,
+          });
+          filePath = fitted.file_path || filePath;
+          dur = fitted.output_sec || fitted.speech_sec || dur;
+        } else if (bin && bin.durationSec > 0.2) {
+          dur = Math.min(dur, bin.durationSec);
+        }
+        rows.push({
+          label: clip.label || 'Body',
+          filePath,
+          dur: Math.max(0.4, dur),
+        });
+      }
+      const origin = chapters[0]?.startSec ?? audio[0].startSec;
+      const starts = contiguousNarrationStarts(rows.map((row) => row.dur), origin);
+      pushHistory();
+      setClips((prev) => prev.filter((clip) => clip.track !== 'a1'));
+      for (let i = 0; i < rows.length; i += 1) {
+        const row = rows[i];
+        if (!row.filePath) continue;
+        await ingestAudioPathAt(row.filePath, starts[i] ?? origin, row.label, row.dur);
+      }
       setVoiceover((prev) => {
         if (!prev.script) return prev;
+        let cursor = 0;
         return {
           ...prev,
           script: {
             ...prev.script,
-            segments: prev.script.segments.map((seg, index) => {
-              const slot = slots[index];
-              if (!slot) return seg;
+            segments: prev.script.segments.map((seg) => {
+              if (!segmentSpoken(seg, narrationLang)) return seg;
+              const row = rows[cursor];
+              const start = starts[cursor];
+              cursor += 1;
+              if (!row || start == null) return seg;
               return {
                 ...seg,
-                start_sec: slot.startSec,
-                end_sec: slot.endSec,
-                anchor_sec: slot.startSec,
+                start_sec: start,
+                end_sec: Math.round((start + row.dur) * 100) / 100,
+                anchor_sec: start,
               };
             }),
           },
         };
       });
+      setNarrationAlignNote(
+        'Клипы A1 собраны без пауз и без замедления голоса. Для точной синхронизации с главами перегенерируйте текст по длине окон.',
+      );
+    } catch (err) {
+      setVoiceoverApplyError(ipcMessage(err, 'Не удалось собрать A1 без пауз'));
+    } finally {
+      setVoiceoverApplyBusy(false);
     }
   };
 
@@ -2832,43 +3015,53 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       const spokenRows = script.segments
         .map((seg, segIndex) => ({ seg, segIndex }))
         .filter((row) => segmentSpoken(row.seg, narrationLang));
-      const slot = pictureSlots(chapters, spokenRows.length)[spokenRows.findIndex((row) => row.segIndex === index)];
+      const voiceIndex = spokenRows.findIndex((row) => row.segIndex === index);
+      const slot = abutSlots(pictureSlots(chapters, spokenRows.length))[voiceIndex];
       const windowSec = slot
         ? Math.max(0.4, slot.endSec - slot.startSec)
         : Math.max(0.4, segment.end_sec - segment.start_sec);
       let filePath = result.file_path;
       let nextText = spoken;
       let measured = await probeDuration(filePath, 'audio');
-      if (speechLockPlan(measured.dur, windowSec) === 'shorten' && window.api.shortenScript) {
-        const shortened = await window.api.shortenScript({
+      for (
+        let attempt = 0;
+        attempt < 3
+        && measured.dur < windowSec * 0.9
+        && window.api.expandScript;
+        attempt += 1
+      ) {
+        const expanded = await window.api.expandScript({
           text: nextText,
-          target_sec: Math.min(240, Math.max(0.8, windowSec * 0.92)),
+          brief: [segment.purpose || '', nextText].filter(Boolean).join('. '),
+          target_sec: windowSec,
+          measured_sec: measured.dur,
           language: narrationLang,
-          visual_summary: segment.visual_summary || '',
-          purpose: segment.purpose || '',
+          seen: segment.visual_summary || '',
         });
-        const rewritten = shortened.text?.trim();
-        if (rewritten && rewritten !== nextText) {
-          const again = await window.api.synthesizeVoice({ text: rewritten, language: narrationLang });
-          filePath = again.file_path;
-          nextText = rewritten;
-          measured = await probeDuration(filePath, 'audio');
-        }
+        const rewritten = expanded.text?.trim();
+        if (!rewritten || countWords(rewritten) <= countWords(nextText)) break;
+        const again = await window.api.synthesizeVoice({ text: rewritten, language: narrationLang });
+        nextText = rewritten;
+        filePath = again.file_path;
+        measured = await probeDuration(filePath, 'audio');
       }
-      let playSec = Math.min(measured.dur, windowSec);
+      let playSec = measured.dur;
       let tempo = 1;
       if (window.api.fitSpeechDuration) {
         const fitted = await window.api.fitSpeechDuration({
           file_path: filePath,
           target_sec: windowSec,
-          force: speechLockPlan(measured.dur, windowSec) === 'shorten',
+          force: false,
+          fill_window: true,
         });
         filePath = fitted.file_path || filePath;
-        measured = { dur: fitted.speech_sec || measured.dur, known: true };
-        playSec = fitted.output_sec || windowSec;
+        playSec = fitted.output_sec || measured.dur;
         tempo = fitted.tempo || 1;
+        measured = { dur: fitted.speech_sec || measured.dur, known: true };
       }
       const start = slot?.startSec ?? segment.start_sec;
+      const end = Math.round((start + playSec) * 100) / 100;
+      const timelineAt = segment.start_sec + scriptTimelineOffset();
       const nextSegments = script.segments.map((item, itemIndex) => (
         itemIndex === index
           ? {
@@ -2880,7 +3073,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
               speech_tempo: tempo,
               start_sec: start,
               anchor_sec: start,
-              end_sec: Math.round((start + playSec) * 100) / 100,
+              end_sec: end,
             }
           : item
       ));
@@ -2892,11 +3085,9 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
 
       const role = String(segment.role || 'body').toLowerCase();
       const roleLabel = role === 'hook' ? 'Hook' : role === 'cta' ? 'CTA' : role === 'outro' ? 'Outro' : 'Body';
-      const timelineAt = segment.start_sec + scriptTimelineOffset();
-      setClips((prev) => prev.filter((clip) => !(
-        clip.track === 'a1' && Math.abs(clip.startSec - timelineAt) < 0.35
-      )));
-      await ingestAudioPathAt(filePath, start, roleLabel, playSec);
+      await ingestAudioPathAt(filePath, start, roleLabel, playSec, {
+        replaceStart: timelineAt,
+      });
       setVoiceoverApplyProgress({ current: 1, total: 1, detail: 'Сегмент обновлён' });
     } catch (err) {
       setVoiceoverApplyError(ipcMessage(err, 'Не удалось обновить сегмент озвучки'));
@@ -3394,8 +3585,19 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         setClips((prev) => insertClipOnTrack(prev, 'v1', at, clip));
         setSelectedClip(clip.id);
         setSelectedBin(bin.id);
+        paintPlayhead(at);
+        setPlayhead(at);
       }
       setAiStatus(null);
+      pushNotice(
+        args.mode === 'replace'
+          ? t('video.ai_done_replace')
+          : t('video.ai_done_insert', { time: formatClock(playheadRef.current) }),
+        'info',
+      );
+      window.dispatchEvent(new CustomEvent('acw-ai-shot-ready', {
+        detail: { mode: args.mode, path: result.file_path },
+      }));
     } catch (err) {
       setAiError(ipcMessage(err, t('projects.generate_fail')));
       setAiStatus(null);
@@ -3915,6 +4117,9 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     openVoiceover,
     analyzeVoiceover: () => { void analyzeVoiceover(false); },
     reanalyzeVoiceover,
+    splitByAnalysis,
+    saveTimelineAsTemplate: () => { void saveTimelineAsTemplate(); },
+    templateNotice,
     replaceOwnNarration: () => { void replaceOwnNarration(); },
     chapterCount,
     replaceVoiceoverVideo,

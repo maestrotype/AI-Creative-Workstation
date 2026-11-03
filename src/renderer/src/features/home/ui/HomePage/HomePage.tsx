@@ -159,7 +159,7 @@ export function HomePage(): ReactNode {
         <ContinueWorking
           status={projectsStatus}
           projects={recentProjects}
-          hrefFor={(asset) => `/projects/${asset.id}`}
+          hrefFor={(asset) => `/video?project=${encodeURIComponent(asset.id)}`}
           onDownload={downloadAsset}
           onRetry={loadRecentProjects}
         />
@@ -183,7 +183,7 @@ export function HomePage(): ReactNode {
           }}
           onRetry={loadRecentAssets}
           note={filmNote}
-          noteHref={filmOpenId ? `/projects/${filmOpenId}` : null}
+          noteHref={filmOpenId ? `/video?project=${encodeURIComponent(filmOpenId)}` : null}
           noteHrefLabel={t('home.open_this_film')}
         />
       </div>

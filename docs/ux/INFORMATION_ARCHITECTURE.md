@@ -37,20 +37,41 @@ A **workflow-first IA** where navigation reflects:
 
 ```
 CANVAS
-├── Home              — Recents, continued work, discovery
-├── Create            — Intent entry, task-driven generation
-├── Projects          — Project workspace, scenes, timelines
-├── Assets            — Creative entity library
-│   ├── Characters
-│   ├── Products
-│   ├── Environments
-│   ├── Styles
-│   └── Collections
-├── Studio            — Models, hardware, providers (power user)
-└── Settings          — Account, preferences, cloud config
+├── Home                 — recents, quick start, templates
+├── Projects             — all durable productions
+├── Video Studio         — active project editor
+├── AI Tools             — operations opened in project context
+├── Media Library        — imported and generated media
+├── Models & Resources   — engines, hardware, queue and limits
+└── Settings             — app, storage and export defaults
 ```
 
-**Navigation count: 6 items.** Deliberate. If it can't fit in 6 items, something is wrong with the architecture.
+The active project remains visible while switching editor panels. “Create frame”
+is an operation, not a peer of “Projects”. 3D may remain specialized, but its
+rendered results enter video projects as normal media.
+
+## Video project entry
+
+Every new video project offers two paths:
+
+1. **Quick start:** choose intent, add media or an idea, review a proposed
+   script/storyboard, then open the draft timeline.
+2. **Blank editor:** import media and work directly on the timeline.
+
+Both create the same `Project` and `Timeline`. Opening an existing project returns
+to its editor, not to the quick-start wizard.
+
+## Video Studio workspace
+
+| Region | Responsibility |
+|--------|----------------|
+| Left | project media, storyboard/script, generators and effects |
+| Center | source/program viewer |
+| Right | selected-object properties and contextual AI actions |
+| Bottom | resizable multi-track timeline |
+
+Storyboard and script are alternative project views. They are not separate
+mini-applications and cannot silently replace an edited timeline.
 
 ---
 

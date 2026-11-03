@@ -1,9 +1,22 @@
 # DOMAIN MODEL
 ## AI Creative Workstation — Entities, Relationships, Behavior
 
+> **27 Oct 2026:** The video product’s canonical entities are **Project**, **Timeline** and **Generation Job**. They must stay linked, not fused. The Creative Asset Graph below is the older cross-modal vision; do not implement it as a second project format. Authoritative video model: [AI_FIRST_VIDEO_STUDIO.md](../product/AI_FIRST_VIDEO_STUDIO.md) and [FILM_ARCHITECTURE.md](FILM_ARCHITECTURE.md).
+
+## Video studio entities (current)
+
+| Entity | Owns | Does not own |
+|--------|------|----------------|
+| **Project** | Settings, format, script/scenes, media library, sequences, export variants, job refs | Per-clip trim points |
+| **Timeline / sequence** | Tracks, clips, in/out, effects, audio mix, titles, frame timebase | File binaries; generation prompts |
+| **Media asset** | Source file plus derived versions/alternatives | Timeline placement |
+| **Generation job** | Operation, inputs, model, prompt, status, outputs | Automatic overwrite of the original |
+
+Scenes/storyboard cards reference timeline objects. They are a planning view, not the edit.
+
 ---
 
-## Domain Model Overview
+## Domain Model Overview (legacy creative graph)
 
 ```mermaid
 erDiagram

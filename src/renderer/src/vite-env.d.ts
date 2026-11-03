@@ -110,6 +110,7 @@ interface Window {
       name?: string;
       format?: 'landscape' | 'shorts';
       preset?: 'marketplace' | 'hero' | 'youtube' | 'shorts';
+      templateId?: string | null;
     }) => Promise<{
       schemaVersion: number;
       id: string;
@@ -117,6 +118,7 @@ interface Window {
       kind: string;
       format: 'landscape' | 'shorts';
       preset: 'marketplace' | 'hero' | 'youtube' | 'shorts';
+      templateId?: string | null;
       brief: string;
       scenes: Array<{
         id: string;
@@ -149,6 +151,7 @@ interface Window {
       kind: string;
       format: 'landscape' | 'shorts';
       preset: 'marketplace' | 'hero' | 'youtube' | 'shorts';
+      templateId?: string | null;
       brief: string;
       scenes: Array<{
         id: string;
@@ -175,6 +178,56 @@ interface Window {
       updatedAt: number;
     } | null>;
     saveProject: (doc: unknown) => Promise<unknown>;
+    listFilmTemplates: () => Promise<Array<{
+      id: string;
+      name: string;
+      brief: string;
+      format: 'landscape' | 'shorts';
+      builtin: boolean;
+      chapters: Array<{
+        title: string;
+        prompt: string;
+        recordSteps: string;
+        effectPrompt: string;
+        textOverlay: string;
+        durationSec: number;
+        motion: 'still_motion' | 'import' | 'i2v';
+      }>;
+      createdAt: number;
+      updatedAt: number;
+    }>>;
+    saveFilmTemplate: (draft: {
+      name: string;
+      brief: string;
+      format: 'landscape' | 'shorts';
+      chapters: Array<{
+        title: string;
+        prompt: string;
+        recordSteps: string;
+        effectPrompt: string;
+        textOverlay: string;
+        durationSec: number;
+        motion: 'still_motion' | 'import' | 'i2v';
+      }>;
+    }) => Promise<{
+      id: string;
+      name: string;
+      brief: string;
+      format: 'landscape' | 'shorts';
+      builtin: boolean;
+      chapters: Array<{
+        title: string;
+        prompt: string;
+        recordSteps: string;
+        effectPrompt: string;
+        textOverlay: string;
+        durationSec: number;
+        motion: 'still_motion' | 'import' | 'i2v';
+      }>;
+      createdAt: number;
+      updatedAt: number;
+    }>;
+    deleteFilmTemplate: (id: string) => Promise<{ deleted: boolean }>;
     deleteProject: (id: string) => Promise<{ deleted: boolean }>;
     importIntoProject: (payload: { projectId: string; path: string }) => Promise<{ file_path: string; poster_path?: string | null }>;
     importPastedImageIntoProject: (payload: { projectId: string; data: ArrayBuffer; mime?: string }) => Promise<{ file_path: string; poster_path?: null }>;
@@ -361,6 +414,7 @@ interface Window {
       file_path: string;
       target_sec: number;
       force?: boolean;
+      fill_window?: boolean;
     }) => Promise<{
       file_path: string;
       source_sec: number;
@@ -370,6 +424,7 @@ interface Window {
       tempo: number;
       fitted: boolean;
       needs_shorten: boolean;
+      needs_expand: boolean;
     }>;
     mixVoiceoverTrack?: (payload: {
       parts: Array<{ file_path: string; start_sec: number; max_duration_sec?: number }>;
@@ -468,6 +523,12 @@ interface Window {
       start_sec?: number;
       end_sec?: number;
     }) => Promise<{ file_path: string }>;
+    transcribeAudio: (payload: { path: string; language?: string }) => Promise<{
+      segments: Array<{ start: number; end: number; text: string }>;
+      language: string;
+      full_text: string;
+      warnings: string[];
+    }>;
     analyzeVideo: (payload: {
       video_path: string;
       transcribe?: boolean;
@@ -593,7 +654,7 @@ interface Window {
     readMediaFile: (sourcePath: string) => Promise<ArrayBuffer>;
     ensureVideoPreview: (sourcePath: string, force?: boolean) => Promise<{ path: string; transcoded: boolean }>;
     discardMeshDraft: (sourcePath: string) => Promise<boolean>;
-    saveVideoAs: (sourcePath: string) => Promise<string | null>;
+    saveVideoAs: (sourcePath: string, defaultName?: string) => Promise<string | null>;
     saveMediaAs: (sourcePath: string) => Promise<string | null>;
     gradeVideo: (payload: {
       video_path: string;

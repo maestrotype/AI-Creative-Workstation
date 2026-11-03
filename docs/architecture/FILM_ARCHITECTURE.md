@@ -1,12 +1,15 @@
-# Film architecture
+# Film architecture — legacy to editor-core migration
 
-**Status:** Phase 1 UX shipped on `feat/film-phase-1`, then **corrected**: the product is a **template demo**, not a photo of a SKU.
+**Status:** Legacy Film implementation plus migration constraints. The target is
+defined in [AI_FIRST_VIDEO_STUDIO.md](../product/AI_FIRST_VIDEO_STUDIO.md).
 
 What already runs: [IMPLEMENTED_VS_PLANNED.md](IMPLEMENTED_VS_PLANNED.md).
 
-## What we are actually making
+## What this implementation originally made
 
-The commercial job is a **video of the ecommerce template itself** (example: Angular 3D Store): what the site is, design, catalog, product page, checkout, **admin**, **page builder**, **payments and settings**.
+The first commercial workflow was a video of the ecommerce template itself.
+That workflow remains as `builtin:ecommerce`, but it is one template rather than
+the universal film architecture.
 
 **You record the real UI.** The workstation does not invent a fake storefront.
 
@@ -53,7 +56,7 @@ Review · Export
 
 **One long recording + voice** is the same Film with picture already imported (no chapter split yet). Same analysis / script / TTS / export.
 
-## Domain (target)
+## Domain (implemented transition state)
 
 ```
 Film
@@ -67,7 +70,25 @@ Film
   analysis / script / voice / timeline / export
 ```
 
-Old `project.json` still loads. `marketplace` preset **means template walkthrough**, not product photography.
+Old `project.json` still loads. `marketplace` preset means template walkthrough,
+not product photography.
+
+## Target domain boundary
+
+```
+Project
+  media[]             imported/generated sources and derivations
+  scenes[]            optional script/storyboard planning objects
+  sequences[]
+    tracks[]
+    clips[]            edit instances referencing media
+  jobs[]               persistent AI operations and alternatives
+  exportVariants[]     16:9 / 9:16 / custom deliverables
+```
+
+The timeline is authoritative for preview and export. A scene may link to several
+clips. Scene edits may propose timeline changes, but must not silently rebuild an
+edited sequence.
 
 ## Picture (quality = real UI)
 
@@ -110,8 +131,9 @@ TTS
 
 ## Navigation
 
-**Films** = chaptered template demo.  
-**Dub / Video** = later stages, or one long screencast.
+Opening a project enters Video Studio. Media, storyboard/script, generators and
+effects are panels or modes in that workspace. Narration is an audio workflow,
+not a separate destination or mandatory final step.
 
 Do not merge 3D mesh into this graph.
 

@@ -11,13 +11,13 @@ The picture on V1 is the clock, including stills. The ready chapter text is `sce
 1. Measure each chapter on the timeline (the trimmed length, not the original file).
 2. A chapter longer than 18s is several beats of about 14s. Each beat has a word budget at 130 words/minute (`chapterSpeech.ts`).
 3. The ready script is the meaning. If a beat already has about that many words, keep it. If it is short, expand it from those same facts (`expand_spoken`). If it is long, trim it. Do not invent a new English ad.
-4. After XTTS, measure the wav. Speech under 75% of the beat is still too short: expand and speak again. Speech over 15% too long is shortened, then sped up at most 15%. A small remainder is silence inside the same beat.
-5. The next line starts at its own beat. A long line must not push the later lines down the timeline (`pictureSlots` / script windows in `applyScriptVoiceover`).
+4. After XTTS, measure the wav. If speech is under 90% of the picture window, **rewrite and speak again**. Tempo may only be 0.94–1.08. Never slow the voice 2–4× to fill a longer clip. If the line is still short after expand, leave it short and mark `needs_expand` — do not pad with stretched audio.
+5. The next line starts after the **measured mouth**, packed flush (`contiguousNarrationStarts`). Do not lock A1 clip duration to the picture slot if the voice is shorter.
 6. `lock-*` and `fit-*` wavs under `Generated/Audio/_processing/` are pipeline temps. They are not voice samples and must not appear in «Доступные образцы голоса».
 7. Ollama sometimes returns Chinese translator chatter or JSON debris instead of a line. `valid_narration_line` rejects that; the beat falls back to the ready chapter text, not into the script card.
-8. Do not pad a beat by restating the same claim («файлы в комплекте… те же файлы…»). Extra length comes from a new picture fact or a clean close. Opening/closing stills get a short intro/outro. Leave ~0.55s breath between chapters.
+8. Do not pad a beat by restating the same claim («файлы в комплекте… те же файлы…»). Extra length comes from a new picture fact or a clean close. Opening/closing stills get a short intro/outro. Chapter windows abut — no silence gaps between chapters (gaps hiss). Transitions are in the wording.
 
-«Заменить мою озвучку» on a film with chapters runs this path (`replaceOwnNarration`). `generateScript` still exists for a single uploaded video and still asks for English. Do not point the chapter button at it.
+«Заменить мою озвучку» on a film with written Russian chapters runs `replaceOwnNarration`. A project with no chapter text falls through to `generateScript`. That path follows the app language (Russian in this UI). It must not be hardcoded to English. One spoken line is at most 16 seconds: a 4-minute recording is not one CTA, and the wav must not grow the A1 block past the line (`autoLength` stays off).
 
 What went wrong when these were split:
 

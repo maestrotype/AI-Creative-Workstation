@@ -491,48 +491,91 @@ export function DirectorGeneratePane(): ReactNode {
   };
 
   const canReplace = Boolean(d.activeClip?.track.startsWith('v'));
-  const refHint = 'Для TI2V: Assets → + Картинка (референс кадра). Озвучка — вкладка Narration справа.';
+  const chapterAtPlayhead = d.clips.find((clip) => (
+    clip.track === 'v1'
+    && d.playhead >= clip.startSec
+    && d.playhead < clip.startSec + clip.durationSec
+  ));
+  const stillUrl = d.productStillPath ? toAssetUrl(d.productStillPath) : null;
 
   return (
     <div className={`${styles.paneFill} ${styles.generatePane}`}>
-      <p className={styles.hintTight}>
-        {d.t('video.ai_where', {
-          time: formatClock(d.playhead),
-          name: d.activeClip?.label ? d.t('video.ai_where_name', { label: d.activeClip.label }) : '',
-        })}
-      </p>
-      <div className={styles.toolRow}>
-        <button
-          type="button"
-          className={styles.toolBtn}
-          disabled={d.aiBusy || !d.productStillPath}
-          title={d.t('video.ai_insert_tip')}
-          onClick={() => openAi('insert')}
-        >
-          {d.t('video.ai_generate_insert')}
-        </button>
-        <button
-          type="button"
-          className={styles.toolBtn}
-          disabled={d.aiBusy || !d.productStillPath || !canReplace}
-          title={d.t('video.ai_replace_tip')}
-          onClick={() => openAi('replace')}
-        >
-          {d.t('video.ai_regenerate')}
-        </button>
-        <button
-          type="button"
-          className={styles.toolBtn}
-          disabled={d.aiBusy || !d.productStillPath}
-          title={d.t('video.ai_shot_tip')}
-          onClick={() => openAi('shot')}
-        >
-          {d.t('video.ai_generate_shot')}
-        </button>
-      </div>
-      {!d.productStillPath ? <p className={styles.hintTight}>{refHint}</p> : null}
+      <ol className={styles.aiSteps}>
+        <li data-done={d.productStillPath ? 'true' : 'false'}>
+          <strong>{d.t('video.ai_step1_title')}</strong>
+          <p>{d.t('video.ai_step1_body')}</p>
+          <div className={styles.aiStillRow}>
+            {stillUrl ? (
+              <img className={styles.aiStillThumb} src={stillUrl} alt="" />
+            ) : (
+              <span className={styles.aiStillEmpty}>{d.t('video.ai_still_empty')}</span>
+            )}
+            <button type="button" className={styles.toolPrimary} onClick={d.pickProductStill}>
+              {d.productStillPath ? d.t('video.ai_still_change') : d.t('video.ai_still_pick')}
+            </button>
+          </div>
+          <p className={styles.hintTight}>{d.t('video.ai_still_rule')}</p>
+          <p className={styles.hintTight}>{d.t('video.ai_export_vs_preview')}</p>
+        </li>
+        <li data-done="true">
+          <strong>{d.t('video.ai_step2_title')}</strong>
+          <p>
+            {d.t('video.ai_step2_body', {
+              time: formatClock(d.playhead),
+              chapter: chapterAtPlayhead?.label
+                ? d.t('video.ai_step2_chapter', { label: chapterAtPlayhead.label })
+                : d.t('video.ai_step2_gap'),
+            })}
+          </p>
+        </li>
+        <li>
+          <strong>{d.t('video.ai_step3_title')}</strong>
+          <p>{d.t('video.ai_step3_body')}</p>
+          <div className={styles.aiActionList}>
+            <button
+              type="button"
+              className={styles.aiActionCard}
+              disabled={d.aiBusy || !d.productStillPath}
+              onClick={() => openAi('insert')}
+            >
+              <span>{d.t('video.ai_generate_insert')}</span>
+              <small>{d.t('video.ai_insert_tip')}</small>
+            </button>
+            <button
+              type="button"
+              className={styles.aiActionCard}
+              disabled={d.aiBusy || !d.productStillPath}
+              onClick={() => openAi('shot')}
+            >
+              <span>{d.t('video.ai_generate_shot')}</span>
+              <small>{d.t('video.ai_shot_tip')}</small>
+            </button>
+            <button
+              type="button"
+              className={styles.aiActionCard}
+              disabled={d.aiBusy || !d.productStillPath || !canReplace}
+              onClick={() => openAi('replace')}
+            >
+              <span>{d.t('video.ai_regenerate')}</span>
+              <small>
+                {canReplace
+                  ? d.t('video.ai_replace_tip')
+                  : d.t('video.ai_need_clip')}
+              </small>
+            </button>
+          </div>
+        </li>
+      </ol>
+
       {aiMode ? (
         <div className={styles.aiForm}>
+          <p className={styles.aiFormLead}>
+            {aiMode === 'insert' && d.t('video.ai_form_insert', { time: formatClock(d.playhead) })}
+            {aiMode === 'shot' && d.t('video.ai_form_shot', { time: formatClock(d.playhead) })}
+            {aiMode === 'replace' && d.t('video.ai_form_replace', {
+              label: d.activeClip?.label || d.t('video.ai_selected_clip'),
+            })}
+          </p>
           <label>
             {d.t('video.ai_purpose')}
             <select
@@ -559,6 +602,7 @@ export function DirectorGeneratePane(): ReactNode {
             value={aiPrompt}
             onChange={(e) => setAiPrompt(e.target.value)}
           />
+          <p className={styles.hintTight}>{d.t('video.ai_motion_hint')}</p>
           <div className={styles.toolRow}>
             <button
               type="button"

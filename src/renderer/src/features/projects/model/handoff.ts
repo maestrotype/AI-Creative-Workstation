@@ -107,6 +107,17 @@ export function writeLastProjectId(id: string): void {
   }
 }
 
+/** Open the montage editor for a saved project. Script planning stays at `/projects/:id`. */
+export function editorHref(projectId: string, voice = false): string {
+  const query = new URLSearchParams({ project: projectId });
+  if (voice) query.set('voice', '1');
+  return `/video?${query.toString()}`;
+}
+
+export function scriptHref(projectId: string): string {
+  return `/projects/${projectId}`;
+}
+
 export function clearLastProjectId(id?: string): void {
   try {
     if (!id || localStorage.getItem(LAST_PROJECT_KEY) === id) {

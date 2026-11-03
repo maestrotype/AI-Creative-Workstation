@@ -32,11 +32,11 @@ export interface NavigationEntry extends NavItem {
 export const NAVIGATION_ITEMS: readonly NavigationEntry[] = [
   { id: 'home',     label: 'Home',      group: 'projects', Icon: HomeIcon },
   { id: 'projects', label: 'Проекты',   group: 'projects', Icon: FolderIcon },
-  { id: 'video',    label: 'Студия',    group: 'studio',   Icon: FilmIcon },
-  { id: 'create',   label: 'Создать',   group: 'lab',      Icon: SparklesIcon },
-  { id: 'threed',   label: '3D',        group: 'lab',      Icon: CubeIcon },
-  { id: 'assets',   label: 'Ассеты',   group: 'lab',      Icon: LayersIcon },
-  { id: 'studio',   label: 'Модели',   group: 'system',   Icon: SlidersIcon },
+  { id: 'video',    label: 'Видеостудия',        group: 'studio', Icon: FilmIcon },
+  { id: 'create',   label: 'AI-инструменты',     group: 'lab',    Icon: SparklesIcon },
+  { id: 'threed',   label: '3D',                 group: 'lab',    Icon: CubeIcon },
+  { id: 'assets',   label: 'Медиатека',          group: 'lab',    Icon: LayersIcon },
+  { id: 'studio',   label: 'Модели и ресурсы',   group: 'system', Icon: SlidersIcon },
   { id: 'settings', label: 'Настройки', group: 'system',   Icon: SettingsIcon },
 ] satisfies NavigationEntry[];
 

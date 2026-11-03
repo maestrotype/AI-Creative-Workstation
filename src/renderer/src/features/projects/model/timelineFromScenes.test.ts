@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   newScene,
+  sceneWantsSlowZoom,
   timelineCutIsEdited,
   timelineFromScenes,
   timelineNeedsSceneRebuild,
@@ -82,5 +83,37 @@ describe('timeline from current chapters', () => {
   it('rebuilds a cut from a different set of files', () => {
     const scenes = [scene('Темы', '/tmp/themes.mp4', 26)];
     expect(timelineNeedsSceneRebuild({ scenes, timeline: leftoverCut() })).toBe(true);
+  });
+
+  it('passes still zoom effect onto the picture clip only when asked', () => {
+    const still: ProjectScene = {
+      ...newScene('Hero'),
+      stillPath: '/tmp/hero.png',
+      durationSec: 5,
+      motion: 'still_motion',
+      effectPrompt: 'неподвижный скрин',
+    };
+    const staticCut = timelineFromScenes({ scenes: [still] });
+    expect(staticCut.clips[0].effect).toBe('неподвижный скрин');
+    expect(sceneWantsSlowZoom(staticCut.clips[0].effect)).toBe(false);
+
+    const zoomed = timelineFromScenes({
+      scenes: [{ ...still, effectPrompt: 'медленный зум' }],
+    });
+    expect(sceneWantsSlowZoom(zoomed.clips[0].effect)).toBe(true);
+  });
+});
+
+describe('sceneWantsSlowZoom', () => {
+  it('treats plain still labels as no zoom', () => {
+    expect(sceneWantsSlowZoom('неподвижный скрин')).toBe(false);
+    expect(sceneWantsSlowZoom('как на экране')).toBe(false);
+    expect(sceneWantsSlowZoom('')).toBe(false);
+  });
+
+  it('detects explicit zoom requests', () => {
+    expect(sceneWantsSlowZoom('медленный зум')).toBe(true);
+    expect(sceneWantsSlowZoom('slow zoom')).toBe(true);
+    expect(sceneWantsSlowZoom('лёгкий зум')).toBe(true);
   });
 });

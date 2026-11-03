@@ -12,6 +12,14 @@ import { homedir } from 'os';
 import { extname, join } from 'path';
 import { randomUUID } from 'crypto';
 
+import { inferTemplateId } from '../shared/filmTemplate';
+import {
+  legacyBinsOf,
+  mergeMediaFromBins,
+  type EditorGenerationJob,
+  type EditorMediaAsset,
+} from '../shared/editorProject';
+
 export type ProjectKind = 'video';
 export type ProjectFormat = 'landscape' | 'shorts';
 export type FilmPreset = 'marketplace' | 'hero' | 'youtube' | 'shorts';
@@ -63,7 +71,7 @@ export interface FilmTimeline {
   };
 }
 
-export const PROJECT_SCHEMA_VERSION = 2;
+export const PROJECT_SCHEMA_VERSION = 3;
 
 export interface ProjectExportSettings {
   preset: 'draft' | 'youtube-1080p' | 'shorts-1080p';
@@ -95,9 +103,14 @@ export interface ProjectDoc {
   kind: ProjectKind;
   format: ProjectFormat;
   preset: FilmPreset;
+  templateId: string | null;
   brief: string;
   scenes: ProjectScene[];
   shots: FilmShot[];
+  /** Canonical project media. Legacy timeline bins migrate here on load. */
+  media?: EditorMediaAsset[];
+  /** Persistent AI operation records; execution queue wiring follows. */
+  generationJobs?: EditorGenerationJob[];
   timeline: FilmTimeline | null;
   voiceover: Record<string, unknown> | null;
   callouts: unknown[];
@@ -139,10 +152,6 @@ function projectFile(id: string): string {
   return join(projectDir(id), 'project.json');
 }
 
-function formatForPreset(preset: FilmPreset): ProjectFormat {
-  return preset === 'shorts' ? 'shorts' : 'landscape';
-}
-
 function normalizeMotion(value: unknown): ShotMotion {
   if (value === 'import' || value === 'i2v' || value === 'still_motion') return value;
   return 'still_motion';
@@ -150,7 +159,7 @@ function normalizeMotion(value: unknown): ShotMotion {
 
 function normalizePreset(value: unknown): FilmPreset {
   if (value === 'hero' || value === 'youtube' || value === 'shorts' || value === 'marketplace') return value;
-  return 'marketplace';
+  return 'youtube';
 }
 
 function defaultExportSettings(format: ProjectFormat, preset: FilmPreset): ProjectExportSettings {
@@ -166,20 +175,28 @@ function defaultExportSettings(format: ProjectFormat, preset: FilmPreset): Proje
   };
 }
 
-function emptyProject(name: string, format: ProjectFormat = 'landscape', preset: FilmPreset = 'marketplace'): ProjectDoc {
+function emptyProject(
+  name: string,
+  format: ProjectFormat = 'landscape',
+  preset: FilmPreset = 'youtube',
+  templateId: string | null = null,
+): ProjectDoc {
   const now = Date.now();
-  const nextPreset = preset;
-  const nextFormat = preset === 'shorts' ? 'shorts' : format;
+  const nextFormat = format === 'shorts' || preset === 'shorts' ? 'shorts' : 'landscape';
+  const nextPreset = nextFormat === 'shorts' ? 'shorts' : preset;
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,
     id: randomUUID(),
     name: name.trim() || 'Untitled',
     kind: 'video',
-    format: nextPreset === 'shorts' ? 'shorts' : nextFormat,
+    format: nextFormat,
     preset: nextPreset,
+    templateId,
     brief: '',
     scenes: [],
     shots: [],
+    media: [],
+    generationJobs: [],
     timeline: null,
     voiceover: null,
     callouts: [],
@@ -229,6 +246,12 @@ function parseDoc(raw: string): ProjectDoc | null {
     const voiceover = parsed.voiceover && typeof parsed.voiceover === 'object'
       ? { ...parsed.voiceover, callouts }
       : null;
+    const legacyBins = legacyBinsOf(parsed.timeline?.bins);
+    const media = mergeMediaFromBins(
+      Array.isArray(parsed.media) ? parsed.media : [],
+      legacyBins,
+      parsed.createdAt || Date.now(),
+    );
     return {
       ...base,
       ...parsed,
@@ -236,8 +259,11 @@ function parseDoc(raw: string): ProjectDoc | null {
       id: parsed.id,
       format,
       preset,
+      templateId: inferTemplateId(parsed.preset, parsed.templateId),
       scenes,
       shots,
+      media,
+      generationJobs: Array.isArray(parsed.generationJobs) ? parsed.generationJobs : [],
       timeline: parsed.timeline && typeof parsed.timeline === 'object' ? parsed.timeline : null,
       voiceover,
       callouts,
@@ -290,9 +316,10 @@ export function listProjects(): ProjectSummary[] {
 export function createProject(
   name: string,
   format: ProjectFormat = 'landscape',
-  preset: FilmPreset = 'marketplace',
+  preset: FilmPreset = 'youtube',
+  templateId: string | null = null,
 ): ProjectDoc {
-  const doc = emptyProject(name, formatForPreset(preset) === 'shorts' ? 'shorts' : format, preset);
+  const doc = emptyProject(name, format, preset, templateId);
   mkdirSync(projectDir(doc.id), { recursive: true });
   writeFileSync(projectFile(doc.id), JSON.stringify(doc, null, 2));
   return doc;
@@ -306,13 +333,20 @@ export function loadProject(id: string): ProjectDoc | null {
 
 export function saveProject(doc: ProjectDoc): ProjectDoc {
   const format = doc.format === 'shorts' ? 'shorts' : 'landscape';
-  const preset = normalizePreset(doc.preset);
+  const preset = format === 'shorts' ? 'shorts' : normalizePreset(doc.preset);
   const next: ProjectDoc = {
     ...doc,
     schemaVersion: PROJECT_SCHEMA_VERSION,
     format,
     preset,
+    templateId: inferTemplateId(doc.preset, doc.templateId),
     callouts: Array.isArray(doc.callouts) ? doc.callouts : [],
+    media: mergeMediaFromBins(
+      doc.media,
+      legacyBinsOf(doc.timeline?.bins),
+      Date.now(),
+    ),
+    generationJobs: Array.isArray(doc.generationJobs) ? doc.generationJobs : [],
     exportSettings: {
       ...defaultExportSettings(format, preset),
       ...(doc.exportSettings || {}),

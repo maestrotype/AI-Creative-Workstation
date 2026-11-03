@@ -11,6 +11,10 @@
     var(--color-bg-base);
 }
 
+.topChrome {
+  min-width: 0;
+}
+
 .toolbar {
   display: flex;
   align-items: center;
@@ -68,6 +72,51 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.exportBar {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-bg-elevated) 88%, transparent);
+  font-size: 12px;
+}
+
+.exportError {
+  margin: 0;
+  color: var(--color-danger, #f87171);
+}
+
+.exportOk {
+  margin: 0;
+  color: var(--color-text-secondary);
+  word-break: break-all;
+}
+
+.exportOk code {
+  font-size: 11px;
+}
+
+.exportLink {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--color-accent);
+  font: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.exportSave {
+  border: 1px solid var(--color-accent-border);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 4px 10px;
+  cursor: pointer;
 }
 
 .play,

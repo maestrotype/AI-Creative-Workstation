@@ -135,6 +135,58 @@
   font-size: var(--text-body-sm);
 }
 
+.startOptions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.startOption {
+  min-height: 8rem;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-primary);
+  background: var(--color-bg-card);
+  font: inherit;
+  text-align: left;
+}
+
+button.startOption {
+  cursor: pointer;
+}
+
+button.startOption:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+.startOption > strong,
+.startOption > span {
+  display: block;
+}
+
+.startOption > span {
+  margin-top: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-body-sm);
+  line-height: 1.45;
+}
+
+.startTemplateControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+@media (max-width: 900px) {
+  .startOptions {
+    grid-template-columns: 1fr;
+  }
+}
+
 .placeholder {
   display: flex;
   flex-direction: column;
@@ -361,7 +413,27 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   margin-bottom: var(--space-3);
+}
+
+.headSelect,
+.templateBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.headSelect span,
+.templateBar span {
+  color: var(--color-text-secondary);
+  font-size: var(--text-body-sm);
+}
+
+.templateBar {
+  margin-bottom: var(--space-4);
 }
 
 .sceneList {
@@ -512,6 +584,44 @@
 .ok {
   color: var(--color-success);
   font-size: var(--text-caption);
+}
+
+.zoomToggle {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+  cursor: pointer;
+  user-select: none;
+}
+
+.zoomToggle input {
+  margin-top: 3px;
+  accent-color: var(--color-accent, #5b8def);
+  cursor: pointer;
+}
+
+.zoomToggle span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.zoomToggle strong {
+  font-size: var(--text-body-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.zoomToggle small {
+  font-size: var(--text-caption);
+  color: var(--color-text-tertiary);
+  line-height: 1.35;
 }
 
 .nextBox {

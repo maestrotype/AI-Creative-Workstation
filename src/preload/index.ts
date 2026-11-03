@@ -57,9 +57,26 @@ const api = {
     name?: string;
     format?: 'landscape' | 'shorts';
     preset?: 'marketplace' | 'hero' | 'youtube' | 'shorts';
+    templateId?: string | null;
   }) => ipcRenderer.invoke('create-project', payload),
   loadProject: (id: string) => ipcRenderer.invoke('load-project', id),
   saveProject: (doc: unknown) => ipcRenderer.invoke('save-project', doc),
+  listFilmTemplates: () => ipcRenderer.invoke('list-film-templates'),
+  saveFilmTemplate: (draft: {
+    name: string;
+    brief: string;
+    format: 'landscape' | 'shorts';
+    chapters: Array<{
+      title: string;
+      prompt: string;
+      recordSteps: string;
+      effectPrompt: string;
+      textOverlay: string;
+      durationSec: number;
+      motion: 'still_motion' | 'import' | 'i2v';
+    }>;
+  }) => ipcRenderer.invoke('save-film-template', draft),
+  deleteFilmTemplate: (id: string) => ipcRenderer.invoke('delete-film-template', id) as Promise<{ deleted: boolean }>,
   deleteProject: (id: string) => ipcRenderer.invoke('delete-project', id),
   importIntoProject: (payload: { projectId: string; path: string }) =>
     ipcRenderer.invoke('import-into-project', payload),
@@ -175,6 +192,7 @@ const api = {
     file_path: string;
     target_sec: number;
     force?: boolean;
+    fill_window?: boolean;
   }) => ipcRenderer.invoke('fit-speech-duration', payload) as Promise<{
     file_path: string;
     source_sec: number;
@@ -184,6 +202,7 @@ const api = {
     tempo: number;
     fitted: boolean;
     needs_shorten: boolean;
+    needs_expand: boolean;
   }>,
   mixVoiceoverTrack: (payload: {
     parts: Array<{ file_path: string; start_sec: number; max_duration_sec?: number }>;
@@ -233,6 +252,13 @@ const api = {
     start_sec?: number;
     end_sec?: number;
   }) => ipcRenderer.invoke('erase-video-region', payload) as Promise<{ file_path: string }>,
+  transcribeAudio: (payload: { path: string; language?: string }) =>
+    ipcRenderer.invoke('transcribe-audio', payload) as Promise<{
+      segments: Array<{ start: number; end: number; text: string }>;
+      language: string;
+      full_text: string;
+      warnings: string[];
+    }>,
   analyzeVideo: (payload: {
     video_path: string;
     transcribe?: boolean;
@@ -313,7 +339,8 @@ const api = {
   ensureVideoPreview: (sourcePath: string, force?: boolean) =>
     ipcRenderer.invoke('ensure-video-preview', sourcePath, force) as Promise<{ path: string; transcoded: boolean }>,
   discardMeshDraft: (sourcePath: string) => ipcRenderer.invoke('discard-mesh-draft', sourcePath),
-  saveVideoAs: (sourcePath: string) => ipcRenderer.invoke('save-video-as', sourcePath),
+  saveVideoAs: (sourcePath: string, defaultName?: string) =>
+    ipcRenderer.invoke('save-video-as', sourcePath, defaultName),
   saveMediaAs: (sourcePath: string) => ipcRenderer.invoke('save-media-as', sourcePath),
   gradeVideo: (payload: {
     video_path: string;

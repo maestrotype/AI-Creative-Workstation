@@ -95,7 +95,7 @@ class ChapterFitTests(unittest.TestCase):
         self.assertIn("комплекте", cleaned.lower())
         self.assertNotIn("Те же файлы", cleaned)
 
-    def test_chapter_breath_leaves_a_gap_between_chapters(self):
+    def test_chapter_windows_stay_abutting(self):
         first = chapter()
         first["title"] = "Hero"
         first["place"] = "open"
@@ -117,8 +117,8 @@ class ChapterFitTests(unittest.TestCase):
             return {"lines": [FULL, FULL]}
 
         segments = fit_chapters([first, second], "qwen", ask=ask)
-        self.assertLess(segments[0]["end_sec"], 12.0)
-        self.assertGreaterEqual(segments[1]["start_sec"] - segments[0]["end_sec"], 0.5)
+        self.assertEqual(segments[0]["end_sec"], 12.0)
+        self.assertEqual(segments[1]["start_sec"], 12.0)
 
     def test_prompt_asks_for_a_short_still_intro(self):
         first = chapter()

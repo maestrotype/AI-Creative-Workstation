@@ -3,6 +3,8 @@
 
 > **"Create. Don't Configure."**
 
+> **Current video product (27 Oct 2026):** the thing people buy is a local AI-first **video studio** with a classic editing core — not a chapter form that later stitches a clip. Cross-modal “Creative Asset Graph” remains a longer-term vision. Authoritative video spec: [AI_FIRST_VIDEO_STUDIO.md](AI_FIRST_VIDEO_STUDIO.md).
+
 ---
 
 ## Executive Summary

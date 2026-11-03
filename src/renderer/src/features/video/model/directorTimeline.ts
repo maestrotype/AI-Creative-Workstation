@@ -308,6 +308,22 @@ export function contiguousNarrationStarts(durations: number[], origin = 0): numb
   return starts;
 }
 
+/** Close gaps on A1. Each line starts where the previous voice ends. */
+export function flushNarrationTrack(clips: TimelineClip[], origin?: number): TimelineClip[] {
+  const audio = clips
+    .filter((clip) => clip.track === 'a1')
+    .sort((a, b) => a.startSec - b.startSec || a.id.localeCompare(b.id));
+  if (audio.length === 0) return clips;
+  const startAt = origin != null ? Math.max(0, origin) : audio[0].startSec;
+  const starts = contiguousNarrationStarts(audio.map((clip) => clip.durationSec), startAt);
+  const byId = new Map(audio.map((clip, index) => [clip.id, starts[index]]));
+  return clips.map((clip) => {
+    const start = byId.get(clip.id);
+    if (start == null || Math.abs(clip.startSec - start) < 0.001) return clip;
+    return { ...clip, startSec: start };
+  });
+}
+
 export function trackHasGap(clips: TimelineClip[], track: TrackId): boolean {
   const on = clips
     .filter((c) => c.track === track)
@@ -772,6 +788,99 @@ export function splitClipAt(
     autoLength: false,
   };
   return clips.flatMap((item) => (item.id === clipId ? [left, right] : [item]));
+}
+
+function pictureOnV1(clips: TimelineClip[]): TimelineClip[] {
+  return clips
+    .filter((clip) => clip.track === 'v1')
+    .sort((a, b) => a.startSec - b.startSec || a.id.localeCompare(b.id));
+}
+
+/** One source file laid out in order, without a gap or a second recording. */
+function isContinuousTake(picture: TimelineClip[]): boolean {
+  if (!picture.length || !picture[0].binId) return false;
+  const binId = picture[0].binId;
+  for (let index = 0; index < picture.length; index += 1) {
+    const clip = picture[index];
+    if (clip.binId !== binId) return false;
+    if (index === 0) continue;
+    const prev = picture[index - 1];
+    if (Math.abs(clip.startSec - (prev.startSec + prev.durationSec)) > 0.35) return false;
+    if (Math.abs(clip.sourceInSec - (prev.sourceInSec + prev.durationSec)) > 0.35) return false;
+  }
+  return true;
+}
+
+function withSceneLabels(
+  clips: TimelineClip[],
+  scenes: Array<{ start: number; end: number; title?: string }>,
+): TimelineClip[] | null {
+  const picture = pictureOnV1(clips);
+  if (picture.length !== scenes.length) return null;
+  const labels = new Map(picture.map((clip, index) => [
+    clip.id,
+    scenes[index].title?.trim() || `Chapter ${index + 1}`,
+  ]));
+  return clips.map((clip) => (
+    labels.has(clip.id) ? { ...clip, label: labels.get(clip.id)!, autoLength: false } : clip
+  ));
+}
+
+/**
+ * Replace a previous cut of the same recording with the analysis chapters.
+ * Mixed files on V1 are left untouched.
+ */
+function rebuildContinuousTake(
+  clips: TimelineClip[],
+  scenes: Array<{ start: number; end: number; title?: string }>,
+): TimelineClip[] | null {
+  const picture = pictureOnV1(clips);
+  if (!isContinuousTake(picture)) return null;
+  const first = picture[0];
+  const last = picture[picture.length - 1];
+  const covered = last.startSec + last.durationSec - first.startSec;
+  const sceneSpan = scenes[scenes.length - 1].end - scenes[0].start;
+  if (sceneSpan > covered + 0.75 || scenes[0].start < -0.2) return null;
+  const removed = new Set(picture.map((clip) => clip.id));
+  const chapters = scenes.map((scene) => {
+    const offset = scene.start - scenes[0].start;
+    return {
+      id: newId('clip'),
+      binId: first.binId,
+      track: 'v1' as const,
+      startSec: round2(first.startSec + offset),
+      durationSec: round2(Math.max(0.4, scene.end - scene.start)),
+      sourceInSec: round2(first.sourceInSec + offset),
+      label: scene.title?.trim() || 'Глава',
+      autoLength: false,
+    };
+  });
+  return [...clips.filter((clip) => !removed.has(clip.id)), ...chapters];
+}
+
+export function splitVideoTrackAtScenes(
+  clips: TimelineClip[],
+  scenes: Array<{ start: number; end: number; title?: string }>,
+): TimelineClip[] {
+  const ordered = scenes
+    .filter((scene) => Number.isFinite(scene.start) && Number.isFinite(scene.end) && scene.end > scene.start)
+    .sort((a, b) => a.start - b.start);
+  if (ordered.length < 2) return clips;
+
+  let next = clips;
+  for (const scene of ordered.slice(1)) {
+    const at = scene.start;
+    const target = next.find((clip) => (
+      clip.track === 'v1'
+      && at > clip.startSec + 0.19
+      && at < clip.startSec + clip.durationSec - 0.19
+    ));
+    if (target) next = splitClipAt(next, target.id, at);
+  }
+
+  const labeled = withSceneLabels(next, ordered);
+  if (labeled) return labeled;
+  return rebuildContinuousTake(clips, ordered) ?? clips;
 }
 
 export function detachAudioFromClip(

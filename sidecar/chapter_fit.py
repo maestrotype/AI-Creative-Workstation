@@ -10,7 +10,6 @@ import re
 from typing import Any, Callable, Optional
 
 WPM = 130
-CHAPTER_BREATH_SEC = 0.55
 _STOP = {
     "и", "в", "во", "на", "по", "к", "ко", "с", "со", "о", "об", "от", "для",
     "это", "эта", "этот", "эти", "как", "что", "чтобы", "или", "а", "но", "же",
@@ -24,15 +23,13 @@ def word_count(text: str) -> int:
 
 def line_gap(text: str, target_words: int, *, authored_words: Optional[int] = None) -> list[str]:
     """Empty when the line will actually fill its beat."""
+    del authored_words
     spoken = re.sub(r"\s+", " ", (text or "")).strip()
     if not spoken or spoken[-1] not in ".!?":
         return ["фраза не закончена"]
     count = word_count(spoken)
     effective = target_words
-    if authored_words is not None and authored_words > 0:
-        # Do not force a long pad when the ready meaning is short.
-        effective = min(target_words, max(authored_words + 4, int(round(authored_words * 1.55))))
-    low = max(6, int(round(effective * 0.72)))
+    low = max(6, int(round(effective * 0.82)))
     high = int(round(target_words * 1.18)) + 2
     problems: list[str] = []
     if count < low:
@@ -150,7 +147,10 @@ def _place_hint(place: str, media_kind: str) -> str:
                 "Без новых фактов из середины ролика.\n"
             )
         return "Это последняя глава. Закрой рассказ законченной фразой, не обрывай на полусмысле.\n"
-    return "Между этой и соседними главами будет короткая пауза. Не цепляй конец к следующей главе союзом «и».\n"
+    return (
+        "Следующая глава начнётся сразу после этой. "
+        "Закончи мысль так, чтобы переход звучал естественно, без висящего «и…» и без просьбы подождать.\n"
+    )
 
 
 def chapter_prompt(
@@ -188,8 +188,8 @@ def chapter_prompt(
         "Готовый сценарий — смысл главы. Раскрой его. Не заменяй другими фактами и не пропускай.\n"
         f"{script}\n\n"
         f"Уже сказано раньше (эти мысли и близкие пересказы не повторяй):\n{history}\n\n"
-        "Реплики по порядку. Число слов — ориентир длины, не повод набивать воду. "
-        "Лучше чуть короче и ясно, чем длинная тавтология.\n"
+        "Реплики по порядку. Число слов рассчитано из длительности кадра. "
+        "Нужно заполнить этот бюджет полезным объяснением. Тавтология недопустима.\n"
         + "\n".join(rows)
         + "\n"
         + retry
@@ -203,27 +203,6 @@ def _clip_long(text: str, target_words: int) -> str:
 
     window = max(4.0, target_words * 60 / WPM)
     return drop_paraphrases(_fit_spoken(text, window, WPM))
-
-
-def _apply_chapter_breath(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Leave a short silence between chapters so cuts do not sound rushed."""
-    if len(segments) < 2:
-        return segments
-    for index in range(len(segments) - 1):
-        current = segments[index]
-        nxt = segments[index + 1]
-        if str(current.get("purpose") or "") == str(nxt.get("purpose") or ""):
-            continue
-        end = float(current.get("end_sec") or 0)
-        start = float(current.get("start_sec") or 0)
-        nxt_start = float(nxt.get("start_sec") or 0)
-        room = end - start
-        if room < 1.2:
-            continue
-        target_end = min(end, nxt_start - CHAPTER_BREATH_SEC)
-        if target_end >= start + 0.8:
-            current["end_sec"] = round(target_end, 2)
-    return segments
 
 
 def fit_chapters(
@@ -285,7 +264,7 @@ def fit_chapters(
             if line_gap(line, target, authored_words=authored):
                 line = correct_line(
                     line,
-                    min(target, max(authored + 4, int(round(authored * 1.55)))) if authored else target,
+                    target,
                     [str(beat.get("brief") or ""), str(beat.get("seen") or ""), str(chapter.get("script") or "")],
                 )
             high = int(round(target * 1.18)) + 2
@@ -317,7 +296,6 @@ def fit_chapters(
                 "short": bool(line_gap(text, target, authored_words=word_count(str(beat.get("brief") or "")))),
             })
             said.append(text)
-    segments = _apply_chapter_breath(segments)
     if segments:
         segments[0]["role"] = "hook"
         segments[-1]["role"] = "cta"
