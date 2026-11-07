@@ -45,6 +45,8 @@ Short version:
 | Scene: still, clip, prompt, overlay, Ken Burns stitch | **IMPLEMENTED** |
 | Image gen: FLUX / SDXL via Diffusers + PyTorch (MPS), not MLX | **IMPLEMENTED** |
 | Generate video | **IMPLEMENTED** (local Wan 2.2 TI2V-5B MLX q8; fallback H3/Runway; SVD is animation only) |
+| Narration coverage | **FIXED** (empty windows after a split are filled before TTS; leading picture idle is covered from V1 start; a hole >1.5s is not closed by stretching the previous line with silence; short caption lines are rewritten to the word budget) |
+| Long AI shot (segment plan) | **IMPLEMENTED** (chapter card → «План длинного AI-кадра»; TI2V only. Segments of 1.7 / 3.4 / 5 s, one seed. Each segment starts from the sharpest of the previous segment's last 8 frames; the seam drops 9 frames (handoff still + two VAE groups settling colour). ~5 min per 1.7 s segment on M4 Max. Later segments can drift from the still) |
 | Wan / SVD in catalog | **IMPLEMENTED** (TI2V = AI video; SVD = animation; Wan 2.1 T2V is not the ad path) |
 | Video director + analyze → script → XTTS → export | **IMPLEMENTED** (session mostly **localStorage**) |
 | 3D image → mesh | **IMPLEMENTED** (separate from video) |
@@ -97,8 +99,16 @@ and moved behind this model.
 - Narration on a project with no authored chapters was hardcoded to English
   (`generateScript` → `language: 'en'`). The state planner then wrote mixed
   Russian notes plus an English monologue, and `autoLength` stretched each wav
-  over the next line. Russian is the default again. One line is capped at 16s.
-  Existing voiced projects keep the old English track until the user generates again.
+  over the next line. Russian is the default again. A chapter longer than 18s
+  becomes beats of about 14s: each line is a new sentence, and the next line
+  starts where the previous one ends. Repeating a clause to fill the time is
+  rejected. Every script goes through a review pass (rules, rewrite, model
+  editor) before voice, and each wav is checked with Whisper after voice.
+  qwen2.5:14b is the weakest step: it undershoots the word budget. A 32B text
+  model is used for editing when installed. A1 clips are named from the line,
+  not Hook/Body/CTA. Generated
+  narration wavs are not listed in the media pool. Existing voiced projects
+  keep the old track until the user generates again.
 - Voice message → text is in the narration script prompt: record or pick an audio
   file, faster-whisper writes the words into the prompt. It does not replace the
   TTS voice sample. Whisper must be installed (`requirements-analyze.txt`).
@@ -108,7 +118,7 @@ and moved behind this model.
   [AI_FIRST_VIDEO_STUDIO.md](product/AI_FIRST_VIDEO_STUDIO.md): selecting a clip
   and running AI on that clip, a real media library, and a storyboard linked to
   the timeline are still ahead.
-- FLUX + Ollama + XTTS must not stay co-resident. Translate with qwen, **unload**, then load FLUX. Analyze/script already call `release_heavy_for_other_work()`.
+- FLUX + Ollama + XTTS must not stay co-resident. Translate with qwen, **unload**, then load FLUX. Analyze/script already call `release_heavy_for_other_work()`. Wan TI2V prepares the English prompt first, then unloads Ollama before the MLX worker. Engine chip + Studio «Сейчас в ОЗУ» can unload Qwen even while a video job runs.
 - 3D remains an independent tool. The video editor may consume rendered media
   from it later, but does not embed the 3D system into timeline semantics.
 

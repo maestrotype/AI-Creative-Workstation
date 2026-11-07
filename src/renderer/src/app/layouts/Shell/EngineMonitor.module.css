@@ -80,6 +80,12 @@
   color: var(--color-text-primary);
 }
 
+.chip[data-pressure='true'] {
+  border-color: #c45c26;
+  color: #f6d7c3;
+  background: rgba(196, 92, 38, 0.18);
+}
+
 .dot {
   width: 7px;
   height: 7px;
@@ -91,6 +97,11 @@
 .dot[data-on='true'] {
   background: var(--color-accent);
   box-shadow: 0 0 0 3px var(--color-accent-glow);
+}
+
+.dot[data-pressure='true'] {
+  background: #ed8936;
+  box-shadow: 0 0 0 3px rgba(237, 137, 54, 0.35);
 }
 
 .chipText {
@@ -138,6 +149,28 @@
 .meta,
 .idle {
   color: var(--color-text-tertiary);
+}
+
+.pressure {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  background: rgba(196, 92, 38, 0.16);
+  color: #f6d7c3;
+  font-size: var(--text-caption);
+  line-height: 1.35;
+}
+
+.note {
+  margin: 0 0 8px;
+  color: #f6d7c3;
+  font-size: var(--text-caption);
+}
+
+.kind {
+  font-style: normal;
+  color: var(--color-text-tertiary);
+  font-weight: 400;
 }
 
 .track {

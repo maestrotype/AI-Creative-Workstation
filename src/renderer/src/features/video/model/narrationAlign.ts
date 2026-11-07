@@ -120,6 +120,80 @@ export function lineCountsForPicture(chapters: PictureSpan[], count: number): nu
   return counts.map((base, index) => base + extras[index]);
 }
 
+const NARRATION_BEAT_SEC = 14;
+const NARRATION_BEAT_MAX = 18;
+
+/**
+ * Split the picture into spoken beats of about 14 seconds.
+ * Beats tile the chapters, so the next line starts where the previous one ends.
+ */
+export function narrationBeats(chapters: PictureSpan[]): PictureSlot[] {
+  const pics = [...chapters]
+    .filter((chapter) => chapter.endSec - chapter.startSec >= 0.4)
+    .sort((a, b) => a.startSec - b.startSec || a.title.localeCompare(b.title));
+  const beats: PictureSlot[] = [];
+  for (const chapter of pics) {
+    const duration = chapter.endSec - chapter.startSec;
+    const count = duration <= NARRATION_BEAT_MAX
+      ? 1
+      : Math.max(1, Math.round(duration / NARRATION_BEAT_SEC));
+    for (let index = 0; index < count; index += 1) {
+      const start = chapter.startSec + (duration * index) / count;
+      const end = index === count - 1
+        ? chapter.endSec
+        : chapter.startSec + (duration * (index + 1)) / count;
+      beats.push({ startSec: round2(start), endSec: round2(end) });
+    }
+  }
+  return beats;
+}
+
+/**
+ * Make the script cover the picture: each line runs to the next one, the last runs to the end.
+ * With `split`, a window longer than 18s becomes ~14s windows; the new ones carry the meaning
+ * in `brief` and an empty `text` for the writer to fill.
+ */
+export function tileScriptToPicture<T extends { start_sec: number; end_sec: number; text: string; brief?: string }>(
+  segments: T[],
+  pictureEndSec: number,
+  opts: { split: boolean },
+): T[] {
+  const sorted = [...segments].sort((a, b) => a.start_sec - b.start_sec);
+  const out: T[] = [];
+  sorted.forEach((segment, index) => {
+    const next = sorted[index + 1];
+    const start = segment.start_sec;
+    const end = next
+      ? Math.max(start + 0.4, next.start_sec)
+      : Math.max(segment.end_sec, pictureEndSec > start ? pictureEndSec : segment.end_sec);
+    const duration = end - start;
+    const count = opts.split && duration > NARRATION_BEAT_MAX
+      ? Math.max(1, Math.round(duration / NARRATION_BEAT_SEC))
+      : 1;
+    for (let part = 0; part < count; part += 1) {
+      const partStart = round2(start + (duration * part) / count);
+      const partEnd = part === count - 1 ? round2(end) : round2(start + (duration * (part + 1)) / count);
+      out.push({
+        ...segment,
+        start_sec: partStart,
+        end_sec: partEnd,
+        text: part === 0 ? segment.text : '',
+        brief: segment.brief || segment.text,
+      });
+    }
+  });
+  return out;
+}
+
+/** Pick the authored line that belongs to this beat. Same count keeps the same order. */
+export function textForBeat(lines: string[], beatIndex: number, beatCount: number): string {
+  if (!lines.length || beatCount <= 0) return '';
+  const index = beatCount === 1
+    ? 0
+    : Math.min(lines.length - 1, Math.round((beatIndex * (lines.length - 1)) / (beatCount - 1)));
+  return lines[index] || lines[lines.length - 1] || '';
+}
+
 /** Tile the current V1 clips with the spoken lines, in order. Slots meet the picture edges. */
 export function pictureSlots(chapters: PictureSpan[], lineCount: number): PictureSlot[] {
   const pics = [...chapters]
@@ -143,13 +217,57 @@ export function pictureSlots(chapters: PictureSpan[], lineCount: number): Pictur
   });
 }
 
-/** Each line runs until the next one starts, so A1 has no hole between chapters. */
+/**
+ * Close a tiny join between neighbouring lines.
+ * A real hole (>1.5s) must stay a hole until the script grows a new line —
+ * stretching the previous line over it fills A1 with silence.
+ */
 export function abutSlots(slots: PictureSlot[]): PictureSlot[] {
   return slots.map((slot, index) => {
     const next = slots[index + 1];
     if (!next || next.startSec <= slot.startSec + 0.05) return slot;
+    if (next.startSec - slot.endSec > 1.5) return slot;
     return { startSec: slot.startSec, endSec: round2(Math.max(slot.endSec, next.startSec)) };
   });
+}
+
+/** Insert empty windows for every hole in the picture so the writer can fill them.
+ * Leading silence before the first line is a hole too — A1 must start with the picture.
+ */
+export function coverPictureGaps<T extends { start_sec: number; end_sec: number; text: string; brief?: string }>(
+  segments: T[],
+  pictureEndSec: number,
+  pictureStartSec = 0,
+): T[] {
+  const sorted = [...segments].sort((a, b) => a.start_sec - b.start_sec);
+  if (!sorted.length) return sorted;
+  const out: T[] = [];
+  let cursor = Math.max(0, pictureStartSec);
+  for (const segment of sorted) {
+    if (segment.start_sec - cursor > 1.5) {
+      const prev = out[out.length - 1] ?? segment;
+      out.push({
+        ...prev,
+        start_sec: round2(cursor),
+        end_sec: round2(segment.start_sec),
+        text: '',
+        brief: prev.brief || prev.text || segment.brief || segment.text || '',
+      });
+    }
+    out.push(segment);
+    cursor = Math.max(cursor, segment.end_sec);
+  }
+  if (pictureEndSec - cursor > 1.5) {
+    const last = out[out.length - 1] ?? sorted[sorted.length - 1];
+    out.push({
+      ...last,
+      start_sec: round2(cursor),
+      end_sec: round2(pictureEndSec),
+      text: '',
+      brief: last.brief || last.text || '',
+    });
+  }
+  return out;
 }
 
 /** Speech longer than the picture is rewritten. A small overrun can be sped up. Short speech is padded with silence. */

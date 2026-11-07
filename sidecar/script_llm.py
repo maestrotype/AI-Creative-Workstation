@@ -112,6 +112,17 @@ def _fit_spoken(text: str, window_sec: float, wpm: int) -> str:
     budget = _window_words(window_sec, wpm)
     if len(words) <= budget:
         return cleaned
+    # Whole sentences only: a word cut leaves "Пользователь может." in the voice.
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?…])\s+", cleaned) if part.strip()]
+    kept: list[str] = []
+    for sentence in sentences:
+        if kept and len(" ".join(kept + [sentence]).split()) > budget:
+            break
+        kept.append(sentence)
+    if kept and (len(" ".join(kept).split()) >= budget * 0.6 or len(kept) == 1):
+        whole = " ".join(kept)
+        if len(whole.split()) <= int(budget * 1.25) + 2:
+            return whole
     clipped_words = words[:budget]
     while clipped_words and re.fullmatch(
         r"(на|в|и|а|или|не|только|с|со|к|по|для|как|the|a|an|to|of|and|not|only|for|as)",
@@ -3129,6 +3140,34 @@ _MODEL_META_RX = re.compile(
 )
 
 
+def spoken_stutters(text: str) -> bool:
+    """The same short clause said again. 'новые товары. новые товары.' is a glitch."""
+    raw = re.sub(r"\s+", " ", (text or "")).strip().lower()
+    clauses = [
+        re.sub(r"[^\w\s]+", "", part, flags=re.UNICODE).strip()
+        for part in re.split(r"[.!?…,;]+", raw)
+        if part.strip()
+    ]
+    clauses = [part for part in clauses if len(part.split()) >= 2]
+    return len(clauses) != len(set(clauses))
+
+
+def _first_clauses(text: str) -> str:
+    """Drop a clause the second time it appears."""
+    raw = re.sub(r"\s+", " ", (text or "")).strip()
+    kept: list[str] = []
+    seen: set[str] = set()
+    for piece in re.split(r"(?<=[.!?…])\s+", raw):
+        key = re.sub(r"[^\w\s]+", "", piece, flags=re.UNICODE).strip().lower()
+        if len(key.split()) >= 2:
+            if key in seen:
+                continue
+            seen.add(key)
+        if piece.strip():
+            kept.append(piece.strip())
+    return " ".join(kept).strip()
+
+
 def valid_narration_line(text: str, language: str = "ru") -> bool:
     """Drop translator chatter, JSON debris, and wrong-script model replies."""
     spoken = re.sub(r"\s+", " ", (text or "")).strip()
@@ -3159,6 +3198,7 @@ def expand_spoken(
     target_sec: float,
     language: str = "ru",
     seen: str = "",
+    already: str = "",
     measured_sec: float = 0,
     part: int = 1,
     parts: int = 1,
@@ -3171,9 +3211,9 @@ def expand_spoken(
     words = len([word for word in source.split() if word])
     low = max(6, int(round(budget * 0.75)))
     high = int(round(budget * 1.18)) + 2
-    if source and low <= words <= high and measured_sec <= 0:
+    if source and low <= words <= high and measured_sec <= 0 and not spoken_stutters(source):
         return _fit_spoken(source, target_sec, wpm)
-    if measured_sec >= target_sec * 0.9 and words >= low:
+    if measured_sec >= target_sec * 0.9 and words >= low and not spoken_stutters(source):
         return source
     lang = "русском" if language.startswith("ru") else "English"
     place = f"Это реплика {part} из {parts} одной главы. " if parts > 1 else ""
@@ -3182,30 +3222,51 @@ def expand_spoken(
         if measured_sec > 0
         else ""
     )
+    said = re.sub(r"\s+", " ", (already or "")).strip()
+    said_note = f"Уже сказано, это не повторять:\n{said}\n" if said else ""
     ask = (
         f"Раскрой готовый сценарий озвучки на {lang}. Не подменяй его другим продуктом и не переводи.\n"
-        f"{place}{short}"
+        f"{place}{short}{said_note}"
         f"Смысл главы, факты только отсюда:\n{chapter or source}\n\n"
         f"Что сказать в этой реплике: {source or chapter}\n"
         f"В кадре: {seen or 'кадр этой главы'}\n"
         f"Нужно около {budget} слов, речь около {target_sec:.0f} секунд. "
-        "Это обязательный бюджет: звук не будет искусственно замедляться. "
-        "Законченные фразы. Если смысл короткий, объясни видимые действия и пользу по шагам, "
-        "не повторяя одну и ту же фразу.\n"
+        "Звук не будет искусственно замедляться. "
+        "Каждое предложение — новый факт. Нельзя повторять одну фразу, чтобы добрать слова. "
+        "Если новых фактов нет, оставь короткую чистую фразу.\n"
         'JSON: {"text":"..."}'
     )
-    parsed = _try_ollama(ask, num_predict=900, temperature=0.3)
-    candidate = ""
-    if parsed:
+
+    def _candidate(prompt: str) -> str:
+        parsed = _try_ollama(prompt, num_predict=900, temperature=0.3)
+        if not parsed:
+            return ""
         candidate = re.sub(r"\s+", " ", str(parsed.get("text") or "")).strip()
-        if candidate and not valid_narration_line(candidate, language):
-            candidate = ""
+        if not candidate or spoken_stutters(candidate) or not valid_narration_line(candidate, language):
+            return ""
+        return candidate
+
+    candidate = _candidate(ask)
+    if not candidate:
+        candidate = _candidate(
+            ask + "\nПрошлый ответ повторял одну и ту же фразу. Повторы запрещены. Напиши другие факты из главы.\n"
+        )
     best = candidate if candidate and len(candidate.split()) > words else source
+    if best and spoken_stutters(best):
+        best = _first_clauses(best)
     if best and not valid_narration_line(best, language):
-        best = source or chapter
+        best = _first_clauses(chapter)
+    if already and best:
+        from narration_review import drop_repeated
+
+        cleaned = drop_repeated(best, [already])
+        # Keep the cleaned line when it still says something. An empty result means
+        # the model only restated earlier speech — fall back to the chapter facts
+        # for this window rather than leaving silence on A1.
+        best = cleaned or _first_clauses(chapter) or source
     if best and len(best.split()) > high:
         return _fit_spoken(best, target_sec, wpm)
-    return best or source or chapter
+    return best or _first_clauses(chapter) or chapter
 
 
 def translation_lines(expected: list[str], payload: dict[str, Any] | None) -> list[str] | None:

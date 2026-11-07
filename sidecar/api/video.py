@@ -34,7 +34,9 @@ _render_state: Dict[str, Any] = {
 
 def _video_draft_dir() -> str:
     """Working copies only. The app copies out via Save As, like 3D mesh drafts."""
-    path = os.path.expanduser("~/Documents/Canvas/Generated/Video/drafts")
+    from canvas_paths import canvas_join
+
+    path = canvas_join("Generated", "Video", "drafts")
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -980,8 +982,16 @@ def analyze_video_route(request: AnalyzeVideoRequest):
         if "already running" in str(exc):
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except PermissionError as exc:
+        from canvas_paths import access_denied_message
+
+        raise HTTPException(status_code=500, detail=access_denied_message(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        from canvas_paths import access_denied_message
+
+        raise HTTPException(status_code=500, detail=access_denied_message(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)[:500]) from exc
     return {"status": "completed", "context": result}

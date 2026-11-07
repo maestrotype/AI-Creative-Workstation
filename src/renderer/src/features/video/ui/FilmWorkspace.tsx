@@ -6,6 +6,7 @@ import { formatClock } from '../model/directorTimeline';
 import { toAssetUrl } from '../model/directorMedia';
 import { useDirector } from './DirectorBoard';
 import { DirectorGeneratePane, DirectorResultPane, DirectorSourcesPane } from './DirectorPanes';
+import { FilmProcessMap } from './FilmProcessMap';
 import { TrackMixer } from './TrackMixer';
 import { ClipInspector } from './ClipInspector';
 import { VoiceoverSection } from './VoiceoverSection';
@@ -444,6 +445,7 @@ export function FilmWorkspace({
       </div>
 
       <section className={s.timeline}>
+        <FilmProcessMap onOpenVoiceover={openVoiceover} />
         <div className={s.timelineBody}>
           <TrackMixer embedded />
         </div>

@@ -11,13 +11,14 @@ import {
   type TrackId,
 } from '../model/directorTimeline';
 import { promptForPurpose, SHOT_DURATION_PROFILES, sameProductAsset } from '../model/autoAssemble';
-import { shotCardTitle, shotModelLabel, shotProviderShort, mediaBinDisplayName } from '../model/clipDisplayName';
+import { shotCardTitle, shotModelLabel, shotProviderShort, isNarrationRender, mediaBinDisplayName } from '../model/clipDisplayName';
 import type { ShotPurpose } from '../../projects/model/project';
 import { toAssetUrl } from '../model/directorMedia';
 import { DirectorPreview } from './DirectorPreview';
 import { useDirector } from './DirectorBoard';
 import { TrackMixer } from './TrackMixer';
 import { CalloutEditor } from './CalloutEditor';
+import { PreviewLayerBar } from './PreviewLayerBar';
 import styles from './VideoPage.module.css';
 
 const LABEL_W = 118;
@@ -366,6 +367,7 @@ export function DirectorResultPane({
 } = {}): ReactNode {
   const d = useDirector();
   const [erasing, setErasing] = useState(false);
+  const [focusOverlay, setFocusOverlay] = useState<string | null>(null);
   const eraseRegion = async (box: { x: number; y: number; w: number; h: number }) => {
     const clip = d.clips.find((item) => (
       item.track === 'v1'
@@ -416,6 +418,8 @@ export function DirectorResultPane({
           audioPolicy={d.exportSettings.audioPolicy}
           active={previewActive}
           fallbackSource={d.voiceoverSource}
+          focusOverlay={focusOverlay}
+          productStillPath={d.productStillPath}
           onDecodeFail={(binId) => {
             const bin = d.bins.find((item) => item.id === binId);
             if (!bin || bin.proxying) return;
@@ -423,6 +427,7 @@ export function DirectorResultPane({
           }}
         />
       </CalloutEditor>
+      <PreviewLayerBar focusOverlay={focusOverlay} onFocusOverlay={setFocusOverlay} />
       {compact ? null : (
         <div className={styles.transport}>
           <button type="button" className={styles.toolBtn} onClick={d.togglePlay} disabled={d.clips.length === 0 || d.bins.some((b) => b.proxying)}>
@@ -997,11 +1002,11 @@ export function DirectorSourcesPane({
       {!compact && !d.voiceover.expanded ? (
       <p className={styles.hintTight}>{d.t('video.dir_voice_help')}</p>
       ) : null}
-      {d.bins.length === 0 ? <p className={styles.hintTight}>{d.t('video.dir_bin_empty')}</p> : (
+      {d.bins.filter((item) => !isNarrationRender(item)).length === 0 ? <p className={styles.hintTight}>{d.t('video.dir_bin_empty')}</p> : (
         <>
         {compact ? <p className={styles.poolLabel}>{d.t('video.media_pool')}</p> : null}
         <ul className={styles.binList}>
-          {d.bins.map((item) => {
+          {d.bins.filter((item) => !isNarrationRender(item)).map((item) => {
             const onTimeline = d.clips.some((c) => c.binId === item.id);
             return (
               <li key={item.id}>

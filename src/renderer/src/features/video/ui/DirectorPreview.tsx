@@ -32,6 +32,9 @@ interface DirectorPreviewProps {
   /** When false the element stays mounted but does not play (hidden pipeline stages). */
   active?: boolean;
   fallbackSource?: { path: string; name?: string; durationSec?: number } | null;
+  /** Show this overlay track as the full-frame main picture (e.g. "v2"). */
+  focusOverlay?: string | null;
+  productStillPath?: string | null;
 }
 
 function binFor(clip: TimelineClip | null, bins: BinItem[]): BinItem | null {
@@ -60,6 +63,8 @@ export function DirectorPreview({
   playheadLiveRef,
   active = true,
   fallbackSource,
+  focusOverlay = null,
+  productStillPath = null,
 }: DirectorPreviewProps): ReactNode {
   const { t } = useTranslation();
   const v1Ref = useRef<HTMLVideoElement>(null);
@@ -70,6 +75,7 @@ export function DirectorPreview({
   const prevSeekNonceRef = useRef(seekNonce);
   const wasPlayingRef = useRef(playing);
   const [decodeError, setDecodeError] = useState<string | null>(null);
+  const [mainReady, setMainReady] = useState(false);
 
   const layout = useMemo(() => effectiveTrackLayout(clips, trackLayout), [clips, trackLayout]);
 
@@ -82,8 +88,11 @@ export function DirectorPreview({
   const v1 = clipAtTime(clips, 'v1', playhead);
   const overlayClips = overlayTrackIds.map((id) => ({ id, clip: clipAtTime(clips, id as `v${number}`, playhead) }));
   const liveOverlays = overlayClips.filter((o): o is { id: string; clip: TimelineClip } => Boolean(o.clip));
-  const promoted = !v1 ? liveOverlays[0] ?? null : null;
-  const mainClip = v1 ?? promoted?.clip ?? null;
+  const focusLive = focusOverlay
+    ? liveOverlays.find((o) => o.id === focusOverlay) ?? null
+    : null;
+  const promoted = focusLive ?? (!v1 ? liveOverlays[0] ?? null : null);
+  const mainClip = focusLive?.clip ?? v1 ?? promoted?.clip ?? null;
 
   const fallbackClip = useMemo<TimelineClip | null>(() => {
     if (mainClip || !fallbackSource?.path) return null;
@@ -120,7 +129,12 @@ export function DirectorPreview({
   const v1Busy = Boolean(effectiveV1Bin?.proxying);
   const v1IsVideo = effectiveV1Bin?.kind === 'video' && Boolean(v1Url) && !v1Busy;
   const v1IsImage = effectiveV1Bin?.kind === 'image' && Boolean(v1Url);
-  const pipOverlays = liveOverlays.filter((o) => o.id !== promoted?.id);
+  // When focusing an overlay full-frame, hide it as PiP. When V1 is missing, first overlay is promoted.
+  const pipOverlays = liveOverlays.filter((o) => o.id !== promoted?.id && o.id !== focusOverlay);
+
+  useEffect(() => {
+    setMainReady(false);
+  }, [effectiveMainClip?.id, v1Url]);
   const narrationClips = useMemo(
     () => clips
       .filter((clip) => clip.track.startsWith('a') && !clip.muted)
@@ -261,13 +275,26 @@ export function DirectorPreview({
         style={{ display: v1IsVideo ? 'block' : 'none', background: '#000' }}
         playsInline
         preload="auto"
-        onLoadedData={() => setDecodeError(null)}
+        onLoadedData={(event) => {
+          setDecodeError(null);
+          setMainReady(true);
+          if (!effectiveMainClip) return;
+          const mediaT = mediaTimeForClip(effectiveMainClip, playheadRef.current);
+          if (Math.abs(event.currentTarget.currentTime - mediaT) > 0.05) {
+            event.currentTarget.currentTime = mediaT;
+          }
+        }}
+        onSeeked={() => setMainReady(true)}
         onError={() => {
+          setMainReady(false);
           if (effectiveV1Bin && !effectiveV1Bin.proxying && !effectiveV1Bin.path.includes('preview-')) onDecodeFail(effectiveV1Bin.id);
           else setDecodeError(t('video.dir_decode_error'));
         }}
       />
-      {v1IsImage ? <img className={styles.stageMain} src={v1Url ?? ''} alt="" /> : null}
+      {v1IsImage ? <img className={styles.stageMain} src={v1Url ?? ''} alt="" onLoad={() => setMainReady(true)} /> : null}
+      {!mainClip && productStillPath ? (
+        <img className={styles.stageMain} src={toAssetUrl(productStillPath)} alt="" />
+      ) : null}
 
       {pipOverlays.map(({ id, clip }) => {
         const bin = binFor(clip, bins);
@@ -304,7 +331,11 @@ export function DirectorPreview({
               window.addEventListener('pointerup', up);
             }}
           >
-            <i className={styles.pipBadge}>{id.toUpperCase()}</i>
+            <i className={styles.pipBadge}>
+              {id.toUpperCase()}
+              {' · '}
+              {t('video.preview_pip_badge')}
+            </i>
             {isVideo ? (
               <video
                 ref={(el) => { overlayRefs.current[id] = el; }}
@@ -335,7 +366,7 @@ export function DirectorPreview({
         );
       })}
 
-      {!hasAny ? (
+      {!hasAny && !productStillPath ? (
         <div className={styles.stageEmpty}>
           <p>{t('video.dir_preview_empty')}</p>
         </div>
@@ -343,6 +374,11 @@ export function DirectorPreview({
       {waiting && !v1IsVideo && !v1IsImage ? (
         <div className={styles.stageEmpty}>
           <p>{t('video.dir_proxying')}</p>
+        </div>
+      ) : null}
+      {v1IsVideo && !mainReady && !decodeError ? (
+        <div className={styles.stageEmpty}>
+          <p>{t('video.preview_loading_v1')}</p>
         </div>
       ) : null}
       {decodeError && v1IsVideo ? (

@@ -467,12 +467,7 @@ def _spoken_limit(unit: Dict[str, Any]) -> float:
 
 
 def _repeats_clause(text: str) -> bool:
-    parts = [
-        re.sub(r"\s+", " ", part).strip().lower()
-        for part in re.split(r"[.!?]+", text or "")
-        if len(part.strip()) >= 24
-    ]
-    return len(parts) != len(set(parts))
+    return _sl.spoken_stutters(text)
 
 
 def _english_line_problems(

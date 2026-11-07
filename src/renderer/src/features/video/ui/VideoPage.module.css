@@ -2211,9 +2211,9 @@
 .voScriptRole {
   display: block;
   font-size: var(--text-caption);
-  color: var(--color-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .voSteps {

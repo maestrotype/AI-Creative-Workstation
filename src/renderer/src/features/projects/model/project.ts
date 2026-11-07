@@ -3,6 +3,7 @@ import type { VoiceoverSession } from '../../video/model/voiceoverSession';
 import { MARKETPLACE_BRIEF_RU, MARKETPLACE_V0_BLOCKS, marketplaceVoiceoverSession } from '../../video/model/marketplaceVoiceoverPack';
 import { inferTemplateId } from '../../../../../shared/filmTemplate';
 import type { EditorGenerationJob, EditorMediaAsset } from '../../../../../shared/editorProject';
+import type { MotionPlan } from './motionPlan';
 
 export { inferTemplateId };
 
@@ -123,6 +124,8 @@ export interface ProjectScene {
   stillPath: string | null;
   clipPath: string | null;
   motion: ShotMotion;
+  /** Long AI shot from the still, built segment by segment. */
+  motionPlan?: MotionPlan;
 }
 
 /**

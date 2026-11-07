@@ -11,6 +11,10 @@ export interface ScriptSegment {
   text_en?: string;
   role: ScriptSegmentRole | string;
   purpose?: string;
+  /** Meaning this line must carry. Set when a long window was split and the line is written from it. */
+  brief?: string;
+  /** What the text review still flags after its rewrites. Cleared when the line is edited. */
+  review_issues?: string[];
   visual_summary?: string;
   estimated_sec?: number;
   /** Picture time this line belongs to. Speech may start later if the previous line is still playing. */

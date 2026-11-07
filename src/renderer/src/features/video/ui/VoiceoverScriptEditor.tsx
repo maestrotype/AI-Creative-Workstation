@@ -8,6 +8,7 @@ import { useDirector } from './DirectorBoard';
 import { LlmEngineNotice } from './LlmEngineNotice';
 import { VoiceSampleSetup } from './VoiceSampleSetup';
 import { SegmentPronunciationFix } from './SegmentPronunciationFix';
+import { narrationClipTitle } from '../model/clipDisplayName';
 import { segmentSpoken, type NarrationLang } from '../model/voiceoverScript';
 import { formatTimecode } from '../model/videoAnalysis';
 import styles from './VideoPage.module.css';
@@ -114,6 +115,10 @@ export function VoiceoverScriptEditor(): ReactNode {
   const voiced = d.voiceover.status === 'voiced';
   const lang: NarrationLang = d.voiceover.narrationLang
     ?? (script?.meta.language?.startsWith('en') ? 'en' : 'ru');
+  const cardTitles: string[] = [];
+  for (const seg of script?.segments ?? []) {
+    cardTitles.push(narrationClipTitle(segmentSpoken(seg, lang), cardTitles.at(-1)));
+  }
 
   const coverageSec = script ? scriptCoverageSec(script) : 0;
   const videoSec = analysis?.duration_sec ?? 0;
@@ -230,6 +235,7 @@ export function VoiceoverScriptEditor(): ReactNode {
           <div className={styles.voScriptCards}>
             {script.segments.map((seg, index) => {
               const shown = segmentSpoken(seg, lang);
+              const title = cardTitles[index];
               const words = wordCount(shown);
               const spoken = seg.speech_sec ?? seg.estimated_sec;
               return (
@@ -238,7 +244,7 @@ export function VoiceoverScriptEditor(): ReactNode {
                     <span className={styles.voScriptTime}>
                       {formatTimecode(seg.start_sec)} – {formatTimecode(seg.end_sec)}
                     </span>
-                    <span className={styles.voScriptRole}>{seg.role}</span>
+                    <span className={styles.voScriptRole}>{title}</span>
                     {lang === 'ru' ? (
                       <button
                         type="button"
@@ -264,11 +270,14 @@ export function VoiceoverScriptEditor(): ReactNode {
                     onChange={(e) => d.updateScriptSegment(
                       index,
                       lang === 'en'
-                        ? { text_en: e.target.value }
-                        : { text: e.target.value, text_en: '' },
+                        ? { text_en: e.target.value, review_issues: undefined }
+                        : { text: e.target.value, text_en: '', review_issues: undefined },
                     )}
                     disabled={busy}
                   />
+                  {seg.review_issues?.length ? (
+                    <p className={styles.hintTight}>Проверка: {seg.review_issues.join('; ')}.</p>
+                  ) : null}
                   {lang === 'ru' && pronIndex === index ? (
                     <SegmentPronunciationFix index={index} text={seg.text} />
                   ) : null}

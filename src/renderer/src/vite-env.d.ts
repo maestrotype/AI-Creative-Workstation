@@ -66,6 +66,7 @@ interface Window {
       shot_index?: number;
       shot_total?: number;
       seed?: number;
+      segments?: { prompt: string; seconds: number }[];
     }) => Promise<{
       job_id: string;
       file_path: string | null;
@@ -106,6 +107,15 @@ interface Window {
       coverPath: string | null;
       assembledPath: string | null;
     }>>;
+    getCanvasRootStatus?: () => Promise<{
+      root: string;
+      documents: string;
+      usingDocuments: boolean;
+      deniedDocuments: boolean;
+      override: string | null;
+    }>;
+    openCanvasPrivacySettings?: () => Promise<{ ok: boolean }>;
+    pickCanvasFolder?: () => Promise<{ ok: boolean; root: string }>;
     createProject: (payload?: {
       name?: string;
       format?: 'landscape' | 'shorts';
@@ -602,11 +612,32 @@ interface Window {
       target_sec: number;
       language?: string;
       seen?: string;
+      already?: string;
       measured_sec?: number;
       part?: number;
       parts?: number;
       target_wpm?: number;
     }) => Promise<{ text: string }>;
+    reviewScript?: (payload: {
+      segments: Array<{
+        start_sec: number;
+        end_sec: number;
+        text: string;
+        brief?: string;
+        purpose?: string;
+        visual_summary?: string;
+      }>;
+      language?: string;
+      ollama_model?: string;
+      critic?: boolean;
+    }) => Promise<{
+      segments: Array<{ start_sec: number; end_sec: number; text: string }>;
+      report: {
+        rewritten: number[];
+        critic_flagged: number[];
+        remaining: Array<{ index: number; issues: string[] }>;
+      };
+    }>;
     shortenScript: (payload: {
       text: string;
       target_sec: number;

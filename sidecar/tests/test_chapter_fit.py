@@ -40,6 +40,19 @@ class ChapterFitTests(unittest.TestCase):
         self.assertEqual(segments[-1]["role"], "cta")
         self.assertGreater(segments[0]["estimated_sec"], 4)
 
+    def test_lines_given_as_objects_are_read(self):
+        def ask(_prompt: str):
+            return {"lines": [{"text": FULL}, {"text": FULL}]}
+
+        segments = fit_chapters([chapter()], "qwen", ask=ask)
+        self.assertTrue(all("Корзина" in row["text"] for row in segments))
+
+    def test_a_chapter_the_model_never_answers_keeps_its_own_text(self):
+        segments = fit_chapters([chapter()], "qwen", ask=lambda _prompt: None)
+        self.assertEqual(len(segments), 2)
+        self.assertIn("корзина", segments[0]["text"].lower())
+        self.assertIn("Stripe", segments[1]["text"])
+
     def test_a_short_first_answer_is_asked_again(self):
         calls = {"n": 0}
 

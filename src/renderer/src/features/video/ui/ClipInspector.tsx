@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { formatClock, unstackAllTracks } from '../model/directorTimeline';
 import { toAssetUrl } from '../model/directorMedia';
 import { promptForPurpose, purposeWord } from '../model/autoAssemble';
-import { clipDisplayName, shotProviderShort } from '../model/clipDisplayName';
+import { clipDisplayName, narrationClipTitle, narrationLineAt, shotProviderShort } from '../model/clipDisplayName';
 import type { ShotPurpose } from '../../projects/model/project';
 import { useDirector } from './DirectorBoard';
 import { formatTimecode } from '../model/videoAnalysis';
@@ -166,10 +166,6 @@ export function ClipInspector({
           <p className={s.hint}>Для этих кадров нужен снимок товара.</p>
         ) : null}
       </details>
-      <div className={s.actions}>
-        <button type="button" className={s.btn} onClick={d.pickVideo}>Видео</button>
-        <button type="button" className={s.btn} onClick={d.pickImage}>Фото</button>
-      </div>
     </div>
   );
 
@@ -223,7 +219,11 @@ export function ClipInspector({
   const kind = bin?.kind ?? (clip.track.startsWith('a') ? 'audio' : 'video');
   const endSec = clip.startSec + clip.durationSec;
   const purpose = (shot?.shotPurpose || 'PRODUCT_HERO') as ShotPurpose;
-  const title = clipDisplayName(clip, bin, shot, filmStats.seqById.get(clip.id));
+  const spokenLine = clip.track === 'a1'
+    ? narrationLineAt(d.voiceover.script?.segments, clip.startSec, d.voiceover.narrationLang || 'ru')
+    : '';
+  const namedClip = spokenLine ? { ...clip, label: narrationClipTitle(spokenLine) } : clip;
+  const title = clipDisplayName(namedClip, bin, shot, filmStats.seqById.get(clip.id));
 
   return (
     <aside className={s.root}>

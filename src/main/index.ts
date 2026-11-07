@@ -22,6 +22,12 @@ import {
   type ProjectFormat,
 } from './projectStore';
 import { deleteFilmTemplate, listFilmTemplates, saveFilmTemplate } from './templateStore';
+import {
+  canvasRoot,
+  canvasRootStatus,
+  rememberCanvasRoot,
+  setCanvasUserDataRoot,
+} from './canvasFs';
 import { ECOMMERCE_TEMPLATE_ID, type FilmTemplateDraft } from '../shared/filmTemplate';
 import { registerOllamaIpc, stopOllamaIfStartedByApp, prepareOllamaForScript } from './ollamaEngine';
 
@@ -31,6 +37,7 @@ const legacyUserData = join(app.getPath('appData'), 'canvas');
 if (existsSync(legacyUserData)) {
   app.setPath('userData', legacyUserData);
 }
+setCanvasUserDataRoot(join(app.getPath('userData'), 'Canvas'));
 
 process.on('uncaughtException', (err) => {
   if (err.message.includes('EPIPE')) {
@@ -631,11 +638,14 @@ function startSidecar(): void {
   console.log('Starting Python Sidecar:', sidecarPath);
   setEngineStatus('starting');
 
+  const dataRoot = canvasRoot();
+  console.log('Canvas data root:', dataRoot);
   sidecarProcess = spawn('python3', ['-u', sidecarPath], {
     cwd: sidecarDir,
     env: {
       ...process.env,
       PYTHONUNBUFFERED: '1',
+      ACW_CANVAS_ROOT: dataRoot,
       PYTORCH_ENABLE_MPS_FALLBACK: '1',
       PYTORCH_MPS_HIGH_WATERMARK_RATIO: '0.0',
       PYTORCH_MPS_LOW_WATERMARK_RATIO: '0.0',
@@ -783,12 +793,13 @@ async function unloadFromSidecar(modelId: string): Promise<{ unloaded: boolean; 
       return { unloaded: false, reason: 'sidecar-unavailable' };
     }
   }
-  const cacheKey = toCacheKey(modelId);
+  const raw = (modelId || '').trim();
+  const cacheKey = raw.startsWith('ollama:') ? raw : toCacheKey(raw);
   try {
     const res = await net.fetch(`${SIDECAR_URL}/api/models/unload`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model_id: modelId, cache_key: cacheKey }),
+      body: JSON.stringify({ model_id: raw, cache_key: cacheKey }),
       signal: AbortSignal.timeout(180_000),
     });
     if (!res.ok) {
@@ -1245,6 +1256,7 @@ function setupIpc() {
     shot_index?: number;
     shot_total?: number;
     seed?: number;
+    segments?: { prompt: string; seconds: number }[];
   }) => {
     const ready = await ensureSidecarReady();
     if (!ready.ok) {
@@ -1305,8 +1317,9 @@ function setupIpc() {
         shot_index: payload.shot_index ?? null,
         shot_total: payload.shot_total ?? null,
         seed: payload.seed ?? null,
+        segments: payload.segments?.length ? payload.segments : null,
       }),
-      signal: AbortSignal.timeout(60 * 60 * 1000),
+      signal: AbortSignal.timeout((payload.segments?.length ? 4 : 1) * 60 * 60 * 1000),
     });
     const body = (await res.json().catch(() => ({}))) as {
       detail?: unknown;
@@ -1444,6 +1457,37 @@ function setupIpc() {
   });
 
   ipcMain.handle('list-projects', async () => listProjects());
+
+  ipcMain.handle('get-canvas-root-status', async () => canvasRootStatus());
+
+  ipcMain.handle('open-canvas-privacy-settings', async () => {
+    // Full Disk Access pane on macOS. Files and Folders is nearby in the same section.
+    await shell.openExternal(
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles',
+    );
+    return { ok: true };
+  });
+
+  ipcMain.handle('pick-canvas-folder', async () => {
+    const status = canvasRootStatus();
+    const picked = await dialog.showOpenDialog({
+      title: 'Выберите папку Canvas',
+      message: 'Обычно это Documents/Canvas — там лежат Projects, Models и Generated.',
+      defaultPath: status.documents,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (picked.canceled || !picked.filePaths[0]) return { ok: false as const, root: status.root };
+    const root = rememberCanvasRoot(picked.filePaths[0]);
+    // Sidecar must see the same root for analysis and TTS writes.
+    if (sidecarProcess && !sidecarProcess.killed) {
+      ignoreSidecarExit = true;
+      sidecarProcess.kill('SIGTERM');
+      sidecarProcess = null;
+      sidecarBoot = null;
+      await bootSidecar(45_000);
+    }
+    return { ok: true as const, root };
+  });
 
   ipcMain.handle('create-project', async (_, payload: {
     name?: string;
@@ -1844,6 +1888,23 @@ function setupIpc() {
   }) => {
     await prepareOllamaForScript(broadcast);
     return sidecarJson('/api/script/expand', payload, 3 * 60 * 1000);
+  });
+
+  ipcMain.handle('review-script', async (_, payload: {
+    segments: Array<{
+      start_sec: number;
+      end_sec: number;
+      text: string;
+      brief?: string;
+      purpose?: string;
+      visual_summary?: string;
+    }>;
+    language?: string;
+    ollama_model?: string;
+    critic?: boolean;
+  }) => {
+    await prepareOllamaForScript(broadcast);
+    return sidecarJson('/api/script/review', payload, 15 * 60 * 1000);
   });
 
   ipcMain.handle('shorten-script', async (_, payload: {

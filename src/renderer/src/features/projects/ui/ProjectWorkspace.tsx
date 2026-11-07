@@ -9,7 +9,9 @@ import { clearDirectorSession } from '../../video/model/directorSessionStore';
 import { writeLastProjectId } from '../model/handoff';
 import { chaptersFromProject, ECOMMERCE_TEMPLATE_ID, scenesFromTemplate } from '../model/filmTemplate';
 import { defaultExportSettings, inferTemplateId, marketplaceFilmSeed, newScene, normalizePreset, normalizeShotMotion, projectDuration, sceneHasMedia, sceneWantsSlowZoom, shotFromGeneration, timelineFromScenes, timelineNeedsSceneRebuild, type FilmPreset, type ProjectDoc, type ProjectFormat, type ProjectScene } from '../model/project';
+import { motionPlanSeconds, snapSegmentSeconds, type MotionPlan } from '../model/motionPlan';
 import type { FilmTemplate } from '../../../../../shared/filmTemplate';
+import { MotionPlanEditor } from './MotionPlanEditor';
 import styles from './ProjectsPage.module.css';
 
 function ipcMessage(err: unknown): string {
@@ -359,8 +361,8 @@ export function ProjectWorkspace(): ReactNode {
     if (!window.api?.listFilmTemplates) return;
     try {
       setTemplates(await window.api.listFilmTemplates());
-    } catch (err) {
-      setError(ipcMessage(err));
+    } catch {
+      setTemplates([]);
     }
   }, []);
 
@@ -729,6 +731,65 @@ export function ProjectWorkspace(): ReactNode {
       };
       await persist({ ...next, timeline: timelineFromScenes(next) });
       setStatus(t(isTi2v ? 'projects.generated_motion_ok' : isH3 ? 'projects.generated_h3_ok' : 'projects.generated_runway_ok'));
+    } catch (err) {
+      setStatus(null);
+      setError(motionErrorMessage(err, t));
+    } finally {
+      setBusyScene(null);
+      setBusyKind(null);
+    }
+  };
+
+  const generateSceneChain = async (scene: ProjectScene, plan: MotionPlan) => {
+    if (!window.api?.importIntoProject || !window.api.generateVideo) return;
+    const latest = docRef.current ?? doc;
+    if (!scene.stillPath) {
+      setError(t('projects.need_product_still'));
+      return;
+    }
+    const motionModel = await window.api.getActiveVideoModel?.();
+    if (!motionModel || !/ti2v|anes1032/i.test(motionModel)) {
+      setError(t('projects.plan_needs_ti2v'));
+      return;
+    }
+    setBusyScene(scene.id);
+    setBusyKind('video');
+    setError(null);
+    setStatus(t('projects.plan_generating', { count: plan.segments.length }));
+    try {
+      const result = await window.api.generateVideo({
+        prompt: [latest.brief, scene.prompt || scene.title].filter(Boolean).join('\n\n'),
+        format: latest.format === 'shorts' ? 'portrait' : 'wide',
+        model_id: motionModel,
+        image_path: scene.stillPath,
+        mode: 'ai_video',
+        seed: plan.seed,
+        segments: plan.segments.map((segment) => ({
+          prompt: segment.prompt.trim(),
+          seconds: snapSegmentSeconds(segment.seconds),
+        })),
+      });
+      if (!result.file_path) throw new Error(t('projects.generate_fail'));
+      const copied = await window.api.importIntoProject({ projectId: latest.id, path: result.file_path });
+      const duration = await window.api.probeMediaDuration(copied.file_path).catch(() => motionPlanSeconds(plan));
+      const after = docRef.current ?? latest;
+      const next: ProjectDoc = {
+        ...after,
+        assembledPath: null,
+        scenes: after.scenes.map((row) => (
+          row.id === scene.id
+            ? {
+                ...row,
+                clipPath: copied.file_path,
+                durationSec: duration > 0 ? Math.round(duration * 10) / 10 : motionPlanSeconds(plan),
+                motion: 'i2v',
+                motionPlan: plan,
+              }
+            : row
+        )),
+      };
+      await persist({ ...next, timeline: timelineFromScenes(next) });
+      setStatus(t('projects.plan_done', { sec: Math.round(duration * 10) / 10 }));
     } catch (err) {
       setStatus(null);
       setError(motionErrorMessage(err, t));
@@ -1252,6 +1313,16 @@ export function ProjectWorkspace(): ReactNode {
                         <small>{t('projects.slow_zoom_hint')}</small>
                       </span>
                     </label>
+                  ) : null}
+                  {scene.stillPath ? (
+                    <MotionPlanEditor
+                      plan={scene.motionPlan}
+                      chapterSec={scene.durationSec}
+                      busy={busyScene !== null}
+                      running={busyScene === scene.id && busyKind === 'video'}
+                      onChange={(plan) => patchScene(scene.id, { motionPlan: plan })}
+                      onRun={(plan) => void generateSceneChain(scene, plan)}
+                    />
                   ) : null}
                 </div>
               </li>

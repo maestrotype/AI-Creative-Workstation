@@ -29,9 +29,11 @@ from text_ru import (
 
 router = APIRouter()
 
-AUDIO_DIR = os.path.expanduser("~/Documents/Canvas/Generated/Audio")
-VOICE_DIR = os.path.expanduser("~/Documents/Canvas/Voice")
-VIDEO_DIR = os.path.expanduser("~/Documents/Canvas/Generated/Video")
+from canvas_paths import generated_audio_dir, generated_video_dir, voice_dir
+
+AUDIO_DIR = generated_audio_dir()
+VOICE_DIR = voice_dir()
+VIDEO_DIR = generated_video_dir()
 SPEAKER_WAV = os.path.join(VOICE_DIR, "speaker.wav")
 SOURCE_META = os.path.join(VOICE_DIR, "source.json")
 

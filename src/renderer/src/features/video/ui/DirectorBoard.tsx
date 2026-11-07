@@ -96,8 +96,9 @@ import { buildRenderPlan } from '../model/renderPlan';
 import { captionClipsFromScript, scriptToSrt } from '../model/captions';
 import { pushNotice } from '../../../shared/lib/notice';
 import { pictureNotesFromAnalysis, planChapterCoverage } from '../model/chapterCoverage';
-import { countWords } from '../model/chapterSpeech';
-import { abutSlots, pictureSlots } from '../model/narrationAlign';
+import { countWords, spokenOverlap } from '../model/chapterSpeech';
+import { abutSlots, coverPictureGaps, pictureSlots, tileScriptToPicture } from '../model/narrationAlign';
+import { isNarrationRender, narrationClipTitle, preferSpokenLine, withoutSpokenStutter } from '../model/clipDisplayName';
 
 const LABEL_W = 118;
 
@@ -274,6 +275,7 @@ type DirectorSnap = {
     role: string;
     speech_sec: number;
     speech_tempo: number;
+    review_issues: string[] | undefined;
   }>) => void;
   voiceoverApplyBusy: boolean;
   voiceoverApplyError: string | null;
@@ -586,9 +588,16 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const [scriptError, setScriptError] = useState<string | null>(null);
   const fitGuardRef = useRef('');
   const [scriptModel, setScriptModel] = useState('qwen2.5:14b');
+  useEffect(() => {
+    void window.api?.getOllamaEngineStatus?.().then((status) => {
+      const model = (status?.model || '').trim();
+      if (/^qwen2\.5:(7b|14b|32b)$/i.test(model)) setScriptModel(model);
+    }).catch(() => undefined);
+  }, []);
   const [voiceoverApplyBusy, setVoiceoverApplyBusy] = useState(false);
   const [voiceoverApplyError, setVoiceoverApplyError] = useState<string | null>(null);
   const [narrationAlignNote, setNarrationAlignNote] = useState<string | null>(null);
+  const reviewNoteRef = useRef('');
   const [voiceoverApplyProgress, setVoiceoverApplyProgress] = useState({ current: 0, total: 0, detail: '' });
   const voiceoverApplyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const voiceoverPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -2324,6 +2333,90 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     setVoiceover((prev) => ({ ...prev, projectContext: value }));
   };
 
+  /** Passes 2 and 3: tile the script to the picture, then check and rewrite lines before any voice. */
+  const polishScript = async (script: VoiceoverScript, lang: NarrationLang): Promise<VoiceoverScript> => {
+    const spans = v1ChapterSpans(clipsRef.current, binsRef.current);
+    const pictureStart = spans[0]?.startSec ?? 0;
+    const pictureEnd = spans.at(-1)?.endSec ?? 0;
+    const review = window.api?.reviewScript;
+    const spoken = script.segments
+      .map((seg) => ({ ...seg, text: segmentSpoken(seg, lang) || seg.brief || '', source: seg }))
+      .filter((seg) => seg.text || seg.brief);
+    const tiled = coverPictureGaps(
+      tileScriptToPicture(spoken, pictureEnd, { split: true }),
+      pictureEnd,
+      pictureStart,
+    );
+    const back = (
+      rows: typeof tiled,
+      texts: string[],
+      issues: Map<number, string[]> = new Map(),
+    ): VoiceoverScript => ({
+      ...script,
+      segments: rows.map(({ source, ...row }, index) => {
+        const text = texts[index] ?? row.text;
+        return {
+          ...source,
+          start_sec: row.start_sec,
+          end_sec: row.end_sec,
+          anchor_sec: row.start_sec,
+          brief: row.brief,
+          text: lang === 'en' ? source.text : text,
+          text_en: lang === 'en' ? text : source.text_en,
+          audio_path: undefined,
+          speech_sec: undefined,
+          review_issues: issues.get(index),
+        };
+      }),
+    });
+    reviewNoteRef.current = '';
+    if (!review) {
+      return back(tiled, tiled.map((row) => row.text || row.brief || ''));
+    }
+    setVoiceoverProgress({
+      stage: 'script',
+      percent: 45,
+      detail: `Проверяю ${tiled.length} реплик: длина под кадр, повторы, обрывы, соответствие экрану…`,
+    });
+    try {
+      const reviewed = await review({
+        segments: tiled.map((row) => ({
+          start_sec: row.start_sec,
+          end_sec: row.end_sec,
+          text: row.text,
+          brief: row.brief || '',
+          purpose: row.purpose || '',
+          visual_summary: row.visual_summary || '',
+        })),
+        language: lang,
+        ollama_model: scriptModel,
+        critic: true,
+      });
+      const { rewritten, critic_flagged: flagged, remaining } = reviewed.report;
+      setVoiceoverProgress({
+        stage: 'script',
+        percent: 52,
+        detail: `Проверка: переписано ${rewritten.length}, редактор нашёл ${flagged.length}, осталось с замечаниями ${remaining.length}.`,
+      });
+      if (remaining.length) {
+        reviewNoteRef.current = `Проверка текста: у ${remaining.length} реплик есть замечания — они отмечены в карточках.`;
+      }
+      return back(
+        tiled,
+        tiled.map((row, index) => reviewed.segments[index]?.text ?? row.text),
+        new Map(remaining.map((item) => [item.index, item.issues])),
+      );
+    } catch (err) {
+      reviewNoteRef.current = ipcMessage(err, 'Проверка текста не выполнилась, озвучено без неё.');
+      const plain = coverPictureGaps(
+        tileScriptToPicture(spoken, pictureEnd, { split: true }),
+        pictureEnd,
+        pictureStart,
+      );
+      return back(plain, plain.map((row) => row.text || row.brief || ''));
+    }
+  };
+
   const generateScript = async (
     ctxOverride?: VideoAnalysisContext,
     planOverride?: ChapterWindow[],
@@ -2367,7 +2460,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         target_wpm: 130,
         ollama_model: scriptModel,
       });
-      const script: VoiceoverScript = {
+      const script = await polishScript({
         segments: result.segments.map((seg) => ({
           ...seg,
           text: narrationLang === 'en' ? '' : seg.text,
@@ -2379,7 +2472,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           ...result.meta,
           script_version: Date.now(),
         },
-      };
+      }, narrationLang);
       const nextSession = {
         ...voiceoverRef.current,
         script,
@@ -2495,7 +2588,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         language: 'ru',
         ollama_model: scriptModel,
       });
-      const script: VoiceoverScript = {
+      const script = await polishScript({
         segments: fitted.segments.map((seg) => ({
           start_sec: seg.start_sec,
           end_sec: seg.end_sec,
@@ -2510,7 +2603,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           ...fitted.meta,
           script_version: Date.now(),
         },
-      };
+      }, 'ru');
       if (fitted.meta.note === 'SHORT') {
         fitGuardRef.current = signature;
         pushNotice(t('video.vo_script_fit_short'), 'info');
@@ -2569,6 +2662,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       role: string;
       speech_sec: number;
       speech_tempo: number;
+      review_issues: string[] | undefined;
     }>,
   ) => {
     setVoiceover((prev) => {
@@ -2609,10 +2703,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       return;
     }
     const narrationLang: NarrationLang = voiceoverRef.current.narrationLang === 'en' ? 'en' : 'ru';
-    const voicedSegments = script.segments
-      .map((seg, scriptIndex) => ({ seg, scriptIndex }))
-      .filter(({ seg }) => segmentSpoken(seg, narrationLang));
-    if (!voicedSegments.length) {
+    if (!script.segments.some((seg) => segmentSpoken(seg, narrationLang))) {
       setVoiceoverApplyError(t('video.vo_voice_need_text'));
       return;
     }
@@ -2620,6 +2711,10 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     setVoiceoverApplyBusy(true);
     setVoiceoverApplyError(null);
     const replaceSourceAudio = exportSettings.audioPolicy === 'replace';
+    const retiredNarrationBins = new Set(
+      clipsRef.current.filter((clip) => clip.track === 'a1' && clip.binId).map((clip) => clip.binId as string),
+    );
+    setBins((prev) => prev.filter((bin) => !retiredNarrationBins.has(bin.id) && !isNarrationRender(bin)));
     setClips((prev) => prev
       .filter((c) => c.track !== 'a1')
       .map((c) => (
@@ -2645,39 +2740,91 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         .sort((a, b) => a.startSec - b.startSec)[0];
       const timelineOffset = hostClip ? Math.max(0, hostClip.startSec - hostClip.sourceInSec) : 0;
       const parts: Array<{ file_path: string; start_sec: number; max_duration_sec?: number }> = [];
-      const partScriptIndexes: number[] = [];
+      const partLines: Array<{ text: string; scriptIndex: number; start: number; end: number }> = [];
+      const pictureNow = v1ChapterSpans(clipsRef.current, binsRef.current);
+      const pictureStart = pictureNow[0]?.startSec ?? 0;
+      const pictureEnd = pictureNow.at(-1)?.endSec ?? 0;
+      // Old scripts may still leave a leading hole. Cover it and fill text before TTS.
+      const gapProbe = coverPictureGaps(
+        script.segments.map((seg) => ({
+          start_sec: seg.start_sec,
+          end_sec: seg.end_sec,
+          text: segmentSpoken(seg, narrationLang),
+          brief: seg.brief || seg.visual_summary || '',
+        })),
+        pictureEnd,
+        pictureStart,
+      );
+      let workingScript = script;
+      if (
+        gapProbe.length !== script.segments.length
+        || gapProbe.some((row) => !row.text.trim())
+      ) {
+        setVoiceoverApplyProgress({
+          current: 0,
+          total: 1,
+          detail: 'Закрываю простой в начале картинки и дыры на шкале…',
+        });
+        workingScript = await polishScript(script, narrationLang);
+        setVoiceover((prev) => ({ ...prev, script: workingScript }));
+      }
+      const voicedSegments = workingScript.segments
+        .map((seg, scriptIndex) => ({ seg, scriptIndex }))
+        .filter(({ seg }) => segmentSpoken(seg, narrationLang));
+      if (!voicedSegments.length) {
+        setVoiceoverApplyError(t('video.vo_voice_need_text'));
+        return;
+      }
+      // The script is already one line per window. Voicing never reassigns text between windows.
+      const windows = abutSlots(voicedSegments.map(({ seg }) => ({
+        startSec: seg.start_sec,
+        endSec: Math.max(seg.end_sec, seg.start_sec + 0.4),
+      })));
+      const linesToSpeak = voicedSegments.map(({ seg, scriptIndex }, index) => {
+        const window = windows[index];
+        const isLast = index === voicedSegments.length - 1;
+        const end = isLast && pictureEnd > window.endSec && pictureEnd - window.endSec < 18
+          ? pictureEnd
+          : window.endSec;
+        return {
+          text: withoutSpokenStutter(segmentSpoken(seg, narrationLang)),
+          scriptIndex,
+          start: window.startSec,
+          end,
+        };
+      });
 
       if (window.api.synthesizeVoiceBatch) {
         // One worker process for all segments: XTTS keeps a single speaker
         // conditioning + seed, so the cloned voice does not drift between them.
         setVoiceoverApplyProgress({
           current: 0,
-          total: voicedSegments.length,
+          total: linesToSpeak.length,
           detail: t('video.vo_voice_batch_start'),
         });
         const batch = await window.api.synthesizeVoiceBatch({
-          items: voicedSegments.map(({ seg }, i) => ({ index: i, text: segmentSpoken(seg, narrationLang) })),
+          items: linesToSpeak.map((line, i) => ({ index: i, text: line.text })),
           language: narrationLang,
         });
         for (const row of batch.results) {
           if (row.skipped) continue;
-          const entry = voicedSegments[row.index];
+          const entry = linesToSpeak[row.index];
           if (!entry) continue;
-          partScriptIndexes.push(entry.scriptIndex);
+          partLines.push(entry);
           parts.push({
             file_path: row.file_path,
-            start_sec: entry.seg.start_sec + timelineOffset,
-            max_duration_sec: Math.max(0.5, entry.seg.end_sec - entry.seg.start_sec),
+            start_sec: entry.start + timelineOffset,
+            max_duration_sec: Math.max(0.5, entry.end - entry.start),
           });
         }
       } else {
-        for (let i = 0; i < voicedSegments.length; i += 1) {
-          const { seg, scriptIndex } = voicedSegments[i];
-          const spoken = segmentSpoken(seg, narrationLang);
+        for (let i = 0; i < linesToSpeak.length; i += 1) {
+          const line = linesToSpeak[i];
+          const spoken = line.text;
           setVoiceoverApplyProgress({
             current: i + 1,
-            total: voicedSegments.length,
-            detail: t('video.vo_voice_segment', { n: i + 1, time: formatClock(seg.start_sec) }),
+            total: linesToSpeak.length,
+            detail: t('video.vo_voice_segment', { n: i + 1, time: formatClock(line.start) }),
           });
           let preparedText: string | undefined;
           if (window.api.prepareVoiceText) {
@@ -2689,11 +2836,11 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
             prepared_text: preparedText,
             language: narrationLang,
           });
-          partScriptIndexes.push(scriptIndex);
+          partLines.push(line);
           parts.push({
             file_path: result.file_path,
-            start_sec: seg.start_sec + timelineOffset,
-            max_duration_sec: Math.max(0.5, seg.end_sec - seg.start_sec),
+            start_sec: line.start + timelineOffset,
+            max_duration_sec: Math.max(0.5, line.end - line.start),
           });
         }
       }
@@ -2707,38 +2854,61 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         end_sec: number;
       }> = [];
 
-      const rows = parts
-        .map((part, index) => ({ part, scriptIndex: partScriptIndexes[index] }))
-        .sort((a, b) => a.scriptIndex - b.scriptIndex);
-      const pictureChapters = v1ChapterSpans(clipsRef.current, binsRef.current);
-      const slots = pictureChapters.length
-        ? abutSlots(pictureSlots(pictureChapters, rows.length))
-        : rows.map((row) => {
-          const entry = voicedSegments.find((item) => item.scriptIndex === row.scriptIndex);
-          const startSec = entry?.seg.start_sec ?? Math.max(0, row.part.start_sec);
-          const endSec = entry?.seg.end_sec ?? startSec + Math.max(0.4, row.part.max_duration_sec || 0.4);
-          return { startSec, endSec };
-        });
-      const lockNotes: string[] = [];
-      if (pictureChapters.length && rows.length < pictureChapters.length) {
-        lockNotes.push(
-          `Реплик ${rows.length} при ${pictureChapters.length} главах — хвост ролика без голоса. Перегенерируйте сценарий по главам.`,
-        );
-      }
+      const rows = parts.map((part, index) => {
+        const line = partLines[index];
+        return { part, scriptIndex: line.scriptIndex, line };
+      });
+      const pictureChapters = pictureNow;
+      const slots = rows.map((row) => ({ startSec: row.line.start, endSec: row.line.end }));
+      const lockNotes: string[] = reviewNoteRef.current ? [reviewNoteRef.current] : [];
+      reviewNoteRef.current = '';
+      let previousTitle = '';
+      let whisperOff = false;
+      const heardShare = async (path: string, text: string): Promise<number | null> => {
+        if (whisperOff || !window.api?.transcribeAudio) return null;
+        try {
+          const heard = await window.api.transcribeAudio({ path, language: narrationLang });
+          if ((heard.warnings ?? []).some((warning) => /WHISPER/.test(warning))) {
+            whisperOff = true;
+            return null;
+          }
+          return spokenOverlap(text, heard.full_text || '');
+        } catch {
+          whisperOff = true;
+          return null;
+        }
+      };
       const lockFile = async (
         filePath: string,
         text: string,
         windowSec: number,
         purpose: string,
         visual: string,
+        already: string,
       ) => {
         let path = filePath;
         let spoken = text;
         let dur = (await probeDuration(path, 'audio')).dur;
+        let heard = await heardShare(path, spoken);
+        if (heard != null && heard < 0.7 && window.api?.synthesizeVoice) {
+          setVoiceoverApplyProgress({
+            current: 0,
+            total: rows.length,
+            detail: 'Проверка звука: синтез исказил текст, озвучиваю реплику заново…',
+          });
+          const again = await window.api.synthesizeVoice({ text: spoken, language: narrationLang });
+          const second = await heardShare(again.file_path, spoken);
+          if (second != null && second > heard) {
+            path = again.file_path;
+            heard = second;
+            dur = (await probeDuration(path, 'audio')).dur;
+          }
+        }
+        const needWords = Math.max(8, Math.round((windowSec * 130) / 60));
         for (
           let attempt = 0;
           attempt < 3
-          && dur < windowSec * 0.9
+          && (dur < windowSec * 0.9 || countWords(spoken) < needWords * 0.75)
           && window.api?.expandScript
           && window.api.synthesizeVoice;
           attempt += 1
@@ -2750,14 +2920,15 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           });
           const expanded = await window.api.expandScript({
             text: spoken,
-            brief: [purpose, spoken].filter(Boolean).join('. '),
+            brief: [visual, spoken].filter(Boolean).join('. '),
             target_sec: windowSec,
             measured_sec: dur,
             language: narrationLang,
             seen: visual,
+            already,
           });
-          const nextText = expanded.text?.trim();
-          if (nextText && countWords(nextText) > countWords(spoken)) {
+          const nextText = preferSpokenLine(spoken, expanded.text);
+          if (nextText !== spoken && countWords(nextText) > countWords(spoken)) {
             const again = await window.api.synthesizeVoice({ text: nextText, language: narrationLang });
             path = again.file_path;
             spoken = nextText;
@@ -2804,6 +2975,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
             tempo: fitted.tempo || 1,
             needsExpand: Boolean(fitted.needs_expand),
             needsShorten: Boolean(fitted.needs_shorten),
+            heard,
           };
         }
         return {
@@ -2814,10 +2986,12 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           tempo: 1,
           needsExpand: dur < windowSec * 0.9,
           needsShorten: dur > windowSec * 1.08,
+          heard,
         };
       };
       for (let i = 0; i < rows.length; i += 1) {
-        const { part, scriptIndex } = rows[i];
+        const row = rows[i];
+        const { part, scriptIndex } = row;
         const entry = voicedSegments.find((item) => item.scriptIndex === scriptIndex);
         const slot = slots[i];
         if (!entry || !slot) continue;
@@ -2826,25 +3000,28 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           total: rows.length,
           detail: t('video.vo_voice_segment', { n: i + 1, time: formatClock(slot.startSec) }),
         });
-        const spoken = segmentSpoken(entry.seg, narrationLang);
-        // One spoken thought. A long picture clip is not a reason to grow the line into a monologue.
-        const windowSec = Math.max(0.4, Math.min(16, slot.endSec - slot.startSec));
+        const spoken = row.line?.text || segmentSpoken(entry.seg, narrationLang);
+        const windowSec = Math.max(0.4, slot.endSec - slot.startSec);
         const locked = await lockFile(
           part.file_path,
           spoken,
           windowSec,
           entry.seg.purpose || '',
           entry.seg.visual_summary || '',
+          speechUpdates.slice(-3).map((item) => item.text).join(' '),
         );
+        if (locked.heard != null && locked.heard < 0.7) {
+          lockNotes.push(`Реплика ${i + 1}: в звуке слышно ${Math.round(locked.heard * 100)}% текста, прослушайте её.`);
+        }
         if (locked.speechSec > windowSec + 0.4) {
           lockNotes.push(`Реплика ${i + 1} укорочена под кадр ${windowSec.toFixed(1)} с.`);
         }
         const start = Math.round(slot.startSec * 100) / 100;
-        const playSec = Math.max(0.4, Math.min(locked.playSec, windowSec));
+        const playSec = Math.max(0.4, windowSec);
         const end = Math.round((start + playSec) * 100) / 100;
-        if (locked.needsExpand) {
+        if (locked.needsExpand || locked.speechSec < windowSec * 0.9) {
           lockNotes.push(
-            `Реплика ${i + 1} короче окна на ${(windowSec - playSec).toFixed(1)} с — текст нужно дополнить.`,
+            `Реплика ${i + 1}: речь ${locked.speechSec.toFixed(1)} с на окно ${windowSec.toFixed(1)} с — текст нужно дополнить.`,
           );
         }
         if (locked.needsShorten) {
@@ -2859,9 +3036,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           start_sec: start,
           end_sec: end,
         });
-        const role = String(entry.seg.role || 'body').toLowerCase();
-        const roleLabel = role === 'hook' ? 'Hook' : role === 'cta' ? 'CTA' : role === 'outro' ? 'Outro' : 'Body';
-        await ingestAudioPathAt(locked.filePath, start, roleLabel, playSec);
+        previousTitle = narrationClipTitle(locked.text, previousTitle);
+        await ingestAudioPathAt(locked.filePath, start, previousTitle, playSec);
       }
       const v1End = pictureChapters.at(-1)?.endSec ?? 0;
       const voicedEnd = speechUpdates.at(-1)?.end_sec ?? 0;
@@ -3038,8 +3214,8 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
           language: narrationLang,
           seen: segment.visual_summary || '',
         });
-        const rewritten = expanded.text?.trim();
-        if (!rewritten || countWords(rewritten) <= countWords(nextText)) break;
+        const rewritten = preferSpokenLine(nextText, expanded.text);
+        if (!rewritten || rewritten === nextText || countWords(rewritten) <= countWords(nextText)) break;
         const again = await window.api.synthesizeVoice({ text: rewritten, language: narrationLang });
         nextText = rewritten;
         filePath = again.file_path;
@@ -3083,9 +3259,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         script: prev.script ? { ...prev.script, segments: nextSegments } : prev.script,
       }));
 
-      const role = String(segment.role || 'body').toLowerCase();
-      const roleLabel = role === 'hook' ? 'Hook' : role === 'cta' ? 'CTA' : role === 'outro' ? 'Outro' : 'Body';
-      await ingestAudioPathAt(filePath, start, roleLabel, playSec, {
+      await ingestAudioPathAt(filePath, start, narrationClipTitle(nextText), playSec, {
         replaceStart: timelineAt,
       });
       setVoiceoverApplyProgress({ current: 1, total: 1, detail: 'Сегмент обновлён' });

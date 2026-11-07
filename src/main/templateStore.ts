@@ -1,5 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
-import { homedir } from 'os';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 
@@ -9,12 +8,15 @@ import {
   type FilmTemplate,
   type FilmTemplateDraft,
 } from '../shared/filmTemplate';
+import { canvasAccessMessage, isDeniedFsError, safeListDir, tryEnsureCanvasDir } from './canvasFs';
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function templatesRoot(): string {
-  const dir = join(homedir(), 'Documents/Canvas/Templates');
-  mkdirSync(dir, { recursive: true });
+  const dir = tryEnsureCanvasDir('Templates');
+  if (!dir) {
+    throw new Error(canvasAccessMessage({ code: 'EPERM' }));
+  }
   return dir;
 }
 
@@ -39,12 +41,14 @@ function readTemplate(file: string): FilmTemplate | null {
   }
 }
 
-export function listFilmTemplates(root = templatesRoot()): FilmTemplate[] {
-  if (!existsSync(root)) return [];
+/** Saved recipes only. Built-in «Демо магазина» does not live on disk. */
+export function listFilmTemplates(root?: string): FilmTemplate[] {
+  const dir = root ?? tryEnsureCanvasDir('Templates');
+  if (!dir) return [];
   const out: FilmTemplate[] = [];
-  for (const name of readdirSync(root)) {
+  for (const name of safeListDir(dir)) {
     if (!name.endsWith('.json')) continue;
-    const template = readTemplate(join(root, name));
+    const template = readTemplate(join(dir, name));
     if (template) out.push(template);
   }
   return out.sort((a, b) => b.updatedAt - a.updatedAt);
@@ -53,23 +57,34 @@ export function listFilmTemplates(root = templatesRoot()): FilmTemplate[] {
 export function saveFilmTemplate(input: FilmTemplateDraft, root = templatesRoot()): FilmTemplate {
   const draft = sanitizeTemplateDraft(input);
   if (!draft) throw new Error('Укажите название и хотя бы одну главу');
-  mkdirSync(root, { recursive: true });
-  const now = Date.now();
-  const template: FilmTemplate = {
-    ...draft,
-    id: randomUUID(),
-    builtin: false,
-    createdAt: now,
-    updatedAt: now,
-  };
-  writeFileSync(templateFile(root, template.id), JSON.stringify(template, null, 2));
-  return template;
+  try {
+    const now = Date.now();
+    const template: FilmTemplate = {
+      ...draft,
+      id: randomUUID(),
+      builtin: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    writeFileSync(templateFile(root, template.id), JSON.stringify(template, null, 2));
+    return template;
+  } catch (err) {
+    if (isDeniedFsError(err)) throw new Error(canvasAccessMessage(err));
+    throw err;
+  }
 }
 
-export function deleteFilmTemplate(id: string, root = templatesRoot()): boolean {
+export function deleteFilmTemplate(id: string, root?: string): boolean {
   if (!ID_RE.test(id) || id === ECOMMERCE_TEMPLATE_ID) return false;
-  const file = templateFile(root, id);
+  const dir = root ?? tryEnsureCanvasDir('Templates');
+  if (!dir) return false;
+  const file = templateFile(dir, id);
   if (!existsSync(file)) return false;
-  rmSync(file);
-  return true;
+  try {
+    rmSync(file);
+    return true;
+  } catch (err) {
+    if (isDeniedFsError(err)) return false;
+    throw err;
+  }
 }

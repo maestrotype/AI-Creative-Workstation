@@ -1,4 +1,4 @@
-import type { IpcMain } from 'electron';
+import { app, type IpcMain } from 'electron';
 import { net } from 'electron';
 import { ChildProcess, spawn, spawnSync } from 'child_process';
 import fs from 'fs';
@@ -6,6 +6,7 @@ import os from 'os';
 import path from 'path';
 
 export const DEFAULT_LLM_MODEL = 'qwen2.5:7b';
+export const STRONG_LLM_MODEL = 'qwen2.5:32b';
 export const VISION_LLM_MODEL = 'qwen2.5vl:7b';
 const OLLAMA_TAGS_URL = 'http://127.0.0.1:11434/api/tags';
 
@@ -17,7 +18,7 @@ export function isVisionOllamaName(name: string): boolean {
 export function isScriptLlmModel(name: string): boolean {
   const low = (name || '').trim().toLowerCase();
   if (!low || isVisionOllamaName(low)) return false;
-  return low.includes('qwen2.5:14b') || low.includes('qwen2.5:7b');
+  return low.includes('qwen2.5:32b') || low.includes('qwen2.5:14b') || low.includes('qwen2.5:7b');
 }
 
 const OLLAMA_BIN_CANDIDATES = [
@@ -60,6 +61,31 @@ const ollamaInstallJob = {
 let ollamaServeProc: ChildProcess | null = null;
 let ollamaStartedByApp = false;
 let preferredLlmModel: string | null = null;
+let preferredLoaded = false;
+
+function preferredModelFile(): string {
+  return path.join(app.getPath('userData'), 'llm-model.json');
+}
+
+function loadPreferredLlmModel(): void {
+  if (preferredLoaded) return;
+  preferredLoaded = true;
+  try {
+    const raw = JSON.parse(fs.readFileSync(preferredModelFile(), 'utf8')) as { model?: string };
+    if (raw.model && isScriptLlmModel(raw.model)) preferredLlmModel = raw.model;
+  } catch {
+    /* first launch */
+  }
+}
+
+function rememberPreferredLlmModel(model: string | null): void {
+  preferredLlmModel = model;
+  try {
+    fs.writeFileSync(preferredModelFile(), JSON.stringify({ model }));
+  } catch {
+    /* status still updates in memory */
+  }
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -206,6 +232,7 @@ function broadcastStatus(broadcast: BroadcastFn): void {
 }
 
 export async function ollamaEngineStatusPayload(): Promise<OllamaEngineStatus> {
+  loadPreferredLlmModel();
   const binary = Boolean(ollamaBin());
   const server = binary ? await ollamaServerRunning() : false;
   const diskModels = ollamaModelsFromDisk();
@@ -218,8 +245,10 @@ export async function ollamaEngineStatusPayload(): Promise<OllamaEngineStatus> {
     modelNameMatches(name, 'qwen2.5') ||
     modelNameMatches(name, 'qwen')
   );
+  const has32b = installedModels.some((name) => modelNameMatches(name, STRONG_LLM_MODEL));
   const has14b = installedModels.some((name) => modelNameMatches(name, 'qwen2.5:14b'));
-  const activeModel = preferredLlmModel || (has14b ? 'qwen2.5:14b' : DEFAULT_LLM_MODEL);
+  const activeModel = preferredLlmModel
+    || (has32b ? STRONG_LLM_MODEL : has14b ? 'qwen2.5:14b' : DEFAULT_LLM_MODEL);
   return {
     binary_found: binary,
     server_running: server,
@@ -386,11 +415,12 @@ export function registerOllamaIpc(ipcMain: IpcMain, broadcast: BroadcastFn): voi
   });
 
   ipcMain.handle('set-ollama-active-model', async (_, modelName: string) => {
+    loadPreferredLlmModel();
     const target = (modelName || '').trim();
     if (target && !isScriptLlmModel(target)) {
       return { ok: false, model: preferredLlmModel };
     }
-    preferredLlmModel = target || null;
+    rememberPreferredLlmModel(target || null);
     broadcastStatus(broadcast);
     return { ok: true, model: preferredLlmModel };
   });
@@ -411,7 +441,7 @@ export function registerOllamaIpc(ipcMain: IpcMain, broadcast: BroadcastFn): voi
         await pullOllamaModelByName(target, broadcast);
       }
       if (isScriptLlmModel(target)) {
-        preferredLlmModel = target;
+        rememberPreferredLlmModel(target);
       }
       ollamaInstallJob.percent = 100;
       ollamaInstallJob.stage = 'done';
@@ -457,6 +487,7 @@ export function registerOllamaIpc(ipcMain: IpcMain, broadcast: BroadcastFn): voi
       await ensureOllamaServe(broadcast);
     }
     const toDelete = (targetModel || DEFAULT_LLM_MODEL).trim();
+    loadPreferredLlmModel();
     await new Promise<void>((resolve, reject) => {
       const proc = spawn(bin, ['rm', toDelete], { stdio: ['ignore', 'pipe', 'pipe'] });
       let err = '';
@@ -467,6 +498,9 @@ export function registerOllamaIpc(ipcMain: IpcMain, broadcast: BroadcastFn): voi
         else reject(new Error(err.trim() || `Could not remove ${toDelete}.`));
       });
     });
+    if (preferredLlmModel && modelNameMatches(toDelete, preferredLlmModel)) {
+      rememberPreferredLlmModel(null);
+    }
     broadcastStatus(broadcast);
     return { deleted: true };
   });

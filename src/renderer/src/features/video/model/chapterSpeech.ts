@@ -33,6 +33,20 @@ export function wordsForSeconds(sec: number): number {
   return Math.max(8, Math.round((Math.max(0.4, sec) * NARRATION_WPM) / 60));
 }
 
+function spokenStems(text: string): string[] {
+  return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+    .filter((word) => word.length > 2)
+    .map((word) => word.slice(0, 5));
+}
+
+/** Share of the written words that speech recognition heard in the synthesized audio. */
+export function spokenOverlap(written: string, heard: string): number {
+  const want = spokenStems(written);
+  if (!want.length) return 1;
+  const got = new Set(spokenStems(heard));
+  return want.filter((stem) => got.has(stem)).length / want.length;
+}
+
 function sentences(text: string): string[] {
   return text
     .replace(/\s+/g, ' ')

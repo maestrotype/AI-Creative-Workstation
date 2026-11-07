@@ -110,17 +110,49 @@ def correct_line(text: str, target_words: int, sources: list[str]) -> str:
     return drop_paraphrases(spoken)
 
 
+def _reply_items(reply: Optional[dict[str, Any]]) -> Optional[list[Any]]:
+    if not isinstance(reply, dict):
+        return None
+    for key in ("lines", "реплики", "segments", "items"):
+        if isinstance(reply.get(key), list):
+            return reply[key]
+    return None
+
+
+def _item_text(item: Any) -> str:
+    if isinstance(item, dict):
+        for key in ("text", "line", "реплика", "value"):
+            if item.get(key):
+                return str(item[key])
+        return ""
+    return str(item or "")
+
+
 def _lines_from_reply(reply: Optional[dict[str, Any]], count: int) -> Optional[list[str]]:
-    if not reply or not isinstance(reply.get("lines"), list):
+    items = _reply_items(reply)
+    if items is None:
         return None
     from script_llm import valid_narration_line
 
-    lines = [drop_paraphrases(_clean_line(item)) for item in reply["lines"]]
-    if len(lines) != count or any(not line for line in lines):
+    lines = [drop_paraphrases(_clean_line(_item_text(item))) for item in items]
+    lines = [line for line in lines if line]
+    if len(lines) > count:
+        lines = lines[: count - 1] + [" ".join(lines[count - 1:])]
+    if len(lines) != count:
         return None
     if any(not valid_narration_line(line, "ru") for line in lines):
         return None
     return lines
+
+
+def _fallback_lines(chapter: dict[str, Any], beats: list[dict[str, Any]]) -> list[str]:
+    """The chapter's own text split across its beats. The review pass rewrites these."""
+    script = str(chapter.get("script") or "")
+    out: list[str] = []
+    for beat in beats:
+        brief = str(beat.get("brief") or "").strip() or script
+        out.append(correct_line(brief, int(beat.get("target_words") or 12), [brief, script]))
+    return out
 
 
 def _job_hint(job: str) -> str:
@@ -254,9 +286,9 @@ def fit_chapters(
             if not problems:
                 break
         if not chosen:
-            raise RuntimeError(
-                "CHAPTER_FIT_EMPTY: " + ("; ".join(problems) or f"глава {chapter.get('title')}")
-            )
+            # One stubborn chapter must not sink the whole film.
+            print(f"[chapter_fit] «{chapter.get('title')}» fallback: {'; '.join(problems)}", flush=True)
+            chosen = _fallback_lines(chapter, beats)
         fixed: list[str] = []
         for line, beat in zip(chosen, beats):
             target = int(beat.get("target_words") or 12)

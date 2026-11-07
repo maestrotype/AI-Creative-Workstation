@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
@@ -10,11 +10,18 @@ import styles from './EngineMonitor.module.css';
 type RuntimeStatus = Awaited<ReturnType<NonNullable<Window['api']>['getRuntimeStatus']>>;
 
 function prettyModel(cacheKey: string): string {
-  const raw = cacheKey.replaceAll('__', '/').split('/').slice(-1)[0] || cacheKey;
+  const raw = cacheKey.replace(/^ollama:/i, '').replaceAll('__', '/').split('/').slice(-1)[0] || cacheKey;
+  if (/qwen2\.5:32b/i.test(raw)) return 'Qwen 2.5 32B';
   if (/qwen2\.5:14b/i.test(raw)) return 'Qwen 2.5 14B';
   if (/qwen2\.5:7b/i.test(raw)) return 'Qwen 2.5 7B';
   if (/qwen2\.5vl/i.test(raw)) return 'Qwen 2.5 VL';
+  if (/wan.*ti2v|anes1032/i.test(raw)) return 'Wan 2.2 TI2V';
+  if (/flux/i.test(raw)) return 'FLUX';
   return raw;
+}
+
+function isOllamaKey(key: string): boolean {
+  return /^ollama:/i.test(key);
 }
 
 function uniqueModels(names: string[]): string[] {
@@ -51,7 +58,9 @@ export function EngineMonitor(): ReactNode {
   const [status, setStatus] = useState<RuntimeStatus | null>(null);
   const [ollamaModel, setOllamaModel] = useState('');
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [actionNote, setActionNote] = useState<string | null>(null);
   const [notice, setNotice] = useState<AppNotice | null>(null);
+  const pressureOpenedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,6 +93,26 @@ export function EngineMonitor(): ReactNode {
     return () => window.removeEventListener('acw-notice', onNotice);
   }, []);
 
+  const ramAvailable = status ? (status.ram_available ?? status.ram_free) : 0;
+  const pressure = Boolean(status && ramAvailable > 0 && ramAvailable < 4 * 1024 ** 3);
+  const working = Boolean(status && (status.job.active || status.job.stage === 'releasing'));
+  const loadedKeys = status
+    ? uniqueModels([
+      ...status.loaded,
+      ...(ollamaModel && !status.loaded.some((key) => key.toLowerCase().includes(ollamaModel.toLowerCase()))
+        ? [`ollama:${ollamaModel}`]
+        : []),
+    ])
+    : [];
+
+  useEffect(() => {
+    if (pressure && (working || loadedKeys.length > 0) && !pressureOpenedRef.current) {
+      pressureOpenedRef.current = true;
+      setOpen(true);
+    }
+    if (!pressure) pressureOpenedRef.current = false;
+  }, [pressure, working, loadedKeys.length]);
+
   const closeNotice = () => {
     if (notice) dismissNotice(notice.message);
     setNotice(null);
@@ -106,16 +135,13 @@ export function EngineMonitor(): ReactNode {
 
   if (!status) return dialog;
 
-  const ramAvailable = status.ram_available ?? status.ram_free;
   const ramUsed = status.ram_used ?? Math.max(0, status.ram_total - ramAvailable);
   const usedPct = status.ram_total > 0 ? Math.round((ramUsed / status.ram_total) * 100) : 0;
   const pythonRss = status.memory.sidecar_rss_bytes;
-  const working = status.job.active || status.job.stage === 'releasing';
   const activeModels = uniqueModels([
     status.job.active ? status.job.model_id : '',
-    ollamaModel,
-    ...status.loaded,
-  ].map(prettyModel));
+    ...loadedKeys.map(prettyModel),
+  ]);
   const chipExtra = activeModels.length
     ? ` · ${activeModels.slice(0, 2).join(' · ')}`
     : working
@@ -127,8 +153,13 @@ export function EngineMonitor(): ReactNode {
   const unloadOne = async (key: string) => {
     if (!window.api?.unloadModel) return;
     setBusyAction(key);
+    setActionNote(null);
     try {
-      await window.api.unloadModel(key.includes('/') ? key : key.replaceAll('__', '/'));
+      const id = key.startsWith('ollama:') ? key : (key.includes('/') ? key : key.replaceAll('__', '/'));
+      const result = await window.api.unloadModel(id);
+      if (!result.unloaded) {
+        setActionNote(t('monitor.unload_failed', { reason: result.reason || 'unknown' }));
+      }
       const next = await window.api.getRuntimeStatus();
       setStatus(next);
     } finally {
@@ -139,8 +170,14 @@ export function EngineMonitor(): ReactNode {
   const unloadAll = async () => {
     if (!window.api?.unloadAllModels) return;
     setBusyAction('all');
+    setActionNote(null);
     try {
-      await window.api.unloadAllModels();
+      const result = await window.api.unloadAllModels();
+      if (!result.ok) {
+        setActionNote(t('monitor.unload_failed', { reason: result.reason || 'unknown' }));
+      } else if (status.job.active) {
+        setActionNote(t('monitor.unload_partial'));
+      }
       const next = await window.api.getRuntimeStatus();
       setStatus(next);
     } finally {
@@ -151,11 +188,19 @@ export function EngineMonitor(): ReactNode {
   const cancel = async () => {
     if (!window.api?.cancelRuntimeJob) return;
     setBusyAction('cancel');
+    setActionNote(null);
     try {
       await window.api.cancelRuntimeJob();
     } finally {
       setBusyAction(null);
     }
+  };
+
+  const canUnloadKey = (key: string) => {
+    if (busyAction) return false;
+    // Ollama lives in another process — safe to evict while Wan/FLUX runs.
+    if (isOllamaKey(key)) return true;
+    return !status.job.active;
   };
 
   return (
@@ -166,10 +211,12 @@ export function EngineMonitor(): ReactNode {
         type="button"
         className={styles.chip}
         data-active={working ? 'true' : 'false'}
+        data-pressure={pressure ? 'true' : 'false'}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
+        title={t('monitor.chip_hint')}
       >
-        <span className={styles.dot} data-on={working ? 'true' : 'false'} />
+        <span className={styles.dot} data-on={working ? 'true' : 'false'} data-pressure={pressure ? 'true' : 'false'} />
         <span className={styles.chipText}>
           {jobLabel(status, t as (k: string, o?: Record<string, string | number>) => string)}
           {chipExtra}
@@ -181,6 +228,9 @@ export function EngineMonitor(): ReactNode {
             <strong>{t('monitor.title')}</strong>
             <Link className={styles.studio} to="/studio">{t('monitor.open_studio')}</Link>
           </header>
+          {pressure ? (
+            <p className={styles.pressure}>{t('monitor.pressure', { free: formatBytes(ramAvailable) })}</p>
+          ) : null}
           {status.job.active ? (
             <div className={styles.job}>
               <p>
@@ -231,16 +281,26 @@ export function EngineMonitor(): ReactNode {
           ) : null}
           <div className={styles.models}>
             <span>{t('monitor.in_ram')}</span>
-            {status.loaded.length === 0 ? (
+            {loadedKeys.length === 0 ? (
               <p className={styles.idle}>{t('monitor.none_loaded')}</p>
             ) : (
               <ul>
-                {status.loaded.map((key) => (
+                {loadedKeys.map((key) => (
                   <li key={key}>
-                    <span>{prettyModel(key)}</span>
+                    <span>
+                      {prettyModel(key)}
+                      {isOllamaKey(key) ? (
+                        <em className={styles.kind}> · Ollama</em>
+                      ) : null}
+                    </span>
                     <button
                       type="button"
-                      disabled={status.job.active || busyAction === key}
+                      disabled={!canUnloadKey(key) || busyAction === key}
+                      title={
+                        status.job.active && !isOllamaKey(key)
+                          ? t('monitor.unload_busy_hint')
+                          : t('monitor.unload')
+                      }
                       onClick={() => void unloadOne(key)}
                     >
                       {t('monitor.unload')}
@@ -250,16 +310,18 @@ export function EngineMonitor(): ReactNode {
               </ul>
             )}
           </div>
-          {status.loaded.length === 0 ? (
+          {actionNote ? <p className={styles.note}>{actionNote}</p> : null}
+          {loadedKeys.length === 0 ? (
             <p className={styles.idle}>{t('monitor.nothing_to_unload')}</p>
           ) : (
             <button
               type="button"
               className={styles.clear}
-              disabled={status.job.active || busyAction === 'all'}
+              disabled={busyAction === 'all'}
               onClick={() => void unloadAll()}
+              title={status.job.active ? t('monitor.unload_all_busy_hint') : t('monitor.unload_all')}
             >
-              {t('monitor.unload_all')}
+              {status.job.active ? t('monitor.unload_ollama') : t('monitor.unload_all')}
             </button>
           )}
         </div>

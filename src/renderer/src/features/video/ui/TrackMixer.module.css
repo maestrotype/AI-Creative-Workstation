@@ -456,10 +456,26 @@
   flex-shrink: 0;
 }
 
+.trackLabelCol {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
 .trackLabel {
   font-size: var(--text-body-sm);
   font-weight: var(--weight-medium);
   color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trackSub {
+  font-size: 10px;
+  line-height: 1.2;
+  color: var(--color-text-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -646,6 +662,14 @@
   padding: 1px 5px;
   border-radius: 3px;
   pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.clipBlock:hover .clipDurFloat,
+.clipBlock[data-selected='true'] .clipDurFloat,
+.clipDragging .clipDurFloat {
+  opacity: 1;
 }
 
 .clipBlock[data-narrow='true'] .clipDurFloat {

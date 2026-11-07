@@ -156,6 +156,7 @@ class ScriptExpandRequest(BaseModel):
     target_sec: float = Field(ge=0.8, le=240)
     language: str = "ru"
     seen: str = ""
+    already: str = ""
     measured_sec: float = 0
     part: int = 1
     parts: int = 1
@@ -170,6 +171,7 @@ def expand_script_route(request: ScriptExpandRequest):
         target_sec=request.target_sec,
         language=request.language,
         seen=request.seen,
+        already=request.already,
         measured_sec=request.measured_sec,
         part=request.part,
         parts=request.parts,
@@ -271,6 +273,39 @@ def fit_chapters_route(request: FitChaptersRequest):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     finally:
         clear_runtime_job()
+
+
+class ReviewSegmentIn(BaseModel):
+    start_sec: float
+    end_sec: float
+    text: str = ""
+    brief: str = ""
+    purpose: str = ""
+    visual_summary: str = ""
+
+
+class ScriptReviewRequest(BaseModel):
+    segments: list[ReviewSegmentIn]
+    language: str = "ru"
+    ollama_model: str = DEFAULT_OLLAMA_MODEL
+    critic: bool = True
+
+
+@router.post("/script/review")
+def review_script_route(request: ScriptReviewRequest):
+    if not request.segments:
+        return {"segments": [], "report": {"rewritten": [], "critic_flagged": [], "remaining": []}}
+    from narration_review import review_script
+    from script_llm import _list_ollama_models
+
+    if not _list_ollama_models():
+        raise HTTPException(status_code=503, detail="OLLAMA_SCRIPT_FAILED")
+    return review_script(
+        [segment.model_dump() for segment in request.segments],
+        language=request.language,
+        model=request.ollama_model,
+        critic=request.critic,
+    )
 
 
 @router.post("/script/translate")

@@ -35,6 +35,7 @@ const api = {
       shot_index?: number;
       shot_total?: number;
       seed?: number;
+      segments?: { prompt: string; seconds: number }[];
     }) => ipcRenderer.invoke('generate-video', payload),
   generateImage: (payload: {
     prompt: string;
@@ -53,6 +54,15 @@ const api = {
     output_name: string;
   }) => ipcRenderer.invoke('assemble-video', payload),
   listProjects: () => ipcRenderer.invoke('list-projects'),
+  getCanvasRootStatus: () => ipcRenderer.invoke('get-canvas-root-status') as Promise<{
+    root: string;
+    documents: string;
+    usingDocuments: boolean;
+    deniedDocuments: boolean;
+    override: string | null;
+  }>,
+  openCanvasPrivacySettings: () => ipcRenderer.invoke('open-canvas-privacy-settings'),
+  pickCanvasFolder: () => ipcRenderer.invoke('pick-canvas-folder') as Promise<{ ok: boolean; root: string }>,
   createProject: (payload?: {
     name?: string;
     format?: 'landscape' | 'shorts';
@@ -310,11 +320,32 @@ const api = {
     target_sec: number;
     language?: string;
     seen?: string;
+    already?: string;
     measured_sec?: number;
     part?: number;
     parts?: number;
     target_wpm?: number;
   }) => ipcRenderer.invoke('expand-script', payload) as Promise<{ text: string }>,
+  reviewScript: (payload: {
+    segments: Array<{
+      start_sec: number;
+      end_sec: number;
+      text: string;
+      brief?: string;
+      purpose?: string;
+      visual_summary?: string;
+    }>;
+    language?: string;
+    ollama_model?: string;
+    critic?: boolean;
+  }) => ipcRenderer.invoke('review-script', payload) as Promise<{
+    segments: Array<{ start_sec: number; end_sec: number; text: string }>;
+    report: {
+      rewritten: number[];
+      critic_flagged: number[];
+      remaining: Array<{ index: number; issues: string[] }>;
+    };
+  }>,
   shortenScript: (payload: {
     text: string;
     target_sec: number;

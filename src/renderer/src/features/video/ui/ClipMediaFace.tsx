@@ -187,10 +187,12 @@ export function ClipMediaFace({
   origin: 'ai' | 'original' | null;
   sequenceIndex?: number;
 }): ReactNode {
+  // Audio has no filmstrip — keep the line title visible on narrow A1 bars.
+  const hideTitle = tone === 'audio' ? widthPx < 36 : widthPx < 72;
   const title = clipDisplayName(clip, bin, shot ?? null, sequenceIndex, {
-    compact: widthPx < 72,
+    compact: widthPx < 96,
   });
-  const narrow = widthPx < 72;
+  const narrow = hideTitle;
   const imageSrc = useMemo(() => {
     if (!bin || bin.kind !== 'image' || !bin.path) return null;
     return toAssetUrl(bin.path);

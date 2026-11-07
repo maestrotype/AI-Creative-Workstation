@@ -41,22 +41,62 @@ export function ProjectsPage(): ReactNode {
   const [templateId, setTemplateId] = useState(ECOMMERCE_TEMPLATE_ID);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
+  const [fixBusy, setFixBusy] = useState(false);
 
   const refresh = async () => {
     if (!window.api?.listProjects) return;
     try {
       const list = await window.api.listProjects();
       setItems(list);
+      setError(null);
+      setAccessDenied(false);
+      const status = await window.api.getCanvasRootStatus?.();
+      if (status?.deniedDocuments && list.length === 0) {
+        setAccessDenied(true);
+        setError(
+          'Нет доступа к ~/Documents/Canvas — там лежат ваши проекты. '
+          + 'Разрешите доступ в настройках macOS или выберите эту папку вручную.',
+        );
+      }
     } catch (err) {
-      setError(ipcMessage(err));
+      const message = ipcMessage(err);
+      setError(message);
+      setAccessDenied(/Documents\/Canvas|Документам|EPERM|Operation not permitted/i.test(message));
     }
   };
 
   useEffect(() => {
     void refresh();
     if (!window.api?.listFilmTemplates) return;
-    void window.api.listFilmTemplates().then(setTemplates).catch((err) => setError(ipcMessage(err)));
+    // Saved recipes only. A denied Templates folder must not hide the projects list.
+    void window.api.listFilmTemplates().then(setTemplates).catch(() => setTemplates([]));
   }, []);
+
+  const openPrivacySettings = async () => {
+    setFixBusy(true);
+    try {
+      await window.api?.openCanvasPrivacySettings?.();
+    } finally {
+      setFixBusy(false);
+    }
+  };
+
+  const pickCanvasFolder = async () => {
+    if (!window.api?.pickCanvasFolder) return;
+    setFixBusy(true);
+    setError(null);
+    try {
+      const result = await window.api.pickCanvasFolder();
+      if (!result.ok) return;
+      await refresh();
+    } catch (err) {
+      setError(ipcMessage(err));
+      setAccessDenied(true);
+    } finally {
+      setFixBusy(false);
+    }
+  };
 
   const create = async () => {
     if (!window.api?.createProject) return;
@@ -249,7 +289,24 @@ export function ProjectsPage(): ReactNode {
         </button>
       ) : null}
 
-      {error ? <p className={styles.error}>{error}</p> : null}
+      {error ? (
+        <div className={styles.errorBox}>
+          <p className={styles.error}>{error}</p>
+          {accessDenied ? (
+            <div className={styles.errorActions}>
+              <button type="button" className={styles.ghostBtn} disabled={fixBusy} onClick={() => void openPrivacySettings()}>
+                Открыть настройки доступа
+              </button>
+              <button type="button" className={styles.newButton} disabled={fixBusy} onClick={() => void pickCanvasFolder()}>
+                Выбрать папку Canvas…
+              </button>
+              <button type="button" className={styles.ghostBtn} disabled={fixBusy} onClick={() => void refresh()}>
+                Проверить снова
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <section className={styles.startOptions}>
         <button type="button" className={styles.startOption} onClick={() => void create()} disabled={creating}>

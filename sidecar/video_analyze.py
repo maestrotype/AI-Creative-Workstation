@@ -8,12 +8,12 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
+from canvas_paths import access_denied_message, analysis_dir
 from media_probe import video_duration_sec
 from scene_detect import detect_scenes
 from transcribe import transcribe_video, whisper_available
 from scene_understand import analyze_visual_scenes
 
-ANALYSIS_DIR = os.path.expanduser("~/Documents/Canvas/Generated/Video/analysis")
 CACHE_VERSION = 6
 
 _analyze_lock = threading.Lock()
@@ -47,18 +47,21 @@ def get_analyze_progress() -> Dict[str, Any]:
 
 
 def _cache_path(video_path: str) -> str:
-    os.makedirs(ANALYSIS_DIR, exist_ok=True)
+    folder = analysis_dir()
     stat = os.stat(video_path)
     digest = hashlib.sha1(
         f"{video_path}:{stat.st_mtime_ns}:{stat.st_size}:v{CACHE_VERSION}".encode()
     ).hexdigest()[:16]
     base = os.path.splitext(os.path.basename(video_path))[0]
     safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in base)[:40] or "video"
-    return os.path.join(ANALYSIS_DIR, f"{safe}-{digest}.json")
+    return os.path.join(folder, f"{safe}-{digest}.json")
 
 
 def load_cached_analysis(video_path: str) -> Optional[Dict[str, Any]]:
-    path = _cache_path(video_path)
+    try:
+        path = _cache_path(video_path)
+    except OSError:
+        return None
     try:
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
@@ -74,10 +77,12 @@ def load_cached_analysis(video_path: str) -> Optional[Dict[str, Any]]:
 
 
 def save_cached_analysis(payload: Dict[str, Any]) -> str:
-    path = _cache_path(payload["source_path"])
-    os.makedirs(ANALYSIS_DIR, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, ensure_ascii=False, indent=2)
+    try:
+        path = _cache_path(payload["source_path"])
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+    except OSError as err:
+        raise RuntimeError(access_denied_message(err)) from err
     payload["cache_path"] = path
     return path
 

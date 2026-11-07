@@ -1505,9 +1505,17 @@ async def runtime_cancel():
 
 @router.post("/models/unload-all")
 async def unload_all_models():
-    if _runtime_job.get("active"):
-        raise HTTPException(status_code=409, detail="BUSY")
     cancel_idle_release()
+    # A running Wan/FLUX job owns the GPU worker. Still free Ollama so Qwen does
+    # not sit under the MLX process and choke unified memory.
+    if _runtime_job.get("active"):
+        count = await asyncio.to_thread(_unload_ollama_all)
+        return {
+            "unloaded": count,
+            "loaded": _owned_loaded_keys(),
+            "partial": True,
+            "detail": "job-busy-ollama-only",
+        }
     async with _generation_lock:
         count = await run_on_gpu(_unload_all_models)
     set_runtime_job(active=False, stage="released", percent=100, detail=f"unloaded {count}")
@@ -1525,10 +1533,15 @@ async def unload_model_body(request: UnloadRequest):
     """Unload from RAM without deleting files. Prefer this over the path route (FLUX ids contain dots)."""
     key = (request.cache_key or "").strip()
     if not key and request.model_id:
-        key = _to_cache_key(request.model_id)
+        raw = (request.model_id or "").strip()
+        key = raw if raw.startswith("ollama:") else _to_cache_key(raw)
     if not key:
         raise HTTPException(status_code=400, detail="cache_key or model_id required")
     cancel_idle_release()
+    # Ollama is a separate process — never wait on the GPU lock held by Wan/FLUX.
+    if key.startswith("ollama:"):
+        unloaded = await asyncio.to_thread(_unload_model, key)
+        return {"unloaded": unloaded, "cache_size": len(pipeline_cache), "loaded": _owned_loaded_keys()}
     async with _generation_lock:
         unloaded = await run_on_gpu(_unload_model, key)
     return {"unloaded": unloaded, "cache_size": len(pipeline_cache), "loaded": _owned_loaded_keys()}
@@ -1539,6 +1552,9 @@ async def unload_model_body(request: UnloadRequest):
 async def unload_model(cache_key: str):
     """Unload from RAM without deleting files. DELETE kept for older IPC."""
     cancel_idle_release()
+    if cache_key.startswith("ollama:"):
+        unloaded = await asyncio.to_thread(_unload_model, cache_key)
+        return {"unloaded": unloaded, "cache_size": len(pipeline_cache), "loaded": _owned_loaded_keys()}
     async with _generation_lock:
         unloaded = await run_on_gpu(_unload_model, cache_key)
     return {"unloaded": unloaded, "cache_size": len(pipeline_cache), "loaded": _owned_loaded_keys()}

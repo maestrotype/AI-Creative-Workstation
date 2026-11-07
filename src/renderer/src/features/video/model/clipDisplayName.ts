@@ -87,10 +87,16 @@ export function clipDisplayName(
     if (clip.track === 'a2') return compact ? 'Music' : 'Music';
     if (clip.track === 'a1') {
       const label = (clip.label || '').trim();
-      if (label && !/^(ai\s+)?narration$/i.test(label)) {
-        return compact && label.length > 8 ? label.slice(0, 7) : label;
+      // Bare numbers / durations are not story names (e.g. "11" from an old index).
+      if (
+        label
+        && !isRoleNarrationLabel(label)
+        && !/^(ai\s+)?narration$/i.test(label)
+        && !/^\d+(\.\d+)?s?$/i.test(label)
+      ) {
+        return compact && label.length > 14 ? `${label.slice(0, 12)}…` : label;
       }
-      return compact ? 'Nar' : 'Narration';
+      return 'Реплика';
     }
     return 'Audio';
   }
@@ -124,6 +130,114 @@ export function clipDisplayName(
     return sequenceRoleLabel(sequenceIndex, compact);
   }
   return 'Clip';
+}
+
+/** The same clause twice. "новые товары. новые товары." is a generation glitch. */
+export function spokenStutters(text: string): boolean {
+  const clauses = text
+    .toLowerCase()
+    .split(/[.!?…,;]+/)
+    .map((part) => part.replace(/[^\p{L}\p{N}\s]+/gu, '').replace(/\s+/g, ' ').trim())
+    .filter((part) => part.split(/\s+/).filter(Boolean).length >= 2);
+  return new Set(clauses).size !== clauses.length;
+}
+
+/** Keep the first time a clause is said. */
+export function withoutSpokenStutter(text: string): string {
+  const pieces = text.replace(/\s+/g, ' ').trim().split(/(?<=[.!?…])\s+/);
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (const piece of pieces) {
+    const key = piece.toLowerCase().replace(/[^\p{L}\p{N}\s]+/gu, '').replace(/\s+/g, ' ').trim();
+    if (key.split(/\s+/).filter(Boolean).length >= 2) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    if (piece.trim()) kept.push(piece.trim());
+  }
+  return kept.join(' ');
+}
+
+export function isRoleNarrationLabel(label: string): boolean {
+  return /^(hook|body|cta|outro|narration)$/i.test(label.trim());
+}
+
+/** Keep a longer clean line. A repeated clause never replaces the text. */
+export function preferSpokenLine(current: string, next: string | undefined): string {
+  const base = spokenStutters(current) ? withoutSpokenStutter(current) : current.trim();
+  const candidate = (next || '').trim();
+  if (!candidate || spokenStutters(candidate)) return base;
+  const longer = candidate.split(/\s+/).filter(Boolean).length > base.split(/\s+/).filter(Boolean).length;
+  if (spokenStutters(current) || longer) return candidate;
+  return base;
+}
+
+/** The spoken line that belongs to this A1 clip. */
+export function narrationLineAt(
+  segments: Array<{ start_sec: number; anchor_sec?: number; text?: string; text_en?: string }> | undefined,
+  startSec: number,
+  lang: 'ru' | 'en' = 'ru',
+): string {
+  if (!segments?.length) return '';
+  let best = segments[0];
+  let bestDist = Infinity;
+  for (const segment of segments) {
+    const at = segment.anchor_sec ?? segment.start_sec;
+    const dist = Math.abs(at - startSec);
+    if (dist < bestDist) {
+      best = segment;
+      bestDist = dist;
+    }
+  }
+  if (bestDist > 1.25) return '';
+  const text = lang === 'en' ? (best.text_en || best.text || '') : (best.text || '');
+  return text.trim();
+}
+
+function sentenceTitle(sentence: string): string {
+  const clause = (sentence.split(/[.!?…]/)[0] || sentence).replace(/[«»"“”]/g, ' ').replace(/\s+/g, ' ').trim();
+  const words = clause
+    .split(/\s+/)
+    .map((word) => word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''))
+    .filter((word) => word.length > 1)
+    .slice(0, 5);
+  const title = words.join(' ');
+  return title.length > 42 ? `${title.slice(0, 40)}…` : title;
+}
+
+/**
+ * Opening of the spoken line, so the timeline reads as the story.
+ * `avoid` is the neighbour's title: a later sentence is used when the opening matches it.
+ */
+export function narrationClipTitle(text: string, avoid = ''): string {
+  const pieces = text.replace(/\s+/g, ' ').trim().split(/(?<=[.!?…])\s+/);
+  const counts = new Map<string, number>();
+  const keys = pieces.map((piece) => {
+    const key = piece.toLowerCase().replace(/[^\p{L}\p{N}\s]+/gu, '').replace(/\s+/g, ' ').trim();
+    if (key.split(/\s+/).filter(Boolean).length >= 2) counts.set(key, (counts.get(key) || 0) + 1);
+    return key;
+  });
+  const candidates = pieces
+    .filter((_piece, index) => {
+      const words = keys[index].split(/\s+/).filter(Boolean);
+      return words.length >= 3 && (counts.get(keys[index]) || 0) < 2;
+    })
+    .map(sentenceTitle)
+    .filter(Boolean);
+  if (!candidates.length) {
+    const title = sentenceTitle(withoutSpokenStutter(text));
+    candidates.push(title || 'Реплика');
+  }
+  const same = (title: string) => Boolean(avoid) && title.toLowerCase() === avoid.toLowerCase();
+  return candidates.find((title) => !same(title)) || candidates[0];
+}
+
+/** Generated narration wavs. They already live on A1 and should not fill the media list. */
+export function isNarrationRender(bin: { kind: string; name: string; path: string }): boolean {
+  if (bin.kind !== 'audio') return false;
+  if (/^(hook|body|cta|outro|narration)$/i.test(bin.name.trim())) return true;
+  const file = (bin.path.split(/[/\\]/).pop() || bin.name).trim();
+  return /^(?:vo|fit|lock|tts|voiceover)[-_]/i.test(file);
 }
 
 export function mediaBinDisplayName(

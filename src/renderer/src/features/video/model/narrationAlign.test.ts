@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { abutSlots, alignedNarrationStarts, pictureSlots, planNarrationAlign, speechLockPlan } from './narrationAlign';
+import { abutSlots, alignedNarrationStarts, coverPictureGaps, narrationBeats, pictureSlots, planNarrationAlign, speechLockPlan, textForBeat, tileScriptToPicture } from './narrationAlign';
 
 const threeChapters = [
   { title: 'Hero', startSec: 0, endSec: 12 },
@@ -93,13 +93,78 @@ describe('alignedNarrationStarts', () => {
     expect(covered).toBeCloseTo(100.5, 1);
   });
 
-  it('closes the hole between picture chapters', () => {
-    const slots = abutSlots([
+  it('closes only a tiny join, not a real hole that needs its own line', () => {
+    const tiny = abutSlots([
+      { startSec: 0, endSec: 12 },
+      { startSec: 12.8, endSec: 24 },
+    ]);
+    expect(tiny[0].endSec).toBe(12.8);
+    const hole = abutSlots([
       { startSec: 0, endSec: 12 },
       { startSec: 18, endSec: 30 },
     ]);
-    expect(slots[0].endSec).toBe(18);
-    expect(slots[1].startSec).toBe(18);
+    expect(hole[0].endSec).toBe(12);
+  });
+});
+
+describe('narrationBeats', () => {
+  it('tiles a long chapter so the next line starts where the previous one ends', () => {
+    const beats = narrationBeats([{ title: 'Catalog', startSec: 0, endSec: 41.2 }]);
+    expect(beats.length).toBe(3);
+    expect(beats[0].startSec).toBe(0);
+    expect(beats[2].endSec).toBe(41.2);
+    for (let index = 1; index < beats.length; index += 1) {
+      expect(beats[index].startSec).toBe(beats[index - 1].endSec);
+    }
+    expect(textForBeat(['one', 'two', 'three'], 1, 3)).toBe('two');
+  });
+});
+
+describe('tileScriptToPicture', () => {
+  it('keeps one line per window and splits a long window into empty lines to be written', () => {
+    const lines: Array<{ start_sec: number; end_sec: number; text: string; brief?: string }> = [
+      { start_sec: 0, end_sec: 5, text: 'Первая.' },
+      { start_sec: 6, end_sec: 10, text: 'Вторая.' },
+    ];
+    const tiled = tileScriptToPicture(lines, 40, { split: true });
+    expect(tiled.map((row) => [row.start_sec, row.end_sec])).toEqual([[0, 6], [6, 23], [23, 40]]);
+    expect(tiled.map((row) => row.text)).toEqual(['Первая.', 'Вторая.', '']);
+    expect(tiled[2].brief).toBe('Вторая.');
+  });
+});
+
+describe('coverPictureGaps', () => {
+  it('inserts an empty window for a hole so the writer can fill it', () => {
+    const covered = coverPictureGaps(
+      [
+        { start_sec: 0, end_sec: 9, text: 'Первая.' },
+        { start_sec: 20, end_sec: 30, text: 'Третья.' },
+      ],
+      40,
+    );
+    expect(covered.map((row) => [row.start_sec, row.end_sec, row.text])).toEqual([
+      [0, 9, 'Первая.'],
+      [9, 20, ''],
+      [20, 30, 'Третья.'],
+      [30, 40, ''],
+    ]);
+  });
+
+  it('covers a leading hole so A1 does not idle while the picture already runs', () => {
+    const covered = coverPictureGaps(
+      [
+        { start_sec: 8.2, end_sec: 18, text: 'Каталог открыт.' },
+        { start_sec: 18, end_sec: 30, text: 'Карточка товара.' },
+      ],
+      41,
+      0,
+    );
+    expect(covered.map((row) => [row.start_sec, row.end_sec, row.text])).toEqual([
+      [0, 8.2, ''],
+      [8.2, 18, 'Каталог открыт.'],
+      [18, 30, 'Карточка товара.'],
+      [30, 41, ''],
+    ]);
   });
 });
 

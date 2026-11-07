@@ -26,6 +26,11 @@ WAN_NEG = (
 )
 
 
+class ChainSegment(BaseModel):
+    prompt: str = ""
+    seconds: float = 5.0
+
+
 class VideoGenRequest(BaseModel):
     prompt: str = ""
     format: str = "wide"
@@ -41,6 +46,14 @@ class VideoGenRequest(BaseModel):
     shot_index: Optional[int] = None
     shot_total: Optional[int] = None
     seed: Optional[int] = None
+    # Long shot: each segment starts from the previous segment's last frame (TI2V only).
+    segments: Optional[list[ChainSegment]] = None
+
+
+MAX_CHAIN_SEGMENTS = 8
+# A continuation opens with the handoff still and then two 4-frame VAE groups whose
+# colour is still settling. All three are dropped at the seam.
+SEAM_SKIP_FRAMES = 9
 
 
 def _is_ti2v(model_id: str) -> bool:
@@ -441,13 +454,9 @@ def _run_ti2v(request: VideoGenRequest, job_id: str):
         shot_index=shot_n,
         shot_total=shot_total,
     )
-    dropped = generation._unload_all_models()
-    if dropped:
-        print(f"[motion] freed {dropped} pipeline(s) before TI2V", flush=True)
     dest_dir = os.path.expanduser("~/Documents/Canvas/Generated/Video")
     os.makedirs(dest_dir, exist_ok=True)
     dest = os.path.join(dest_dir, f"{job_id}.mp4")
-    generation.set_runtime_job(stage="infer", percent=12, detail=detail)
 
     def on_log(_line: str, percent: int) -> None:
         generation.set_runtime_job(stage="infer", percent=percent, detail=detail)
@@ -455,12 +464,18 @@ def _run_ti2v(request: VideoGenRequest, job_id: str):
     seed = request.seed if request.seed is not None else int(time.time()) % 10_000
     from api.ti2v_prompt import prepare_wan_prompt
 
+    # Translate first (may briefly load Ollama), then evict everything before Wan.
+    # Unloading before prepare_wan_prompt reloads Qwen under the MLX worker.
     prepared = prepare_wan_prompt(request.prompt, translate=True)
     print(
         f"[motion] TI2V intent={prepared['intent']} source={prepared['source']} "
         f"wan={prepared['wan'][:160]!r}",
         flush=True,
     )
+    dropped = generation._unload_all_models()
+    if dropped:
+        print(f"[motion] freed {dropped} pipeline(s) before TI2V", flush=True)
+    generation.set_runtime_job(stage="infer", percent=12, detail=detail)
     mlx_ti2v.run_ti2v(
         image_path=request.image_path or "",
         prompt=prepared["wan"],
@@ -491,6 +506,146 @@ def _run_ti2v(request: VideoGenRequest, job_id: str):
     gc.collect()
     generation.set_runtime_job(active=False, stage="released", percent=100, detail="released")
     print(f"[{job_id}] TI2V saved {dest} mae={quality.get('motion_mae')}", flush=True)
+    return dest, quality
+
+
+def last_frame(video_path: str, dest_png: str) -> str:
+    """The final decoded frame. The next segment starts from it, so the seam is one picture."""
+    ffmpeg = _ffmpeg_bin()
+    _run_ffmpeg(
+        [ffmpeg, "-y", "-sseof", "-0.5", "-i", video_path, "-update", "1", "-q:v", "1", dest_png],
+        "ffmpeg last frame failed",
+    )
+    if not os.path.isfile(dest_png):
+        raise RuntimeError("TI2V_FAILED: could not read the last frame of a segment.")
+    return dest_png
+
+
+def _sharpness(image) -> float:
+    import numpy as np
+
+    gray = np.asarray(image.convert("L"), dtype=np.float32)
+    return float(np.var(np.diff(gray, axis=0)) + np.var(np.diff(gray, axis=1)))
+
+
+def handoff_frame(video_path: str, frame_count: int, dest_png: str, window: int = 8) -> int:
+    """Write the frame the next segment starts from; return how many frames to keep.
+
+    A fast move smears the very last frames, and Wan invents detail from a smeared still.
+    The latest frame that is nearly as sharp as the sharpest one in the tail is used instead.
+    """
+    from PIL import Image
+
+    ffmpeg = _ffmpeg_bin()
+    first = max(0, frame_count - window)
+    with tempfile.TemporaryDirectory() as tmp:
+        _run_ffmpeg(
+            [
+                ffmpeg, "-y", "-i", video_path,
+                "-vf", f"select='gte(n\\,{first})'", "-vsync", "0",
+                os.path.join(tmp, "%03d.png"),
+            ],
+            "ffmpeg tail frames failed",
+        )
+        names = sorted(name for name in os.listdir(tmp) if name.endswith(".png"))
+        if not names:
+            last_frame(video_path, dest_png)
+            return frame_count
+        scores = [_sharpness(Image.open(os.path.join(tmp, name))) for name in names]
+        best = max(scores)
+        pick = max(i for i, score in enumerate(scores) if score >= best * 0.85)
+        shutil.copyfile(os.path.join(tmp, names[pick]), dest_png)
+    return first + pick + 1
+
+
+def join_segments(paths: list[str], dest: str, fps: int, keep: Optional[list[Optional[int]]] = None) -> str:
+    """Concatenate segments. Every segment after the first drops its opening frames:
+    the repeated handoff still and the off-colour group after it. `keep` cuts a
+    segment's tail after its handoff frame."""
+    keep = keep or [None] * len(paths)
+    if len(paths) == 1 and keep[0] is None:
+        shutil.copyfile(paths[0], dest)
+        return dest
+    ffmpeg = _ffmpeg_bin()
+    cmd = [ffmpeg, "-y"]
+    for path in paths:
+        cmd += ["-i", path]
+    chains = []
+    for index in range(len(paths)):
+        trims = []
+        if index:
+            trims.append(f"start_frame={SEAM_SKIP_FRAMES}")
+        if keep[index]:
+            trims.append(f"end_frame={keep[index]}")
+        trim = f"trim={':'.join(trims)}," if trims else ""
+        chains.append(f"[{index}:v]{trim}setpts=PTS-STARTPTS,fps={fps},format=yuv420p[v{index}]")
+    joined = "".join(f"[v{index}]" for index in range(len(paths)))
+    graph = ";".join(chains) + f";{joined}concat=n={len(paths)}:v=1:a=0[out]"
+    cmd += [
+        "-filter_complex", graph, "-map", "[out]",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", dest,
+    ]
+    _run_ffmpeg(cmd, "ffmpeg segment join failed")
+    return dest
+
+
+def _run_ti2v_chain(request: VideoGenRequest, job_id: str):
+    segments = (request.segments or [])[:MAX_CHAIN_SEGMENTS]
+    source = request.image_path or ""
+    seed = request.seed if request.seed is not None else int(time.time()) % 10_000
+    dest_dir = os.path.expanduser("~/Documents/Canvas/Generated/Video")
+    os.makedirs(dest_dir, exist_ok=True)
+    start_image = source
+    paths: list[str] = []
+    keep: list[Optional[int]] = []
+    reports: list[dict] = []
+    for index, segment in enumerate(segments):
+        part = request.model_copy(update={
+            "prompt": (segment.prompt or "").strip() or request.prompt,
+            "duration_sec": max(1.5, min(5.0, float(segment.seconds or 5))),
+            "image_path": start_image,
+            "shot_index": index + 1,
+            "shot_total": len(segments),
+            "seed": seed,
+            "segments": None,
+        })
+        path, quality = _run_ti2v(part, f"{job_id}_s{index + 1}")
+        count = int(quality.get("frame_count") or 0)
+        kept = count
+        if index < len(segments) - 1:
+            start_image = os.path.join(dest_dir, f"{job_id}_s{index + 1}_last.png")
+            kept = handoff_frame(path, count, start_image)
+        paths.append(path)
+        keep.append(kept if 0 < kept < count else None)
+        reports.append({
+            "index": index,
+            "file_path": path,
+            "frames": count,
+            "frames_kept": kept,
+            "motion_mae": quality.get("motion_mae"),
+            "low_motion": bool(quality.get("low_motion")),
+            "prompt_wan": quality.get("prompt_wan"),
+        })
+    dest = os.path.join(dest_dir, f"{job_id}.mp4")
+    generation.set_runtime_job(active=True, stage="encode", percent=94, detail="joining segments")
+    join_segments(paths, dest, mlx_ti2v.FPS, keep)
+    generation.set_runtime_job(active=False, stage="released", percent=100, detail="released")
+    samples = _sample_video_frames(dest)
+    quality = _motion_report(samples, fps=mlx_ti2v.FPS)
+    total_frames = sum(
+        max(0, item["frames_kept"] - (SEAM_SKIP_FRAMES if item["index"] else 0)) for item in reports
+    )
+    quality["frame_count"] = total_frames
+    quality["duration_sec"] = round(total_frames / mlx_ti2v.FPS, 3)
+    if source and os.path.isfile(source) and samples:
+        from PIL import Image
+
+        # Drift: how far the end of the long shot moved from the original still.
+        quality.update(_identity_vs_source(Image.open(source), samples[-1:]))
+    quality["seed"] = seed
+    quality["segments"] = reports
+    quality["low_motion"] = all(item["low_motion"] for item in reports)
+    print(f"[{job_id}] TI2V chain {len(paths)} segments → {dest}", flush=True)
     return dest, quality
 
 
@@ -773,6 +928,11 @@ async def generate_video(request: VideoGenRequest):
         spec = assert_mode_allowed(mode, request.model_id)
     except RuntimeError as err:
         raise HTTPException(status_code=400, detail=str(err)) from err
+    if request.segments and not _is_ti2v(request.model_id):
+        raise HTTPException(
+            status_code=400,
+            detail="VIDEO_CAPABILITY_UNSUPPORTED: A segment plan runs on local Wan 2.2 TI2V only.",
+        )
     still = _still_from_request(request)
     if still:
         request.image_path = still
@@ -782,7 +942,10 @@ async def generate_video(request: VideoGenRequest):
             detail="IMAGE_REQUIRED: Attach a photo for this video provider.",
         )
 
-    if _is_ti2v(request.model_id):
+    if _is_ti2v(request.model_id) and request.segments:
+        def runner():
+            return _run_ti2v_chain(request, job_id)
+    elif _is_ti2v(request.model_id):
         def runner():
             return _run_ti2v(request, job_id)
     elif _is_wan(request.model_id):

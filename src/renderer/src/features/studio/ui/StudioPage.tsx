@@ -7,7 +7,7 @@ import styles from './StudioPage.module.css';
 import { CATALOG_ENGINES, ENGINE_FAMILIES, type EngineFamily } from '../model/engineCatalog';
 import { safeStudioFrom, studioReturnLabelKey } from '../model/studioReturn';
 import { DownloadProgress, type DownloadProgressState } from './DownloadProgress';
-import { StudioResources } from './StudioResources';
+import { StudioResources, type LoadedResident } from './StudioResources';
 
 interface Model {
   id: string;
@@ -47,6 +47,7 @@ export function StudioPage(): ReactNode {
   const [activeVideoModelId, setActiveVideoModelId] = useState<string | null>(null);
   const [unloadingId, setUnloadingId] = useState<string | null>(null);
   const [unloadError, setUnloadError] = useState<string | null>(null);
+  const [jobActive, setJobActive] = useState(false);
   const [voiceHas, setVoiceHas] = useState(false);
   const [ttsReady, setTtsReady] = useState(false);
   const [voiceEngine, setVoiceEngine] = useState({
@@ -78,6 +79,17 @@ export function StudioPage(): ReactNode {
   const toCacheKey = (modelId: string) => modelId.replaceAll('/', '__');
   const familyModels = models.filter((m) => m.type === family);
   const catalog = CATALOG_ENGINES.filter((m) => m.type === family);
+  const ollamaKeyFor = (name: string) => loadedCacheKeys.find((key) => {
+    const bare = key.replace(/^ollama:/i, '').toLowerCase();
+    const want = name.toLowerCase();
+    return bare === want || bare.startsWith(`${want}-`) || bare.startsWith(`${want}:`);
+  }) || null;
+  const ollamaResident = (name: string) => Boolean(ollamaKeyFor(name));
+  const residents: LoadedResident[] = loadedCacheKeys.map((key) => ({
+    key,
+    label: '',
+    kind: key.startsWith('ollama:') ? 'ollama' as const : 'sidecar' as const,
+  }));
 
   const refreshResources = useCallback(async () => {
     if (!window.api?.getStudioResources || !window.api?.getModelDiskUsage) return;
@@ -174,8 +186,22 @@ export function StudioPage(): ReactNode {
 
     const timer = window.setInterval(() => { void refreshResources(); }, 8000);
     const loadedTimer = window.setInterval(() => {
-      void window.api?.getLoadedModels?.().then(setLoadedCacheKeys).catch(() => {});
-    }, 5000);
+      void window.api?.getRuntimeStatus?.()
+        .then((status) => {
+          setLoadedCacheKeys(status.loaded ?? []);
+          setJobActive(Boolean(status.job?.active));
+          if (status.ram_total) {
+            setResources((prev) => prev ? {
+              ...prev,
+              ramTotal: status.ram_total,
+              ramFree: status.ram_available ?? status.ram_free ?? prev.ramFree,
+            } : prev);
+          }
+        })
+        .catch(() => {
+          void window.api?.getLoadedModels?.().then(setLoadedCacheKeys).catch(() => {});
+        });
+    }, 2500);
     const ollamaTimer = window.setInterval(() => { void refreshOllama(); }, 6000);
 
     return () => {
@@ -298,11 +324,42 @@ export function StudioPage(): ReactNode {
     setUnloadingId(modelId);
     try {
       const result = await window.api.unloadModel(modelId);
+      try {
+        const status = await window.api.getRuntimeStatus?.();
+        if (status) {
+          setLoadedCacheKeys(status.loaded ?? []);
+          setJobActive(Boolean(status.job?.active));
+        }
+      } catch {
+        /* keep previous */
+      }
       await loadModels();
       if (!result.unloaded) {
         setUnloadError(t('studio.unload_failed', { reason: result.reason ?? 'unknown' }));
       }
     } catch (err) {
+      setUnloadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUnloadingId(null);
+    }
+  };
+
+  const handleUnloadAll = async () => {
+    if (!window.api?.unloadAllModels) return;
+    setUnloadError(null);
+    setUnloadingId('all');
+    try {
+      const result = await window.api.unloadAllModels();
+      const status = await window.api.getRuntimeStatus?.();
+      if (status) {
+        setLoadedCacheKeys(status.loaded ?? []);
+        setJobActive(Boolean(status.job?.active));
+      }
+      await loadModels();
+      if (!result.ok) {
+        setUnloadError(t('studio.unload_failed', { reason: result.reason ?? 'unknown' }));
+      }
+    } catch (err: unknown) {
       setUnloadError(err instanceof Error ? err.message : String(err));
     } finally {
       setUnloadingId(null);
@@ -441,6 +498,11 @@ export function StudioPage(): ReactNode {
           ramFree={resources.ramFree}
           diskTotal={resources.diskTotal}
           diskFree={resources.diskFree}
+          loaded={residents}
+          unloadingKey={unloadingId}
+          jobActive={jobActive}
+          onUnload={(key) => { void handleUnload(key); }}
+          onUnloadAll={() => { void handleUnloadAll(); }}
         />
       ) : null}
 
@@ -535,17 +597,98 @@ export function StudioPage(): ReactNode {
         const installedList = ollamaEngine.installed_models ?? [];
         const has7b = installedList.some((m) => m.includes('7b') && !m.includes('vl'));
         const has14b = installedList.some((m) => m.includes('14b') && !m.includes('vl'));
+        const has32b = installedList.some((m) => m.includes('qwen2.5:32b'));
         const hasVl = installedList.some((m) => /qwen2\.5vl|qwen2\.5-vl/i.test(m));
         const activeModel = (ollamaEngine.model || '').toLowerCase();
+        const is32bActive = activeModel.includes('qwen2.5:32b');
         const is14bActive = activeModel.includes('qwen2.5:14b');
         const is7bActive = activeModel.includes('qwen2.5:7b') && !activeModel.includes('vl');
         return (
         <>
+          <div className={styles.modelCard}>
+            <div className={styles.modelInfo}>
+              <span className={styles.modelName}>{t('studio.llm_32_name')}</span>
+              <span className={styles.modelType}>{t('studio.llm_32_size')}</span>
+              <div className={styles.stateRow}>
+                <span className={styles.stateChip} data-on={ollamaEngine.binary_found}>
+                  {ollamaEngine.binary_found ? t('studio.llm_binary_on') : t('studio.llm_binary_off')}
+                </span>
+                <span className={styles.stateChip} data-on={has32b}>
+                  {has32b ? t('studio.llm_model_on') : t('studio.llm_model_off')}
+                </span>
+                <span className={styles.stateChip} data-on={ollamaEngine.server_running}>
+                  {ollamaEngine.server_running ? t('studio.llm_server_on') : t('studio.llm_server_off')}
+                </span>
+                <span className={styles.stateChip} data-on={has32b && ollamaEngine.server_running}>
+                  {has32b && ollamaEngine.server_running ? t('studio.llm_ready_on') : t('studio.llm_ready_off')}
+                </span>
+              </div>
+            </div>
+            <div className={styles.voiceActions}>
+              {has32b && ollamaEngine.server_running ? (
+                is32bActive ? (
+                  <span className={styles.status}>✓ {i18n.language.startsWith('ru') ? 'Активная модель' : 'Active'}</span>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.downloadButton}
+                    onClick={() => { void handleSetActiveLlmModel('qwen2.5:32b'); }}
+                  >
+                    {t('studio.llm_32_use')}
+                  </button>
+                )
+              ) : has32b && !ollamaEngine.server_running ? (
+                <button
+                  type="button"
+                  className={styles.downloadButton}
+                  disabled={ollamaBusy || ollamaEngine.installing}
+                  onClick={() => { void handleOllamaStart(); }}
+                >
+                  {ollamaBusy ? t('studio.llm_starting') : t('studio.llm_start_server')}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={styles.downloadButton}
+                  disabled={ollamaBusy || ollamaEngine.installing}
+                  onClick={() => { void handlePullModel('qwen2.5:32b'); }}
+                >
+                  {ollamaEngine.installing ? t('studio.llm_downloading') : t('studio.llm_32_download')}
+                </button>
+              )}
+              {ollamaResident('qwen2.5:32b') ? (
+                <button
+                  type="button"
+                  className={styles.textButton}
+                  disabled={Boolean(unloadingId && unloadingId.includes('qwen2.5:32b'))}
+                  title={t('studio.unload_title')}
+                  onClick={() => { void handleUnload(ollamaKeyFor('qwen2.5:32b') || 'ollama:qwen2.5:32b'); }}
+                >
+                  {unloadingId && unloadingId.includes('qwen2.5:32b') ? t('studio.unloading') : t('studio.unload')}
+                </button>
+              ) : null}
+              {has32b && !ollamaEngine.installing ? (
+                <button
+                  type="button"
+                  className={styles.textButton}
+                  disabled={ollamaBusy}
+                  onClick={() => {
+                    if (window.confirm(t('studio.llm_32_delete_confirm'))) {
+                      void window.api?.deleteOllamaModel?.('qwen2.5:32b').then(refreshOllama);
+                    }
+                  }}
+                >
+                  {t('studio.llm_delete')}
+                </button>
+              ) : null}
+            </div>
+          </div>
+
           {/* Qwen 2.5 14B Card */}
           <div className={styles.modelCard}>
             <div className={styles.modelInfo}>
               <span className={styles.modelName}>Qwen 2.5 14B</span>
-              <span className={styles.modelType}>~9.0 GB · {i18n.language.startsWith('ru') ? 'Продвинутая (рекомендуется для точных таймингов)' : 'Advanced (recommended for precise timing)'}</span>
+              <span className={styles.modelType}>~9.0 GB · {i18n.language.startsWith('ru') ? 'Быстрее 32B, текст слабее' : 'Faster than 32B, weaker text'}</span>
               <div className={styles.stateRow}>
                 <span className={styles.stateChip} data-on={ollamaEngine.binary_found}>
                   {ollamaEngine.binary_found ? t('studio.llm_binary_on') : t('studio.llm_binary_off')}
@@ -593,6 +736,17 @@ export function StudioPage(): ReactNode {
                   {ollamaEngine.installing ? t('studio.llm_downloading') : `${t('studio.download')} 14B (~9 GB)`}
                 </button>
               )}
+              {ollamaResident('qwen2.5:14b') ? (
+                <button
+                  type="button"
+                  className={styles.textButton}
+                  disabled={Boolean(unloadingId && unloadingId.includes('qwen2.5:14b'))}
+                  title={t('studio.unload_title')}
+                  onClick={() => { void handleUnload(ollamaKeyFor('qwen2.5:14b') || 'ollama:qwen2.5:14b'); }}
+                >
+                  {unloadingId && unloadingId.includes('qwen2.5:14b') ? t('studio.unloading') : t('studio.unload')}
+                </button>
+              ) : null}
               {has14b && !ollamaEngine.installing ? (
                 <button
                   type="button"
@@ -662,6 +816,17 @@ export function StudioPage(): ReactNode {
                   {ollamaEngine.installing ? t('studio.llm_downloading') : `${t('studio.download')} 7B (~4.7 GB)`}
                 </button>
               )}
+              {ollamaResident('qwen2.5:7b') ? (
+                <button
+                  type="button"
+                  className={styles.textButton}
+                  disabled={Boolean(unloadingId && /qwen2\.5:7b/i.test(unloadingId) && !/vl/i.test(unloadingId))}
+                  title={t('studio.unload_title')}
+                  onClick={() => { void handleUnload(ollamaKeyFor('qwen2.5:7b') || 'ollama:qwen2.5:7b'); }}
+                >
+                  {unloadingId && /qwen2\.5:7b/i.test(unloadingId) && !/vl/i.test(unloadingId) ? t('studio.unloading') : t('studio.unload')}
+                </button>
+              ) : null}
               {has7b && !ollamaEngine.installing ? (
                 <button
                   type="button"
@@ -716,6 +881,19 @@ export function StudioPage(): ReactNode {
                   {ollamaEngine.installing ? t('studio.llm_downloading') : t('studio.llm_vl_download')}
                 </button>
               )}
+              {ollamaResident('qwen2.5vl:7b') || ollamaResident('qwen2.5vl') ? (
+                <button
+                  type="button"
+                  className={styles.textButton}
+                  disabled={Boolean(unloadingId && /qwen2\.5vl/i.test(unloadingId))}
+                  title={t('studio.unload_title')}
+                  onClick={() => {
+                    void handleUnload(ollamaKeyFor('qwen2.5vl:7b') || ollamaKeyFor('qwen2.5vl') || 'ollama:qwen2.5vl:7b');
+                  }}
+                >
+                  {unloadingId && /qwen2\.5vl/i.test(unloadingId) ? t('studio.unloading') : t('studio.unload')}
+                </button>
+              ) : null}
               {hasVl && !ollamaEngine.installing ? (
                 <button
                   type="button"

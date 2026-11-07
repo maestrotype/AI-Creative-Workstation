@@ -1,5 +1,6 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import type { CSSProperties, ReactNode, PointerEvent, WheelEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useDirector } from './DirectorBoard';
 import { formatTimecode } from '../model/videoAnalysis';
 import {
@@ -12,7 +13,7 @@ import {
 } from '../model/directorTimeline';
 import type { Callout } from '../model/callout';
 import { hintDuration, hintLaneTone, hintTypeLabel } from '../model/callout';
-import { clipDisplayName } from '../model/clipDisplayName';
+import { clipDisplayName, narrationClipTitle, narrationLineAt, withoutSpokenStutter } from '../model/clipDisplayName';
 import { ClipMediaFace } from './ClipMediaFace';
 import s from './TrackMixer.module.css';
 
@@ -64,6 +65,7 @@ function pickRulerStep(pxPerSec: number): number {
 }
 
 export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): ReactNode {
+  const { t } = useTranslation();
   const d = useDirector();
   const [extractModalOpen, setExtractModalOpen] = useState(false);
   const [extractMode, setExtractMode] = useState<ExtractMode>('both');
@@ -157,6 +159,21 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
     }
     return map;
   }, [v1Clips, v2Clips, d.bins]);
+
+  const narrationTitleById = useMemo(() => {
+    const map = new Map<string, { line: string; title: string }>();
+    const segments = d.voiceover.script?.segments;
+    const lang = d.voiceover.narrationLang || 'ru';
+    let previous = '';
+    for (const clip of a1Clips) {
+      const line = narrationLineAt(segments, clip.startSec, lang);
+      if (!line) continue;
+      const title = narrationClipTitle(line, previous);
+      map.set(clip.id, { line, title });
+      previous = title;
+    }
+    return map;
+  }, [a1Clips, d.voiceover.script?.segments, d.voiceover.narrationLang]);
 
   const [canScrollX, setCanScrollX] = useState(false);
   useEffect(() => {
@@ -629,7 +646,11 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
     const mediaUrl = bin && bin.kind !== 'image' && bin.path ? (d.blobs[bin.path] ?? null) : null;
     const origin = bin?.shotId ? 'ai' as const : bin ? 'original' as const : null;
     const seq = stillSeqById.get(clip.id);
-    const displayName = clipDisplayName(clip, bin, shot, seq, { compact: widthPx < 72 });
+    const narration = clip.track === 'a1' ? narrationTitleById.get(clip.id) : undefined;
+    const spokenLine = narration?.line || '';
+    const namedClip = narration ? { ...clip, label: narration.title } : clip;
+    const displayName = clipDisplayName(namedClip, bin, shot, seq, { compact: widthPx < 72 });
+    const clipTip = spokenLine ? withoutSpokenStutter(spokenLine) : displayName;
 
     return (
       <div
@@ -647,7 +668,7 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
           e.stopPropagation();
           selectClip(clip.id);
         }}
-        title={`${displayName} · ${formatTimecode(clip.startSec)}–${formatTimecode(clip.startSec + showDur)} (${formatTimecode(showDur)})`}
+        title={`${clipTip} · ${formatTimecode(clip.startSec)}–${formatTimecode(clip.startSec + showDur)} (${formatTimecode(showDur)})`}
       >
         <span
           className={s.clipTrim}
@@ -660,7 +681,7 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
         />
 
         <ClipMediaFace
-          clip={clip}
+          clip={namedClip}
           bin={bin}
           shot={shot}
           mediaUrl={mediaUrl}
@@ -848,34 +869,40 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
       >
         <div className={s.labelRail} aria-hidden={false}>
           <div className={s.headerCol}>Таймлайн</div>
-          <div className={s.trackHeader} data-lane="overlay">
+          <div className={s.trackHeader} data-lane="overlay" title={t('video.track_v2_hint')}>
             <div className={s.trackTitleWrap}>
               <span className={s.trackIcon}>🖼</span>
-              <span className={s.trackLabel}>V2 Overlays</span>
+              <span className={s.trackLabelCol}>
+                <span className={s.trackLabel}>{t('video.track_v2')}</span>
+                <span className={s.trackSub}>{t('video.track_v2_sub')}</span>
+              </span>
             </div>
           </div>
-          <div className={s.trackHeader} data-lane="video">
+          <div className={s.trackHeader} data-lane="video" title={t('video.track_v1_hint')}>
             <div className={s.trackTitleWrap}>
               <span className={s.trackIcon}>🎬</span>
-              <span className={s.trackLabel}>V1 Video</span>
+              <span className={s.trackLabelCol}>
+                <span className={s.trackLabel}>{t('video.track_v1')}</span>
+                <span className={s.trackSub}>{t('video.track_v1_sub')}</span>
+              </span>
             </div>
           </div>
-          <div className={s.trackHeader}>
+          <div className={s.trackHeader} title={t('video.track_a1_hint')}>
             <div className={s.trackTitleWrap}>
               <span className={s.trackIcon}>🔊</span>
-              <span className={s.trackLabel}>A1 Narration</span>
+              <span className={s.trackLabel}>{t('video.track_a1')}</span>
             </div>
           </div>
           <div className={s.trackHeader}>
             <div className={s.trackTitleWrap}>
               <span className={s.trackIcon}>🎵</span>
-              <span className={s.trackLabel}>A2 Music</span>
+              <span className={s.trackLabel}>{t('video.track_a2')}</span>
             </div>
           </div>
           <div className={s.trackHeader}>
             <div className={s.trackTitleWrap}>
               <span className={s.trackIcon}>💬</span>
-              <span className={s.trackLabel}>C1 Hints</span>
+              <span className={s.trackLabel}>{t('video.track_c1')}</span>
             </div>
           </div>
         </div>

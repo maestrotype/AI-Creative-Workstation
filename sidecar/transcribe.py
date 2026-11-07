@@ -9,6 +9,9 @@ from typing import Any, Callable, Dict, List, Optional
 
 ProgressFn = Optional[Callable[[str, int, str], None]]
 
+# Narration checks transcribe every synthesized line; loading Whisper per line costs seconds each.
+_WHISPER_MODELS: Dict[str, Any] = {}
+
 
 def _ffmpeg_bin() -> str:
     path = shutil.which("ffmpeg")
@@ -111,7 +114,10 @@ def transcribe_video(
             }
 
         try:
-            model = WhisperModel(model_size, device="cpu", compute_type="int8")
+            model = _WHISPER_MODELS.get(model_size)
+            if model is None:
+                model = WhisperModel(model_size, device="cpu", compute_type="int8")
+                _WHISPER_MODELS[model_size] = model
         except Exception as exc:  # noqa: BLE001
             warnings.append(f"WHISPER_LOAD_FAILED: {exc}")
             return {

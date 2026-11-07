@@ -8,7 +8,6 @@ import {
   rmSync,
   writeFileSync,
 } from 'fs';
-import { homedir } from 'os';
 import { extname, join } from 'path';
 import { randomUUID } from 'crypto';
 
@@ -19,6 +18,7 @@ import {
   type EditorGenerationJob,
   type EditorMediaAsset,
 } from '../shared/editorProject';
+import { canvasAccessMessage, isDeniedFsError, projectsRootDir, safeListDir } from './canvasFs';
 
 export type ProjectKind = 'video';
 export type ProjectFormat = 'landscape' | 'shorts';
@@ -139,9 +139,13 @@ export interface ProjectSummary {
 }
 
 function projectsRoot(): string {
-  const dir = join(homedir(), 'Documents/Canvas/Projects');
-  mkdirSync(dir, { recursive: true });
-  return dir;
+  try {
+    const dir = projectsRootDir();
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  } catch (err) {
+    throw new Error(canvasAccessMessage(err));
+  }
 }
 
 export function projectDir(id: string): string {
@@ -293,22 +297,40 @@ function coverOf(doc: ProjectDoc): string | null {
 }
 
 export function listProjects(): ProjectSummary[] {
-  const root = projectsRoot();
+  let root: string;
+  try {
+    root = projectsRoot();
+  } catch (err) {
+    throw new Error(canvasAccessMessage(err));
+  }
+  const names = safeListDir(root);
+  // safeListDir hides EPERM as []. Probe once so the UI can ask for Documents access.
+  if (!names.length) {
+    try {
+      readdirSync(root);
+    } catch (err) {
+      if (isDeniedFsError(err)) throw new Error(canvasAccessMessage(err));
+    }
+  }
   const out: ProjectSummary[] = [];
-  for (const name of readdirSync(root)) {
+  for (const name of names) {
     const file = projectFile(name);
     if (!existsSync(file)) continue;
-    const doc = parseDoc(readFileSync(file, 'utf8'));
-    if (!doc) continue;
-    out.push({
-      id: doc.id,
-      name: doc.name,
-      format: doc.format,
-      sceneCount: doc.scenes.length,
-      updatedAt: doc.updatedAt,
-      coverPath: coverOf(doc),
-      assembledPath: doc.assembledPath && existsSync(doc.assembledPath) ? doc.assembledPath : null,
-    });
+    try {
+      const doc = parseDoc(readFileSync(file, 'utf8'));
+      if (!doc) continue;
+      out.push({
+        id: doc.id,
+        name: doc.name,
+        format: doc.format,
+        sceneCount: doc.scenes.length,
+        updatedAt: doc.updatedAt,
+        coverPath: coverOf(doc),
+        assembledPath: doc.assembledPath && existsSync(doc.assembledPath) ? doc.assembledPath : null,
+      });
+    } catch (err) {
+      if (isDeniedFsError(err)) throw new Error(canvasAccessMessage(err));
+    }
   }
   return out.sort((a, b) => b.updatedAt - a.updatedAt);
 }
