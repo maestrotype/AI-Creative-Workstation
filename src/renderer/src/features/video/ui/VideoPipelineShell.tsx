@@ -224,12 +224,6 @@ function hasOsFiles(event: DragEvent): boolean {
   return Array.from(event.dataTransfer?.types ?? []).includes('Files');
 }
 
-function ipcMessage(err: unknown, fallback: string): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  const cleaned = raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '').trim();
-  return cleaned || fallback;
-}
-
 function SourceRow(): ReactNode {
   const d = useDirector();
   const source = d.voiceoverSource;

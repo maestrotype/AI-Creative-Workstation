@@ -32,6 +32,26 @@ function catalogSize(modelId: string): string | null {
   return CATALOG_ENGINES.find((m) => m.id === modelId)?.size ?? null;
 }
 
+function isHeavyFamily(family: EngineFamily): boolean {
+  return family === 'image' || family === 'video' || family === 'llm';
+}
+
+function isHeavyModelId(modelId: string): boolean {
+  return /flux|wan|sdxl|stable-diffusion|anes1032|ti2v/i.test(modelId);
+}
+
+function prettyLoadedKey(key: string): string {
+  const raw = key.replace(/^ollama:/i, '').replaceAll('__', '/').split('/').slice(-1)[0] || key;
+  if (/qwen2\.5:32b/i.test(raw)) return 'Qwen 2.5 32B';
+  if (/qwen2\.5:14b/i.test(raw)) return 'Qwen 2.5 14B';
+  if (/qwen2\.5:7b/i.test(raw)) return 'Qwen 2.5 7B';
+  if (/qwen2\.5vl/i.test(raw)) return 'Qwen 2.5 VL';
+  if (/wan3|wan-3|alibaba\/wan3/i.test(raw)) return 'Wan 3.0';
+  if (/wan.*ti2v|anes1032/i.test(raw)) return 'Wan 2.2 TI2V';
+  if (/flux/i.test(raw)) return 'FLUX';
+  return raw;
+}
+
 export function StudioPage(): ReactNode {
   const { t, i18n } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -75,6 +95,7 @@ export function StudioPage(): ReactNode {
   });
   const [ollamaBusy, setOllamaBusy] = useState(false);
   const [showAdvancedVideo, setShowAdvancedVideo] = useState(false);
+  const [swapConfirm, setSwapConfirm] = useState<{ modelId: string; names: string[] } | null>(null);
 
   const toCacheKey = (modelId: string) => modelId.replaceAll('/', '__');
   const familyModels = models.filter((m) => m.type === family);
@@ -310,12 +331,33 @@ export function StudioPage(): ReactNode {
     }
   };
 
-  const handleUse = async (modelId: string) => {
+  const applyUse = async (modelId: string, unloadOthers: boolean) => {
     if (!window.api) return;
+    if (unloadOthers && loadedCacheKeys.length > 0 && window.api.unloadAllModels) {
+      await window.api.unloadAllModels();
+    }
     if (family === 'image' && modelId) await window.api.setActiveModel(modelId);
     if (family === '3d' && modelId) await window.api.setActive3dModel(modelId);
     if (family === 'video') await window.api.setActiveVideoModel(modelId);
     await loadModels();
+  };
+
+  const handleUse = async (modelId: string) => {
+    if (!window.api) return;
+    if (!modelId) {
+      await applyUse(modelId, false);
+      return;
+    }
+    const others = loadedCacheKeys.filter((key) => {
+      const bare = key.replace(/^ollama:/i, '').replaceAll('__', '/');
+      return bare !== modelId && !bare.endsWith(`/${modelId}`) && key !== toCacheKey(modelId);
+    });
+    const needsSwap = isHeavyFamily(family) && isHeavyModelId(modelId) && others.length > 0;
+    if (needsSwap) {
+      setSwapConfirm({ modelId, names: others.map(prettyLoadedKey) });
+      return;
+    }
+    await applyUse(modelId, false);
   };
 
   const handleUnload = async (modelId: string) => {
@@ -392,17 +434,19 @@ export function StudioPage(): ReactNode {
 
     return (
       <div className={styles.modelActions}>
-        <span className={styles.status} style={{
-          color: m.status === 'error' ? '#e53e3e' : m.status === 'ready' ? '#48bb78' : undefined,
-        }}>
-          {m.status === 'ready' ? '✓ ready' : m.status === 'error' ? '✗ error' : m.status}
-        </span>
+        {m.status === 'ready' ? (
+          <span className={styles.badgeReady}>{t('studio.status_ready')}</span>
+        ) : m.status === 'error' ? (
+          <span className={styles.status} style={{ color: '#e53e3e' }}>{t('studio.status_error')}</span>
+        ) : (
+          <span className={styles.status}>{m.status}</span>
+        )}
         {m.status === 'ready' && family === 'image' && activeModelId === m.id && (
-          <span className={styles.status}>{t('studio.using')}</span>
+          <span className={styles.badgeSelected}>{t('studio.using')}</span>
         )}
         {m.status === 'ready' && family === 'video' && activeVideoModelId === m.id && (
           <>
-            <span className={styles.status} title={t('studio.using_hint')}>{t('studio.using')}</span>
+            <span className={styles.badgeSelected} title={t('studio.using_hint')}>{t('studio.using')}</span>
             <button
               type="button"
               className={styles.textButton}
@@ -413,7 +457,7 @@ export function StudioPage(): ReactNode {
           </>
         )}
         {m.status === 'ready' && m.id !== 'runwayml/gen4.5' && inRam && (
-          <span className={styles.status}>{t('studio.in_ram')}</span>
+          <span className={styles.badgeReady}>{t('studio.in_ram')}</span>
         )}
         {m.status === 'ready' && m.id !== 'runwayml/gen4.5' && !inRam && (
           <span className={styles.statusMuted} title={t('studio.not_in_ram_hint')}>{t('studio.not_in_ram')}</span>
@@ -426,8 +470,8 @@ export function StudioPage(): ReactNode {
         {m.status === 'ready' && family === 'image' && activeModelId !== m.id && (
           <button
             type="button"
-            className={styles.textButton}
-            onClick={() => handleUse(m.id)}
+            className={styles.useButton}
+            onClick={() => { void handleUse(m.id); }}
             title={t('studio.use_title')}
           >
             {t('studio.use')}
@@ -436,8 +480,8 @@ export function StudioPage(): ReactNode {
         {m.status === 'ready' && family === '3d' && active3dModelId !== m.id && (
           <button
             type="button"
-            className={styles.textButton}
-            onClick={() => handleUse(m.id)}
+            className={styles.useButton}
+            onClick={() => { void handleUse(m.id); }}
             title={t('studio.use_title')}
           >
             {t('studio.use')}
@@ -446,8 +490,8 @@ export function StudioPage(): ReactNode {
         {m.status === 'ready' && family === 'video' && activeVideoModelId !== m.id && (
           <button
             type="button"
-            className={styles.textButton}
-            onClick={() => handleUse(m.id)}
+            className={styles.useButton}
+            onClick={() => { void handleUse(m.id); }}
             title={t('studio.use_title')}
           >
             {t('studio.use')}
@@ -472,7 +516,7 @@ export function StudioPage(): ReactNode {
             disabled={isDownloading}
             title={t('studio.delete_title')}
           >
-            {t('studio.delete_disk')}
+            {t('studio.delete')}
           </button>
         ) : null}
       </div>
@@ -481,6 +525,37 @@ export function StudioPage(): ReactNode {
 
   return (
     <div className={styles.container}>
+      {swapConfirm ? (
+        <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
+          <div className={styles.modalCard}>
+            <p>
+              {swapConfirm.names.length === 1
+                ? t('studio.swap_confirm', { name: swapConfirm.names[0] })
+                : t('studio.swap_confirm_multi', { names: swapConfirm.names.join(', ') })}
+            </p>
+            <div className={styles.modalActions}>
+              <button
+                type="button"
+                className={styles.modalCancel}
+                onClick={() => setSwapConfirm(null)}
+              >
+                {t('studio.swap_cancel')}
+              </button>
+              <button
+                type="button"
+                className={styles.modalContinue}
+                onClick={() => {
+                  const next = swapConfirm.modelId;
+                  setSwapConfirm(null);
+                  void applyUse(next, true);
+                }}
+              >
+                {t('studio.swap_continue')}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <header className={styles.header}>
         <h1 className={styles.title}>{t('studio.title')}</h1>
       </header>
@@ -1001,10 +1076,10 @@ export function StudioPage(): ReactNode {
                     )}
                     {isReady && (
                       <div className={styles.voiceActions}>
-                        <span className={styles.status}>✓ {t('studio.installed')}</span>
+                        <span className={styles.badgeReady}>✓ {t('studio.installed')}</span>
                         <button
                           type="button"
-                          className={styles.textButton}
+                          className={styles.textButtonDanger}
                           disabled={unloadingId === m.id}
                           onClick={() => { void handleDelete(m.id); }}
                         >

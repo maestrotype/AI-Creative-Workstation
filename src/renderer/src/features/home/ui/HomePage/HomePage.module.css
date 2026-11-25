@@ -60,6 +60,89 @@
   animation: intentReveal var(--duration-slow) var(--ease-out) 80ms both;
 }
 
+.modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.mode {
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-medium);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+
+.mode[data-on] {
+  color: var(--color-text-inverse);
+  background: var(--color-accent);
+  border-color: transparent;
+}
+
+.mode:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+.voiceCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-accent-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-card);
+}
+
+.voiceCard strong {
+  color: var(--color-text-primary);
+  font-size: var(--text-body-lg);
+  font-weight: var(--weight-medium);
+}
+
+.voiceCard p,
+.modeNote {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--color-text-secondary);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
+.voiceActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.voicePrimary {
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text-inverse);
+  background: var(--color-accent);
+  font: inherit;
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  border: none;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+
+.voicePrimary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.voiceError {
+  margin: 0;
+  color: var(--color-danger, #e5484d);
+  font-size: var(--text-body-sm);
+}
+
 @keyframes intentReveal {
   from {
     opacity: 0;

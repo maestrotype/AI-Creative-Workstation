@@ -58,6 +58,11 @@
   border-radius: 2px;
 }
 
+.fillRam[data-critical='true'],
+.fillDisk[data-critical='true'] {
+  background: #ef4444;
+}
+
 .runtime {
   padding: var(--space-4) var(--space-5);
   background-color: var(--color-bg-card);

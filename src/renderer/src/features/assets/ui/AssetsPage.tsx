@@ -1,8 +1,9 @@
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { pickAndStartVoiceover } from '../../projects/model/startVoiceover';
 import { WorkspaceFlow } from '../../studio/ui/WorkspaceFlow';
 import { studioHref } from '../../studio/model/studioReturn';
 import { useMediaLibraryStore } from '../store/mediaLibraryStore';
@@ -103,7 +104,10 @@ function VoiceProgressPanel({ job, t }: { job: VoiceJob; t: (key: string, opts?:
 
 export function AssetsPage(): ReactNode {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
   const [search, setSearch] = useSearchParams();
+  const [dubBusy, setDubBusy] = useState(false);
+  const [dubError, setDubError] = useState<string | null>(null);
   const tab = search.get('tab') === 'voice' ? 'voice' : 'media';
   const audioClips = useMediaLibraryStore((s) => s.audioClips);
   const voicePath = useMediaLibraryStore((s) => s.voicePath);
@@ -583,6 +587,22 @@ export function AssetsPage(): ReactNode {
     setPlayingPath(target);
   };
 
+  const downloadClip = async (path: string) => {
+    if (!window.api?.saveMediaAs) return;
+    setCaptureError(null);
+    let target = path;
+    try {
+      if (window.api?.prepareLibraryAudio) {
+        const prepared = await window.api.prepareLibraryAudio(path);
+        target = prepared.path;
+        if (prepared.converted) await loadLibrary();
+      }
+      await window.api.saveMediaAs(target);
+    } catch (err) {
+      setCaptureError(captureFailMessage(err, t));
+    }
+  };
+
   useEffect(() => {
     if (!playingPath || !window.api?.readMediaFile) {
       setPlayUrl(null);
@@ -744,6 +764,29 @@ export function AssetsPage(): ReactNode {
             </div>
           ) : null}
           <p className={styles.sampleHint}>{t('assets.voice_sample_hint')}</p>
+          <div className={ui.actions}>
+            <button
+              type="button"
+              className={ui.primary}
+              disabled={!sampleLabel || dubBusy || voiceBusy || recording !== 'idle'}
+              onClick={() => {
+                setDubBusy(true);
+                setDubError(null);
+                void pickAndStartVoiceover({
+                  untitled: t('projects.untitled'),
+                  chapterTitle: t('projects.imported_video_chapter'),
+                }).then((href) => {
+                  if (href) navigate(href);
+                }).catch((err: unknown) => {
+                  setDubError(err instanceof Error ? err.message : String(err));
+                }).finally(() => setDubBusy(false));
+              }}
+            >
+              {dubBusy ? t('home.job_voice_busy') : t('assets.voice_dub')}
+            </button>
+          </div>
+          {!sampleLabel ? <p className={styles.sampleMissing}>{t('assets.voice_dub_need')}</p> : null}
+          {dubError ? <p className={ui.error}>{dubError}</p> : null}
         </div>
 
         {job ? <VoiceProgressPanel job={job} t={t} /> : null}
@@ -976,6 +1019,13 @@ export function AssetsPage(): ReactNode {
                             onClick={() => { void openTranscript(clip.path, audioClipLabel(clip.name, i18n.language)); }}
                           >
                             {t('assets.library_to_text')}
+                          </button>
+                          <button
+                            type="button"
+                            className={ui.link}
+                            onClick={() => { void downloadClip(clip.path); }}
+                          >
+                            {t('assets.library_download')}
                           </button>
                           <button
                             type="button"

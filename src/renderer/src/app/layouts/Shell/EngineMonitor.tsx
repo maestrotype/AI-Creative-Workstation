@@ -15,6 +15,7 @@ function prettyModel(cacheKey: string): string {
   if (/qwen2\.5:14b/i.test(raw)) return 'Qwen 2.5 14B';
   if (/qwen2\.5:7b/i.test(raw)) return 'Qwen 2.5 7B';
   if (/qwen2\.5vl/i.test(raw)) return 'Qwen 2.5 VL';
+  if (/wan3|wan-3|alibaba\/wan3/i.test(raw)) return 'Wan 3.0';
   if (/wan.*ti2v|anes1032/i.test(raw)) return 'Wan 2.2 TI2V';
   if (/flux/i.test(raw)) return 'FLUX';
   return raw;

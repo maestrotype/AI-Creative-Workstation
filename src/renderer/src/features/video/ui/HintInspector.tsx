@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   hintDuration,
@@ -13,12 +14,20 @@ import { formatClock } from '../model/directorTimeline';
 import { useDirector } from './DirectorBoard';
 import s from './HintInspector.module.css';
 
-const TYPES: HintType[] = ['plain', 'dot', 'arrow'];
-const SHAPES: HintShape[] = ['rect', 'oval'];
+const TYPES: Array<{ id: HintType; icon: string }> = [
+  { id: 'plain', icon: '▭' },
+  { id: 'dot', icon: '●' },
+  { id: 'arrow', icon: '➤' },
+];
+const SHAPES: Array<{ id: HintShape; icon: string }> = [
+  { id: 'rect', icon: '▢' },
+  { id: 'oval', icon: '◯' },
+];
 const SIZES: HintSize[] = ['s', 'm', 'l'];
 const ANIMS: HintAnimIn[] = ['none', 'fade', 'slide-up', 'pop', 'typewriter'];
 
 export function HintInspector({ hint }: { hint: Callout }): ReactNode {
+  const { t } = useTranslation();
   const d = useDirector();
   const dur = hintDuration(hint);
 
@@ -61,104 +70,108 @@ export function HintInspector({ hint }: { hint: Callout }): ReactNode {
   return (
     <aside className={s.root}>
       <header className={s.head}>
-        <h2 className={s.title}>Hint</h2>
+        <h2 className={s.title}>{t('video.hint_panel_title')}</h2>
         <button type="button" className={s.back} onClick={() => d.setSelectedCallout(null)}>
-          ← Film
+          ← {t('video.hint_back_film')}
         </button>
       </header>
 
       <div className={s.block}>
-        <label className={s.label}>Text</label>
+        <label className={s.label}>{t('video.hint_text')}</label>
         <textarea
           className={s.textarea}
           rows={3}
           value={hint.text}
           onChange={(e) => patch({ text: e.target.value })}
-          placeholder="Hint text…"
+          placeholder={t('video.hint_text_placeholder')}
         />
       </div>
 
       <div className={s.block}>
-        <div className={s.label}>Type</div>
+        <div className={s.label}>{t('video.hint_type')}</div>
         <div className={s.chips}>
           {TYPES.map((type) => (
             <button
-              key={type}
+              key={type.id}
               type="button"
-              className={s.chip}
-              data-on={hint.type === type}
+              className={s.iconChip}
+              data-on={hint.type === type.id}
+              title={hintTypeLabel(type.id)}
+              aria-label={hintTypeLabel(type.id)}
               onClick={() => {
                 const far = Math.hypot(hint.boxX - hint.targetX, hint.boxY - hint.targetY) >= 10;
                 patch({
-                  type,
-                  arrowStyle: type === 'arrow' ? 'straight' : 'none',
-                  pulse: type === 'dot',
-                  ...(type === 'arrow' && !far ? {
+                  type: type.id,
+                  arrowStyle: type.id === 'arrow' ? 'straight' : 'none',
+                  pulse: type.id === 'dot',
+                  ...(type.id === 'arrow' && !far ? {
                     targetX: Math.max(4, Math.min(96, hint.boxX - 22)),
                     targetY: Math.max(4, Math.min(96, hint.boxY - 16)),
                   } : {}),
                 });
               }}
             >
-              {hintTypeLabel(type)}
+              {type.icon}
             </button>
           ))}
         </div>
       </div>
 
       <div className={s.block}>
-        <label className={s.label}>Title (optional)</label>
+        <label className={s.label}>{t('video.hint_title_optional')}</label>
         <input
           className={s.input}
           value={hint.title || ''}
           onChange={(e) => patch({ title: e.target.value || undefined })}
-          placeholder="Optional subtitle"
+          placeholder={t('video.hint_title_placeholder')}
         />
       </div>
 
       <div className={s.block}>
-        <div className={s.label}>Look</div>
+        <div className={s.label}>{t('video.hint_look')}</div>
         <div className={s.chips}>
           {SHAPES.map((shape) => (
             <button
-              key={shape}
+              key={shape.id}
               type="button"
-              className={s.chip}
-              data-on={hint.shape === shape}
-              onClick={() => patch({ shape })}
+              className={s.iconChip}
+              data-on={hint.shape === shape.id}
+              title={shape.id === 'rect' ? t('video.hint_shape_rect') : t('video.hint_shape_oval')}
+              aria-label={shape.id === 'rect' ? t('video.hint_shape_rect') : t('video.hint_shape_oval')}
+              onClick={() => patch({ shape: shape.id })}
             >
-              {shape === 'rect' ? 'Rectangle' : 'Oval'}
+              {shape.icon}
             </button>
           ))}
         </div>
         <div className={s.lookRow}>
           <label className={s.swatch}>
-            <span>Fill</span>
+            <span>{t('video.hint_fill')}</span>
             <input
               className={s.color}
               type="color"
-              aria-label="Background color"
+              aria-label={t('video.hint_fill')}
               value={hint.fill && hint.fill !== 'transparent' ? hint.fill : '#0f172a'}
               onChange={(e) => patch({ fill: e.target.value })}
             />
           </label>
           <label className={s.swatch}>
-            <span>Text</span>
+            <span>{t('video.hint_text')}</span>
             <input
               className={s.color}
               type="color"
-              aria-label="Text color"
+              aria-label={t('video.hint_text')}
               value={hint.textColor && /^#[0-9a-fA-F]{6}$/.test(hint.textColor) ? hint.textColor : '#f8fafc'}
               onChange={(e) => patch({ textColor: e.target.value })}
             />
           </label>
           {hint.type !== 'plain' ? (
             <label className={s.swatch}>
-              <span>Line</span>
+              <span>{t('video.hint_line')}</span>
               <input
                 className={s.color}
                 type="color"
-                aria-label="Line color"
+                aria-label={t('video.hint_line')}
                 value={hint.color && /^#[0-9a-fA-F]{6}$/.test(hint.color) ? hint.color : '#f2c14e'}
                 onChange={(e) => patch({ color: e.target.value })}
               />
@@ -170,13 +183,13 @@ export function HintInspector({ hint }: { hint: Callout }): ReactNode {
             data-on={hint.fill === 'transparent'}
             onClick={() => patch({ fill: hint.fill === 'transparent' ? undefined : 'transparent' })}
           >
-            Transparent
+            {t('video.hint_transparent')}
           </button>
         </div>
       </div>
 
       <div className={s.block}>
-        <div className={s.label}>Size</div>
+        <div className={s.label}>{t('video.hint_size')}</div>
         <div className={s.chips}>
           {SIZES.map((size) => (
             <button
@@ -193,7 +206,7 @@ export function HintInspector({ hint }: { hint: Callout }): ReactNode {
       </div>
 
       <div className={s.block}>
-        <div className={s.label}>Animation in</div>
+        <div className={s.label}>{t('video.hint_anim_in')}</div>
         <div className={s.chips}>
           {ANIMS.map((anim) => (
             <button
@@ -210,9 +223,9 @@ export function HintInspector({ hint }: { hint: Callout }): ReactNode {
       </div>
 
       <div className={s.block}>
-        <div className={s.label}>Timing</div>
+        <div className={s.label}>{t('video.hint_timing')}</div>
         <div className={s.row}>
-          <span className={s.key}>Range</span>
+          <span className={s.key}>{t('video.hint_range')}</span>
           <span className={s.val}>{formatClock(hint.startSec)} – {formatClock(hint.endSec)}</span>
         </div>
         <div className={s.durationRow}>
@@ -231,7 +244,7 @@ export function HintInspector({ hint }: { hint: Callout }): ReactNode {
       </div>
 
       <div className={s.block}>
-        <div className={s.label}>Position</div>
+        <div className={s.label}>{t('video.hint_position')}</div>
         <div className={s.xyRow}>
           <label>
             X
@@ -258,18 +271,22 @@ export function HintInspector({ hint }: { hint: Callout }): ReactNode {
             />
           </label>
         </div>
-        <p className={s.hint}>Drag the label to move the whole hint. Drag the dot or arrow tip to aim it. Corners resize it.</p>
+        <p className={s.hint}>{t('video.hint_drag_help')}</p>
       </div>
 
       <div className={s.actions}>
         <button type="button" className={s.btn} onClick={() => d.seekTo(hint.startSec)}>
-          Go to hint
+          {t('video.hint_goto')}
         </button>
         <button type="button" className={s.btn} onClick={duplicate}>
-          Duplicate
+          {t('video.hint_duplicate')}
         </button>
-        <button type="button" className={s.btnDanger} onClick={() => d.removeCallout(hint.id)}>
-          Delete
+        <button
+          type="button"
+          className={s.btnDanger}
+          onClick={() => d.removeCallout(hint.id)}
+        >
+          {t('video.hint_delete')}
         </button>
       </div>
     </aside>

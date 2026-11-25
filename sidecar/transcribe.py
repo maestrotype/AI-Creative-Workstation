@@ -130,12 +130,14 @@ def transcribe_video(
         if on_progress:
             on_progress("transcribe", 55, "Transcribing speech")
 
-        lang = language if language and language != "auto" else None
+        lang = language if language and language not in ("auto", "unknown") else None
         segments_iter, info = model.transcribe(
             wav_path,
             language=lang,
             beam_size=5,
             vad_filter=True,
+            vad_parameters={"min_silence_duration_ms": 700},
+            condition_on_previous_text=True,
         )
 
         segments: List[Dict[str, Any]] = []

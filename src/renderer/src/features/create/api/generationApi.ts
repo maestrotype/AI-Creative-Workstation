@@ -5,6 +5,7 @@
  * so the sidecar can be started/restarted and CORS/PNA cannot block it.
  */
 import type { GenerationResult } from '../../../core/types';
+import { toAssetUrl } from '../../video/model/directorMedia';
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
 
@@ -131,7 +132,7 @@ export function runGeneration(
       onProgress({ progress: 1, message: 'Done!', estimatedSecondsLeft: 0, elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000) });
 
       const assetUrl = data.file_path
-        ? `asset://${data.file_path}?v=${encodeURIComponent(data.job_id)}`
+        ? `${toAssetUrl(data.file_path)}?v=${encodeURIComponent(data.job_id)}`
         : null;
 
       return {
@@ -251,7 +252,7 @@ export function runVideoGeneration(
       if (cancelled) throw new DOMException('Generation cancelled', 'AbortError');
       onProgress({ progress: 1, message: 'Done!', estimatedSecondsLeft: 0, elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000) });
       const assetUrl = data.file_path
-        ? `asset://${data.file_path}?v=${encodeURIComponent(data.job_id)}`
+        ? `${toAssetUrl(data.file_path)}?v=${encodeURIComponent(data.job_id)}`
         : null;
       return {
         id: data.job_id,

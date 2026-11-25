@@ -87,19 +87,35 @@ export function ClipInspector({
 
   const audioPolicy = d.exportSettings.audioPolicy;
   const policyHint = audioPolicy === 'replace'
-    ? 'Голос в записи выключен, звучит только озвучка.'
+    ? 'Голос внутри файла не звучит. Слышно только вашу озвучку.'
     : audioPolicy === 'duck'
-      ? 'Голос в записи тише, пока говорит озвучка.'
-      : 'Голос в записи остаётся как есть.';
+      ? 'Голос внутри файла тише, пока говорит ваша озвучка.'
+      : 'Голос внутри файла остаётся. Ваша озвучка звучит поверх.';
 
+  const heardLine = (d.voiceover.script?.segments ?? [])
+    .map((seg) => (seg.text || seg.text_en || '').trim())
+    .filter(Boolean)
+    .join(' ');
   const filmActions = (
     <div className={s.block}>
-      <div className={s.sectionLabel}>Звук записи</div>
-      <div className={s.policy} role="group" aria-label="Звук записи">
+      {onOpenVoiceover ? (
+        <button type="button" className={s.btnPrimaryWide} onClick={onOpenVoiceover}>
+          Заменить голос моим
+        </button>
+      ) : null}
+      {heardLine ? (
+        <div className={s.heardPreview}>
+          <div className={s.sectionLabel}>Текст озвучки</div>
+          <p className={s.hint}>{heardLine}</p>
+          {d.narrationAlignNote ? <p className={s.hint}>{d.narrationAlignNote}</p> : null}
+        </div>
+      ) : null}
+      <div className={s.sectionLabel}>Голос внутри файла</div>
+      <div className={s.policy} role="group" aria-label="Голос внутри файла">
         {([
           ['original', 'Оставить'],
           ['duck', 'Тише'],
-          ['replace', 'Заменить'],
+          ['replace', 'Убрать'],
         ] as const).map(([value, label]) => (
           <button
             key={value}
@@ -113,11 +129,6 @@ export function ClipInspector({
         ))}
       </div>
       <p className={s.hint}>{policyHint}</p>
-      {onOpenVoiceover ? (
-        <button type="button" className={s.btnPrimaryWide} onClick={onOpenVoiceover}>
-          К озвучке
-        </button>
-      ) : null}
       <details className={s.fold}>
         <summary>Кадры товара</summary>
         <div className={s.presets}>
@@ -228,9 +239,9 @@ export function ClipInspector({
   return (
     <aside className={s.root}>
       <header className={s.head}>
-        <h2 className={s.title}>Clip</h2>
+        <h2 className={s.title}>Клип</h2>
         <button type="button" className={s.backFilm} onClick={() => d.setSelectedClip(null)}>
-          ← Film
+          ← Фильм
         </button>
       </header>
 
@@ -250,7 +261,7 @@ export function ClipInspector({
         )}
         <div className={s.productMeta}>
           <strong>{filmName}</strong>
-          <span>{formatClock(filmStats.duration)} film · click for actions</span>
+          <span>{formatClock(filmStats.duration)} · к фильму</span>
         </div>
       </div>
 
@@ -317,7 +328,7 @@ export function ClipInspector({
             onClick={() => d.setProductStillFromBin(bin.id)}
             disabled={Boolean(d.productStillPath && bin.path === d.productStillPath)}
           >
-            {d.productStillPath && bin.path === d.productStillPath ? 'Product still ✓' : 'Use as product still'}
+            {d.productStillPath && bin.path === d.productStillPath ? 'Товарный кадр ✓' : 'Сделать товарным кадром'}
           </button>
         ) : null}
       </div>
@@ -380,7 +391,7 @@ export function ClipInspector({
 
       {clip.track.startsWith('a') && clip.text ? (
         <div className={s.block}>
-          <div className={s.sectionLabel}>Narration</div>
+          <div className={s.sectionLabel}>Озвучка</div>
           <p className={s.prompt}>{clip.text}</p>
         </div>
       ) : null}

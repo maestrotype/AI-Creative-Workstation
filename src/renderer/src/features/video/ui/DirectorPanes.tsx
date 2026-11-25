@@ -836,11 +836,20 @@ export function DirectorSourcesPane({
               const clip = bin ? d.clips.find((item) => item.binId === bin.id) : null;
               const onTimeline = Boolean(clip);
               const modelFull = shotProviderShort(shot);
-              const flags = [
-                shot.validationStatus && shot.validationStatus !== 'ok' ? shot.validationStatus : '',
-                shot.productIdentityWarning ? 'identity' : '',
-                d.productStillPath && (!shot.sourceAsset || !sameProductAsset(shot.sourceAsset, d.productStillPath)) ? 'other product' : '',
-              ].filter(Boolean);
+              const flags: Array<{ key: string; label: string; tone: 'neutral' | 'warn' | 'bad' }> = [
+                { key: 'model', label: shotModelLabel(shot), tone: 'neutral' },
+              ];
+              if (shot.validationStatus === 'warning') {
+                flags.push({ key: 'status', label: d.t('video.shot_flag_warning'), tone: 'warn' });
+              } else if (shot.validationStatus === 'failed') {
+                flags.push({ key: 'status', label: d.t('video.shot_flag_failed'), tone: 'bad' });
+              }
+              if (shot.productIdentityWarning) {
+                flags.push({ key: 'identity', label: d.t('video.shot_flag_identity'), tone: 'warn' });
+              }
+              if (d.productStillPath && (!shot.sourceAsset || !sameProductAsset(shot.sourceAsset, d.productStillPath))) {
+                flags.push({ key: 'other', label: d.t('video.shot_flag_other'), tone: 'warn' });
+              }
               return (
               <li
                 key={shot.id}
@@ -882,13 +891,24 @@ export function DirectorSourcesPane({
                 <div className={styles.shotMeta}>
                   <strong>{shotCardTitle(shot)}</strong>
                   <span className={styles.shotFacts}>
-                    {shot.duration ? `${shot.duration.toFixed(1)}s` : '—'}
-                    {' · '}
-                    {onTimeline ? d.t('video.dir_on_timeline') : d.t('video.shot_off_timeline')}
+                    <span className={styles.shotDur}>
+                      {shot.duration ? `${shot.duration.toFixed(1)}s` : '—'}
+                    </span>
+                    <span className={styles.shotWhere} data-on={onTimeline ? 'true' : 'false'}>
+                      {onTimeline ? d.t('video.dir_on_timeline') : d.t('video.shot_off_timeline')}
+                    </span>
                   </span>
-                  <span className={styles.shotModel} title={modelFull}>
-                    {shotModelLabel(shot)}
-                    {flags.length ? ` · ${flags.join(' · ')}` : ''}
+                  <span className={styles.shotFlags}>
+                    {flags.map((flag) => (
+                      <span
+                        key={flag.key}
+                        className={styles.shotFlag}
+                        data-tone={flag.tone}
+                        title={flag.key === 'model' ? modelFull : flag.label}
+                      >
+                        {flag.label}
+                      </span>
+                    ))}
                   </span>
                 </div>
                 <div className={styles.shotActions}>

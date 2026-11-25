@@ -2,7 +2,7 @@
   display: grid;
   /* Rows set inline: toolbar | stage | splitter | timeline */
   flex: 1;
-  height: auto;
+  height: 100%;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
@@ -70,8 +70,31 @@
 .tools {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
+  flex-shrink: 0;
+}
+
+.jobBanner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-accent-border);
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-elevated));
+  color: var(--color-text-secondary);
+  font-size: var(--text-body-sm);
+  line-height: 1.4;
+}
+
+.jobBanner strong {
+  color: var(--color-text-primary);
+  font-weight: var(--weight-medium);
+}
+
+.jobBanner a {
+  color: var(--color-accent);
 }
 
 .exportBar {
@@ -108,9 +131,9 @@
 }
 
 .exportSave {
-  border: 1px solid var(--color-accent-border);
-  background: var(--color-accent-subtle);
-  color: var(--color-accent);
+  border: 1px solid #3f3f46;
+  background: #27272a;
+  color: var(--color-text-primary);
   border-radius: 4px;
   font: inherit;
   font-size: 12px;
@@ -136,24 +159,29 @@
 }
 
 .play {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: var(--color-bg-base);
+  border-color: #3f3f46;
+  background: #27272a;
+  color: var(--color-text-primary);
   font-weight: 600;
   min-width: 4.5rem;
 }
 
+.play:hover:not(:disabled) {
+  border-color: #52525b;
+  background: #3f3f46;
+}
+
 .export {
-  border-color: var(--color-accent-border);
-  color: var(--color-accent);
-  background: var(--color-accent-subtle);
-  font-weight: 600;
+  border-color: var(--color-accent);
+  color: var(--color-bg-base);
+  background: var(--color-accent);
+  font-weight: 700;
 }
 
 .ghost[data-on='true'] {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  background: var(--color-accent-subtle);
+  border-color: #52525b;
+  color: var(--color-text-primary);
+  background: #27272a;
   font-weight: 600;
 }
 
@@ -380,6 +408,25 @@
   background: var(--color-bg-elevated);
 }
 
+.editBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-base);
+}
+
+.editSplit {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--color-border-strong);
+  flex: none;
+}
+
 .timelineHead {
   display: flex;
   align-items: center;
@@ -469,5 +516,11 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* Keep mixer scrollable inside the reserved timeline row when tracks exceed height. */
+.timelineBody > * {
+  flex: 1;
+  min-height: 0;
 }
 

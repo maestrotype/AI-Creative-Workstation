@@ -64,6 +64,54 @@ class SpeechLockTests(unittest.TestCase):
             self.assertGreaterEqual(result["tempo"], 0.94)
             self.assertLessEqual(result["tempo"], 1.08)
 
+    def test_match_picture_never_outruns_the_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = os.path.join(tmp, "source.wav")
+            output = os.path.join(tmp, "output.wav")
+            subprocess.run(
+                [
+                    shutil.which("ffmpeg") or "ffmpeg",
+                    "-y",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "sine=frequency=220:duration=3",
+                    source,
+                ],
+                check=True,
+                capture_output=True,
+            )
+
+            result = lock_speech_to_window(source, output, 2.0, match_picture=True)
+
+            self.assertTrue(result.get("matched_picture"))
+            self.assertLessEqual(result["output_sec"], 2.08)
+
+    def test_match_picture_slows_into_a_longer_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = os.path.join(tmp, "source.wav")
+            output = os.path.join(tmp, "output.wav")
+            subprocess.run(
+                [
+                    shutil.which("ffmpeg") or "ffmpeg",
+                    "-y",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "sine=frequency=220:duration=2",
+                    source,
+                ],
+                check=True,
+                capture_output=True,
+            )
+
+            result = lock_speech_to_window(source, output, 2.5, match_picture=True)
+
+            self.assertTrue(result.get("matched_picture"))
+            self.assertLess(result["tempo"], 0.98)
+            self.assertGreaterEqual(result["output_sec"], 2.3)
+            self.assertLessEqual(result["output_sec"], 2.6)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -27,9 +27,15 @@ function prettyResident(key: string): string {
   if (/qwen2\.5:14b/i.test(raw)) return 'Qwen 2.5 14B';
   if (/qwen2\.5:7b/i.test(raw)) return 'Qwen 2.5 7B';
   if (/qwen2\.5vl/i.test(raw)) return 'Qwen 2.5 VL';
+  if (/wan3|wan-3|alibaba\/wan3/i.test(raw)) return 'Wan 3.0';
   if (/wan.*ti2v|anes1032/i.test(raw)) return 'Wan 2.2 TI2V';
   if (/flux/i.test(raw)) return 'FLUX';
   return raw;
+}
+
+function freeRatio(free: number, total: number): number {
+  if (total <= 0) return 1;
+  return free / total;
 }
 
 export function StudioResources({
@@ -45,6 +51,8 @@ export function StudioResources({
 }: StudioResourcesProps): ReactNode {
   const { t } = useTranslation();
   const ramUsed = ramTotal - ramFree;
+  const ramCritical = freeRatio(ramFree, ramTotal) < 0.15;
+  const diskCritical = freeRatio(diskFree, diskTotal) < 0.15;
   const pressure = ramFree > 0 && ramFree < 4 * 1024 ** 3;
   const residents = loaded.map((item) => ({
     ...item,
@@ -63,7 +71,11 @@ export function StudioResources({
             })}
           </span>
           <div className={styles.track}>
-            <div className={styles.fillRam} style={{ width: `${ramTotal > 0 ? (ramUsed / ramTotal) * 100 : 0}%` }} />
+            <div
+              className={styles.fillRam}
+              data-critical={ramCritical || undefined}
+              style={{ width: `${ramTotal > 0 ? (ramUsed / ramTotal) * 100 : 0}%` }}
+            />
           </div>
         </div>
         <div className={styles.item}>
@@ -75,7 +87,11 @@ export function StudioResources({
             })}
           </span>
           <div className={styles.track}>
-            <div className={styles.fillDisk} style={{ width: `${diskTotal > 0 ? ((diskTotal - diskFree) / diskTotal) * 100 : 0}%` }} />
+            <div
+              className={styles.fillDisk}
+              data-critical={diskCritical || undefined}
+              style={{ width: `${diskTotal > 0 ? ((diskTotal - diskFree) / diskTotal) * 100 : 0}%` }}
+            />
           </div>
         </div>
       </div>
@@ -96,7 +112,6 @@ export function StudioResources({
           ) : null}
         </div>
         {pressure ? <p className={styles.pressure}>{t('studio.runtime_pressure')}</p> : null}
-        <p className={styles.runtimeLead}>{t('studio.runtime_lead')}</p>
         {residents.length === 0 ? (
           <p className={styles.empty}>{t('studio.runtime_empty')}</p>
         ) : (

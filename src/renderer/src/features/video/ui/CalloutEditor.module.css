@@ -32,7 +32,7 @@
 }
 
 .wrapper[data-placing='true'] .previewContainer {
-  outline: 2px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
+  outline: 2px solid #71717a;
   outline-offset: -2px;
 }
 
@@ -138,12 +138,45 @@
 }
 
 .chrome .modeBtn,
-.chrome .viewCtrlBtn {
+.chrome .viewCtrlBtn,
+.chrome .iconBtn {
   height: 24px;
   padding: 0 8px;
   font-size: 11px;
   line-height: 1;
   white-space: nowrap;
+}
+
+.chrome .iconBtn {
+  width: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.chrome .iconBtn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.chrome .iconBtn[data-active='true'],
+.chrome .iconBtn[data-on='true'] {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.chromeSpacer {
+  flex: 1;
+  min-width: 8px;
 }
 
 .overlayCanvas {
@@ -378,8 +411,8 @@
 }
 
 .modeBtn[data-active='true'] {
-  background: var(--color-accent);
-  color: var(--color-bg-base);
+  background: #3f3f46;
+  color: #fafafa;
 }
 
 .presetsRow {
@@ -403,7 +436,7 @@
 }
 
 .calloutInput:focus {
-  border-color: var(--color-accent);
+  border-color: #71717a;
 }
 
 .calloutInput::placeholder {
@@ -430,13 +463,13 @@
 
 .presetBtn:hover {
   color: var(--color-text-primary);
-  border-color: var(--color-accent);
+  border-color: #52525b;
 }
 
 .presetBtn[data-active='true'] {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  border-color: #71717a;
+  color: var(--color-text-primary);
+  background: #27272a;
 }
 
 /* ── Callout List Drawer ─────────────────────────────────── */
@@ -743,7 +776,7 @@
 
 .themeChip[data-active='true'],
 .shapeBtn[data-active='true'] {
-  background: var(--color-accent);
+  background: #3f3f46;
   color: #fff;
-  border-color: var(--color-accent);
+  border-color: #71717a;
 }

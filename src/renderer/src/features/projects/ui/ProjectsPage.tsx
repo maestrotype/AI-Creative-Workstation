@@ -1,19 +1,16 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { toAssetUrl } from '../../video/model/directorMedia';
-import { fileName } from '../../video/model/directorTimeline';
 import {
   marketplaceFilmSeed,
-  newScene,
-  timelineFromScenes,
-  type ProjectDoc,
   type ProjectSummary,
 } from '../model/project';
 import { ECOMMERCE_TEMPLATE_ID, scenesFromTemplate } from '../model/filmTemplate';
 import { clearLastProjectId, editorHref, readLastProjectId, scriptHref, writeLastProjectId } from '../model/handoff';
+import { startProjectFromVideo } from '../model/startVoiceover';
 import type { FilmTemplate } from '../../../../../shared/filmTemplate';
 import styles from './ProjectsPage.module.css';
 
@@ -118,46 +115,20 @@ export function ProjectsPage(): ReactNode {
     }
   };
 
-  const importVideo = async () => {
-    if (!window.api?.pickVideo || !window.api.createProject || !window.api.importIntoProject) return;
+  const importVideo = async (voice: boolean) => {
+    if (!window.api?.pickVideo) return;
     const picked = await window.api.pickVideo();
     if (!picked) return;
     setCreating(true);
     setError(null);
-    let createdId: string | null = null;
     try {
-      const sourceName = fileName(picked);
-      const name = sourceName.replace(/\.[^.]+$/, '') || t('projects.untitled');
-      const doc = await window.api.createProject({
-        name,
-        format: 'landscape',
-        preset: 'youtube',
-        templateId: null,
+      const href = await startProjectFromVideo(picked, {
+        untitled: t('projects.untitled'),
+        chapterTitle: t('projects.imported_video_chapter'),
+        voice,
       });
-      createdId = doc.id;
-      const copied = await window.api.importIntoProject({ projectId: doc.id, path: picked });
-      const duration = await window.api.probeMediaDuration(copied.file_path).catch(() => 12);
-      const scene = {
-        ...newScene(t('projects.imported_video_chapter')),
-        clipPath: copied.file_path,
-        stillPath: copied.poster_path ?? null,
-        durationSec: Math.max(0.5, Math.round(duration * 10) / 10),
-        motion: 'import' as const,
-      };
-      const next = {
-        ...doc,
-        templateId: null,
-        brief: '',
-        scenes: [scene],
-      } as ProjectDoc;
-      await window.api.saveProject({
-        ...next,
-        timeline: timelineFromScenes(next),
-      });
-      writeLastProjectId(doc.id);
-      navigate(editorHref(doc.id));
+      navigate(href);
     } catch (err) {
-      if (createdId) await window.api.deleteProject?.(createdId).catch(() => undefined);
       setError(ipcMessage(err));
     } finally {
       setCreating(false);
@@ -269,11 +240,11 @@ export function ProjectsPage(): ReactNode {
           <p className={styles.lead}>{t('projects.lead')}</p>
         </div>
         <div className={styles.headerActions}>
-          <Link className={styles.ghostBtn} to="/video">
-            {t('projects.dub_existing')}
-          </Link>
-          <button type="button" className={styles.newButton} onClick={() => void create()} disabled={creating}>
+          <button type="button" className={styles.ghostBtn} onClick={() => void create()} disabled={creating}>
             {creating ? t('projects.creating') : t('projects.new_project')}
+          </button>
+          <button type="button" className={styles.newButton} onClick={() => void importVideo(true)} disabled={creating}>
+            {t('projects.dub_existing')}
           </button>
         </div>
       </header>
@@ -309,13 +280,17 @@ export function ProjectsPage(): ReactNode {
       ) : null}
 
       <section className={styles.startOptions}>
+        <button type="button" className={styles.startOption} data-primary="true" onClick={() => void importVideo(true)} disabled={creating}>
+          <strong>{t('projects.start_voice')}</strong>
+          <span>{t('projects.start_voice_hint')}</span>
+        </button>
+        <button type="button" className={styles.startOption} onClick={() => void importVideo(false)} disabled={creating}>
+          <strong>{t('projects.start_import')}</strong>
+          <span>{t('projects.start_import_hint')}</span>
+        </button>
         <button type="button" className={styles.startOption} onClick={() => void create()} disabled={creating}>
           <strong>{t('projects.start_blank')}</strong>
           <span>{t('projects.start_blank_hint')}</span>
-        </button>
-        <button type="button" className={styles.startOption} onClick={() => void importVideo()} disabled={creating}>
-          <strong>{t('projects.start_import')}</strong>
-          <span>{t('projects.start_import_hint')}</span>
         </button>
         <div className={styles.startOption}>
           <strong>{t('projects.start_template')}</strong>

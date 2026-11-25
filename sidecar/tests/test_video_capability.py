@@ -17,6 +17,8 @@ RUNWAY = "runwayml/gen4.5"
 H3 = "MiniMaxAI/MiniMax-H3"
 TI2V = "Anes1032/Wan2.2-TI2V-5B-mlx-q8"
 WAN = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
+WAN3 = "alibaba/wan3.0-video"
+HUNYUAN = "tencent/HunyuanVideo"
 
 
 class CapabilityTests(unittest.TestCase):
@@ -67,6 +69,23 @@ class CapabilityTests(unittest.TestCase):
         self.assertEqual(vc.normalize_model_id(TI2V), TI2V)
         self.assertEqual(vc.normalize_model_id("Wan-AI/Wan2.2-TI2V-5B"), TI2V)
         self.assertEqual(vc.normalize_model_id(WAN), WAN)
+        self.assertEqual(vc.normalize_model_id("wan3.0-video"), WAN3)
+        self.assertEqual(vc.normalize_model_id(WAN3), WAN3)
+
+    def test_wan3_is_cloud_prompt_i2v(self):
+        spec = vc.spec_for(WAN3)
+        self.assertEqual(spec["capability"], vc.IMAGE_TO_VIDEO)
+        self.assertTrue(spec["supports_text_prompt"])
+        self.assertTrue(spec["supports_image_conditioning"])
+        self.assertTrue(spec["prompt_consumed"])
+        vc.assert_mode_allowed("ai_video", WAN3)
+
+    def test_hunyuan_is_local_i2v_cuda_flagged(self):
+        spec = vc.spec_for(HUNYUAN)
+        self.assertEqual(spec["capability"], vc.IMAGE_TO_VIDEO)
+        self.assertTrue(spec["supports_image_conditioning"])
+        self.assertTrue(spec.get("requires_cuda"))
+        vc.assert_mode_allowed("ai_video", HUNYUAN)
 
     def test_ai_video_allows_runway_and_h3(self):
         vc.assert_mode_allowed("ai_video", RUNWAY)
@@ -171,6 +190,30 @@ class CapabilityTests(unittest.TestCase):
         })
         self.assertEqual(response.status_code, 400)
         self.assertIn("VIDEO_CAPABILITY_UNSUPPORTED", response.json()["detail"])
+
+    def test_http_wan3_without_key_is_capability_error(self):
+        import tempfile
+        from PIL import Image
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from api.motion import router
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api")
+        client = TestClient(app)
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as handle:
+            Image.new("RGB", (64, 64), (8, 8, 8)).save(handle.name)
+            still = handle.name
+        response = client.post("/api/generate/video", json={
+            "prompt": "slow cinematic camera push-in",
+            "format": "wide",
+            "model_id": WAN3,
+            "mode": "ai_video",
+            "image_path": still,
+        })
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("VIDEO_CAPABILITY_UNSUPPORTED", response.json()["detail"])
+        self.assertIn("DashScope", response.json()["detail"])
 
 
 class Ti2vProviderTests(unittest.TestCase):
@@ -339,6 +382,46 @@ class MotionQualityTests(unittest.TestCase):
         draw2.rectangle((18, 18, 62, 62), fill=(30, 180, 40))
         identity = _identity_vs_source(source, [swapped, swapped, swapped])
         self.assertTrue(identity["identity_warning"])
+
+    def test_local_diffusers_models_capability(self):
+        for model_id in ("Lightricks/LTX-Video", "THUDM/CogVideoX-5B", "tencent/HunyuanVideo"):
+            spec = vc.spec_for(model_id)
+            self.assertIsNotNone(spec)
+            self.assertEqual(spec["capability"], vc.IMAGE_TO_VIDEO)
+            self.assertTrue(spec["supports_image_conditioning"])
+            self.assertTrue(spec["supports_text_prompt"])
+            self.assertTrue(spec["prompt_consumed"])
+            vc.assert_mode_allowed("ai_video", model_id)
+
+    def test_local_diffusers_missing_weights_raises_clean_error(self):
+        import tempfile
+        from PIL import Image
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from api.motion import router
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api")
+        client = TestClient(app)
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as handle:
+            Image.new("RGB", (64, 64), (8, 8, 8)).save(handle.name)
+            still = handle.name
+
+        for model_id, name in [
+            ("Lightricks/LTX-Video", "LTX-Video"),
+            ("THUDM/CogVideoX-5B", "CogVideoX-5B"),
+            ("tencent/HunyuanVideo", "HunyuanVideo"),
+        ]:
+            response = client.post("/api/generate/video", json={
+                "prompt": "slow cinematic camera push-in",
+                "format": "wide",
+                "model_id": model_id,
+                "mode": "ai_video",
+                "image_path": still,
+            })
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("VIDEO_MODEL_MISSING", response.json()["detail"])
+            self.assertIn(name, response.json()["detail"])
 
 
 if __name__ == "__main__":

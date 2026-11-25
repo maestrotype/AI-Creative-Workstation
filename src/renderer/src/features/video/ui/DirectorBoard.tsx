@@ -70,6 +70,7 @@ import { loadDirectorSession, saveDirectorSession, type DirectorSession } from '
 import {
   applyStillCompose,
   applyTemplateVoiceoverDefaults,
+  isStockBrief,
   binMediaDuration,
   demoteShortClipsFromV1,
   emptyVoiceoverSession,
@@ -82,7 +83,7 @@ import {
 } from '../model/voiceoverSession';
 import { hasScreencastBin, v1Clips, visualTimelineFingerprint } from '../model/filmVisual';
 import type { VideoAnalysisContext } from '../model/videoAnalysis';
-import { segmentSpoken, type NarrationLang, type VoiceoverScript } from '../model/voiceoverScript';
+import { scriptFromTranscript, segmentSpoken, type NarrationLang, type VoiceoverScript } from '../model/voiceoverScript';
 import { newCallout, normalizeCalloutList, type Callout } from '../model/callout';
 import { marketplaceVoiceoverSession } from '../model/marketplaceVoiceoverPack';
 import {
@@ -95,9 +96,14 @@ import {
 import { buildRenderPlan } from '../model/renderPlan';
 import { captionClipsFromScript, scriptToSrt } from '../model/captions';
 import { pushNotice } from '../../../shared/lib/notice';
-import { pictureNotesFromAnalysis, planChapterCoverage } from '../model/chapterCoverage';
 import { countWords, spokenOverlap } from '../model/chapterSpeech';
-import { abutSlots, coverPictureGaps, pictureSlots, tileScriptToPicture } from '../model/narrationAlign';
+import {
+  abutSlots,
+  coverPictureGaps,
+  pictureSlots,
+  speechLockPlan,
+  tileScriptToPicture,
+} from '../model/narrationAlign';
 import { isNarrationRender, narrationClipTitle, preferSpokenLine, withoutSpokenStutter } from '../model/clipDisplayName';
 
 const LABEL_W = 118;
@@ -256,6 +262,9 @@ type DirectorSnap = {
   saveTimelineAsTemplate: () => void;
   templateNotice: string | null;
   replaceOwnNarration: () => void;
+  /** Slow/speed the picture to targetSec, then speak the same lines into that length. */
+  stretchAndRespeak: (targetSec: number) => void;
+  pictureMasterSec: number;
   chapterCount: number;
   replaceVoiceoverVideo: (specificPath?: string) => Promise<void>;
   scriptBusy: boolean;
@@ -586,7 +595,6 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const [templateNotice, setTemplateNotice] = useState<string | null>(null);
   const [scriptBusy, setScriptBusy] = useState(false);
   const [scriptError, setScriptError] = useState<string | null>(null);
-  const fitGuardRef = useRef('');
   const [scriptModel, setScriptModel] = useState('qwen2.5:14b');
   useEffect(() => {
     void window.api?.getOllamaEngineStatus?.().then((status) => {
@@ -597,6 +605,7 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   const [voiceoverApplyBusy, setVoiceoverApplyBusy] = useState(false);
   const [voiceoverApplyError, setVoiceoverApplyError] = useState<string | null>(null);
   const [narrationAlignNote, setNarrationAlignNote] = useState<string | null>(null);
+  const [pictureMaster, setPictureMaster] = useState<{ path: string; durationSec: number } | null>(null);
   const reviewNoteRef = useRef('');
   const [voiceoverApplyProgress, setVoiceoverApplyProgress] = useState({ current: 0, total: 0, detail: '' });
   const voiceoverApplyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -760,6 +769,19 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       };
       return [clip, ...prev.filter((c) => c.track !== 'v1')];
     });
+  }, [voiceoverSource?.path, voiceoverSource?.durationSec]);
+
+  useEffect(() => {
+    const path = voiceoverSource?.path;
+    if (!path) return;
+    // Stretch drafts keep the original master so 8→10s does not compound soft frames.
+    if (/stretch-\d+/i.test(path) || /\/stretch-/i.test(path)) return;
+    const dur = Math.max(0.5, voiceoverSource.durationSec || 0);
+    setPictureMaster((prev) => (
+      prev && prev.path === path && Math.abs(prev.durationSec - dur) < 0.05
+        ? prev
+        : { path, durationSec: dur }
+    ));
   }, [voiceoverSource?.path, voiceoverSource?.durationSec]);
 
   useEffect(() => {
@@ -2417,6 +2439,24 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     }
   };
 
+  const commitHeardScript = async (script: VoiceoverScript, narrationLang: NarrationLang) => {
+    const nextSession = {
+      ...voiceoverRef.current,
+      script,
+      narrationLang,
+      status: 'scripted' as const,
+    };
+    voiceoverRef.current = nextSession;
+    setVoiceover(nextSession);
+    setClips((prev) => prev.filter((clip) => clip.track !== 'a1'));
+    setVoiceoverProgress({
+      stage: 'voice',
+      percent: 55,
+      detail: 'Те же слова. Говорю выбранным голосом…',
+    });
+    await applyScriptVoiceover();
+  };
+
   const generateScript = async (
     ctxOverride?: VideoAnalysisContext,
     planOverride?: ChapterWindow[],
@@ -2436,6 +2476,28 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
       ctx.transcript?.segments ?? [],
     );
     const narrationLang: NarrationLang = i18n.language.toLowerCase().startsWith('en') ? 'en' : 'ru';
+    const heard = scriptFromTranscript(ctx.transcript, ctx.duration_sec);
+    const stockBrief = isStockBrief(session.scriptPrompt, t('video.vo_script_prompt_placeholder'))
+      && isStockBrief(session.projectContext, t('video.pipe_context_placeholder'));
+    if (stockBrief && heard) {
+      setScriptBusy(true);
+      setScriptError(null);
+      setVoiceoverProgress({
+        stage: 'script',
+        percent: 20,
+        detail: 'Беру речь, которая уже есть в ролике…',
+      });
+      try {
+        await commitHeardScript(heard, heard.meta.language === 'en' ? 'en' : narrationLang);
+      } catch (err) {
+        const msg = ipcMessage(err, t('video.vo_script_fail'));
+        setScriptError(msg);
+        pushNotice(msg);
+      } finally {
+        setScriptBusy(false);
+      }
+      return;
+    }
     const chapterNote = chapters.length
       ? narrationLang === 'en'
         ? 'Replace the author narration. One finished thought per shot, about what is visible. A shot longer than 16 seconds still gets one thought of about 16 seconds, not a monologue.'
@@ -2505,137 +2567,216 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
   };
 
   const replaceOwnNarration = async () => {
-    const session = voiceoverRef.current;
-    const plan = buildChapterPlan(clipsRef.current, binsRef.current, {
-      script: session.script,
-      brief: filmBrief,
-      prompt: session.scriptPrompt,
-    });
     setScriptError(null);
     setVoiceoverError(null);
+    setNarrationAlignNote(null);
     setScriptBusy(true);
     setVoiceoverProgress({
       stage: 'script',
       percent: 8,
-      detail: 'Читаю текст глав…',
+      detail: t('video.vo_step_listen'),
     });
-    let signature = '';
     try {
-      let scenePrompts: Array<{ title: string; prompt: string }> = [];
-      if (scopeIdRef.current && window.api?.loadProject) {
-        const doc = await window.api.loadProject(scopeIdRef.current) as ProjectDoc | null;
-        scenePrompts = (doc?.scenes ?? []).map((scene) => ({ title: scene.title, prompt: scene.prompt }));
-      }
-      const chapters = plan.map((chapter) => {
-        const written = scenePrompts.find((scene) => scene.title.trim() === chapter.title.trim())?.prompt.trim();
-        return written ? { ...chapter, draft: written } : chapter;
-      }).filter((chapter) => chapter.draft.trim());
-      if (chapters.length < 2 || !window.api?.fitChapterScript) {
+      const session = voiceoverRef.current;
+      const ctx = session.analysis ?? await analyzeVoiceover(false);
+      if (!ctx) return;
+      let transcript = ctx.transcript;
+      const sourcePath = voiceoverSource?.path || ctx.source_path;
+      if (sourcePath && window.api?.transcribeAudio) {
         setVoiceoverProgress({
           stage: 'script',
-          percent: 8,
-          detail: 'Читаю кадры и пишу озвучку…',
+          percent: 18,
+          detail: t('video.vo_step_listen_fine'),
         });
-        const ctx = session.analysis ?? await analyzeVoiceover(false);
-        if (!ctx) return;
-        await generateScript(ctx, plan);
+        try {
+          const fresh = await window.api.transcribeAudio({
+            path: sourcePath,
+            language: 'auto',
+            model_size: 'medium',
+          });
+          if (fresh.full_text?.trim()) transcript = fresh;
+        } catch {
+          /* The transcript already on the film is the fallback. */
+        }
+      }
+      const narrationLang: NarrationLang = transcript?.language?.toLowerCase().startsWith('en') ? 'en' : 'ru';
+      const heard = scriptFromTranscript(transcript, ctx.duration_sec);
+      if (!heard) {
+        const missing = ctx.warnings?.includes('WHISPER_NOT_INSTALLED')
+          ? t('video.vo_whisper_missing')
+          : t('video.vo_respeak_empty');
+        setScriptError(missing);
+        pushNotice(missing);
         return;
       }
-      let analysis = session.analysis;
-      if (!analysis?.scene_analysis?.length) {
-        setVoiceoverProgress({
-          stage: 'script',
-          percent: 12,
-          detail: 'Смотрю, что происходит внутри глав…',
-        });
-        analysis = await analyzeVoiceover(false) ?? analysis;
-      }
-      const coverage = planChapterCoverage(chapters, pictureNotesFromAnalysis(analysis?.scene_analysis));
-      signature = coverage
-        .map((chapter) => `${chapter.title}|${chapter.script}|${chapter.targetWords}|${Math.round(chapter.durationSec)}`)
-        .join('\n');
-      if (fitGuardRef.current === signature) {
-        setVoiceoverProgress({
-          stage: 'script',
-          percent: 100,
-          detail: t('video.vo_script_fit_same'),
-        });
-        return;
-      }
-      const longest = [...coverage].sort((a, b) => b.durationSec - a.durationSec)[0];
+      const nextAnalysis = {
+        ...ctx,
+        transcript: {
+          language: transcript?.language || ctx.transcript?.language || narrationLang,
+          full_text: transcript?.full_text
+            || heard.segments.map((seg) => segmentSpoken(seg, narrationLang)).join(' '),
+          segments: transcript?.segments?.length
+            ? transcript.segments
+            : heard.segments.map((seg) => ({
+              start: seg.start_sec,
+              end: seg.end_sec,
+              text: segmentSpoken(seg, narrationLang),
+            })),
+        },
+      };
       setVoiceoverProgress({
         stage: 'script',
-        percent: 28,
-        detail: longest
-          ? `«${longest.title}» ${Math.round(longest.durationSec)} с: в сценарии ${longest.authoredWords} слов, по длине нужно ${longest.targetWords}. Пишу…`
-          : 'Пишу текст по длине глав…',
+        percent: 32,
+        detail: t('video.vo_step_text'),
       });
-      const fitted = await window.api.fitChapterScript({
-        chapters: coverage.map((chapter) => ({
-          title: chapter.title,
-          script: chapter.script,
-          place: chapter.place,
-          media_kind: chapter.mediaKind,
-          beats: chapter.beats.map((beat) => ({
-            start: beat.startSec,
-            end: beat.endSec,
-            target_words: beat.targetWords,
-            brief: beat.brief,
-            seen: beat.seen,
-            job: beat.job,
-          })),
-        })),
-        language: 'ru',
-        ollama_model: scriptModel,
-      });
-      const script = await polishScript({
-        segments: fitted.segments.map((seg) => ({
-          start_sec: seg.start_sec,
-          end_sec: seg.end_sec,
-          anchor_sec: seg.anchor_sec ?? seg.start_sec,
-          text: seg.text,
-          role: seg.role,
-          purpose: seg.purpose,
-          visual_summary: seg.visual_summary,
-          estimated_sec: seg.estimated_sec,
-        })),
-        meta: {
-          ...fitted.meta,
-          script_version: Date.now(),
-        },
-      }, 'ru');
-      if (fitted.meta.note === 'SHORT') {
-        fitGuardRef.current = signature;
-        pushNotice(t('video.vo_script_fit_short'), 'info');
-      } else {
-        fitGuardRef.current = '';
-      }
-      const nextSession = {
+      const drafted = {
         ...voiceoverRef.current,
-        script,
-        narrationLang: 'ru' as const,
+        analysis: nextAnalysis,
+        script: heard,
+        narrationLang,
         status: 'scripted' as const,
       };
-      voiceoverRef.current = nextSession;
-      setVoiceover(nextSession);
+      voiceoverRef.current = drafted;
+      setVoiceover(drafted);
+      setNarrationAlignNote(t('video.vo_step_text_ready', {
+        words: countWords(heard.segments.map((seg) => segmentSpoken(seg, narrationLang)).join(' ')),
+        duration: formatClock(ctx.duration_sec),
+      }));
       setVoiceoverProgress({
         stage: 'voice',
-        percent: 55,
-        detail: 'Текст разложен по длине глав. Озвучиваю…',
+        percent: 40,
+        detail: t('video.vo_step_speak'),
       });
-      await applyScriptVoiceover();
+      await commitHeardScript(heard, narrationLang);
     } catch (err) {
-      const msg = ipcMessage(err, t('video.vo_script_fail'));
-      const shown = /TimeoutError|aborted due to timeout/i.test(msg)
-        ? t('video.job_timeout')
-        : /CHAPTER_FIT_EMPTY|CHAPTER_FIT_SHORT/i.test(msg)
-          ? t('video.vo_script_fit_empty')
-          : /OLLAMA_SCRIPT_FAILED/i.test(msg)
-            ? t('video.vo_script_ollama_fail')
-            : msg;
-      if (/CHAPTER_FIT_EMPTY|CHAPTER_FIT_SHORT/i.test(msg) && signature) fitGuardRef.current = signature;
-      setScriptError(shown);
-      pushNotice(shown);
+      const msg = ipcMessage(err, t('video.vo_voice_apply_fail'));
+      setScriptError(msg);
+      pushNotice(msg);
+    } finally {
+      setScriptBusy(false);
+    }
+  };
+
+  const stretchAndRespeak = async (targetSec: number) => {
+    const target = Math.round(Math.max(0.8, Math.min(120, targetSec)) * 10) / 10;
+    setScriptError(null);
+    setVoiceoverError(null);
+    setNarrationAlignNote(null);
+    setScriptBusy(true);
+    setVoiceoverProgress({
+      stage: 'script',
+      percent: 6,
+      detail: t('video.vo_stretch_busy', { sec: target.toFixed(0) }),
+    });
+    try {
+      const hostClip = clipsRef.current
+        .filter((clip) => clip.track === 'v1')
+        .sort((a, b) => a.startSec - b.startSec)[0];
+      const hostBin = hostClip?.binId
+        ? binsRef.current.find((bin) => bin.id === hostClip.binId)
+        : null;
+      const masterPath = pictureMaster?.path
+        || hostBin?.path
+        || voiceoverSource?.path
+        || voiceoverRef.current.sourcePath;
+      if (!masterPath || !window.api?.stretchVideo) {
+        throw new Error(t('video.vo_stretch_fail'));
+      }
+      if (!pictureMaster && voiceoverSource?.durationSec) {
+        setPictureMaster({ path: masterPath, durationSec: voiceoverSource.durationSec });
+      }
+
+      const stretched = await window.api.stretchVideo({
+        path: masterPath,
+        target_sec: target,
+        output_name: `stretch-${Date.now()}-${target.toFixed(0)}s`,
+      });
+      const nextPath = stretched.file_path || masterPath;
+      const nextDur = Math.max(0.5, stretched.duration_sec || target);
+      const remembered = (await window.api.rememberDroppedMedia?.(nextPath)) ?? nextPath;
+      const nextBin: BinItem = {
+        id: newId('bin'),
+        kind: 'video',
+        path: remembered,
+        name: `${fileName(masterPath).replace(/\.[^.]+$/, '')} · ${nextDur.toFixed(0)}с`,
+        durationSec: nextDur,
+        inSec: 0,
+        outSec: nextDur,
+        durationKnown: true,
+      };
+      pushHistory();
+      setBins((prev) => [...prev.filter((bin) => bin.path !== remembered), nextBin]);
+      setClips((prev) => {
+        const withoutV1 = prev.filter((clip) => clip.track !== 'v1');
+        const v1: TimelineClip = {
+          id: hostClip?.id ?? newId('clip'),
+          binId: nextBin.id,
+          track: 'v1',
+          startSec: hostClip?.startSec ?? 0,
+          durationSec: nextDur,
+          sourceInSec: 0,
+          label: nextBin.name,
+          autoLength: true,
+          muted: hostClip?.muted ?? exportSettings.audioPolicy === 'replace',
+        };
+        return [v1, ...withoutV1.filter((clip) => clip.track !== 'a1')];
+      });
+      setNarrationAlignNote(t('video.vo_stretch_ready', {
+        from: (pictureMaster?.durationSec || stretched.source_sec || nextDur).toFixed(1),
+        to: nextDur.toFixed(1),
+      }));
+
+      const session = voiceoverRef.current;
+      const hasLines = Boolean(session.script?.segments.some((seg) => (
+        (seg.text || seg.text_en || '').trim()
+      )));
+      if (hasLines && session.script) {
+        const lang: NarrationLang = session.narrationLang === 'en' ? 'en' : 'ru';
+        const fittedScript: VoiceoverScript = {
+          ...session.script,
+          segments: session.script.segments.map((seg, index, all) => (
+            index === all.length - 1 || all.length === 1
+              ? { ...seg, start_sec: 0, end_sec: nextDur }
+              : seg
+          )),
+          meta: {
+            ...session.script.meta,
+            provider: session.script.meta.provider || 'transcript',
+            script_version: Date.now(),
+          },
+        };
+        const nextSession = {
+          ...session,
+          sourcePath: remembered,
+          sourceBinId: nextBin.id,
+          script: fittedScript,
+          status: 'scripted' as const,
+        };
+        voiceoverRef.current = nextSession;
+        setVoiceover(nextSession);
+        setVoiceoverProgress({
+          stage: 'voice',
+          percent: 45,
+          detail: t('video.vo_step_speak'),
+        });
+        await commitHeardScript(fittedScript, lang);
+      } else {
+        voiceoverRef.current = {
+          ...session,
+          sourcePath: remembered,
+          sourceBinId: nextBin.id,
+        };
+        setVoiceover((prev) => ({
+          ...prev,
+          sourcePath: remembered,
+          sourceBinId: nextBin.id,
+        }));
+        await replaceOwnNarration();
+      }
+    } catch (err) {
+      const msg = ipcMessage(err, t('video.vo_stretch_fail'));
+      setScriptError(msg);
+      pushNotice(msg);
     } finally {
       setScriptBusy(false);
     }
@@ -2756,9 +2897,13 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         pictureStart,
       );
       let workingScript = script;
+      const repeatHeard = script.meta.provider === 'transcript';
       if (
-        gapProbe.length !== script.segments.length
-        || gapProbe.some((row) => !row.text.trim())
+        !repeatHeard
+        && (
+          gapProbe.length !== script.segments.length
+          || gapProbe.some((row) => !row.text.trim())
+        )
       ) {
         setVoiceoverApplyProgress({
           current: 0,
@@ -2773,6 +2918,134 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
         .filter(({ seg }) => segmentSpoken(seg, narrationLang));
       if (!voicedSegments.length) {
         setVoiceoverApplyError(t('video.vo_voice_need_text'));
+        return;
+      }
+      if (repeatHeard && window.api.synthesizeVoiceBatch) {
+        const ttsLanguage = narrationLang === 'en' ? 'en' : 'ru';
+        const heardLang = (script.meta.language || '').toLowerCase();
+        const heardText = voicedSegments.map(({ seg }) => segmentSpoken(seg, narrationLang)).join(' ');
+        const foreignCyrillic = /[іїєґІЇЄҐ]/.test(heardText);
+        const pictureSpan = Math.max(
+          0.8,
+          (pictureEnd > pictureStart ? pictureEnd - pictureStart : 0)
+            || voiceoverSource?.durationSec
+            || script.segments.reduce((max, seg) => Math.max(max, seg.end_sec), 0),
+        );
+        const singleTake = voicedSegments.length === 1;
+        setVoiceoverApplyProgress({
+          current: 0,
+          total: voicedSegments.length,
+          detail: t('video.vo_step_speak'),
+        });
+        const batch = await window.api.synthesizeVoiceBatch({
+          items: voicedSegments.map(({ seg }, index) => ({
+            index,
+            text: segmentSpoken(seg, narrationLang),
+          })),
+          language: ttsLanguage,
+          skip_prepare: foreignCyrillic || (heardLang !== '' && !heardLang.startsWith('ru') && !heardLang.startsWith('en')),
+        });
+        const speechUpdates: Array<{
+          scriptIndex: number;
+          speech_sec: number;
+          speech_tempo: number;
+          start_sec: number;
+          end_sec: number;
+          review_issues?: string[];
+        }> = [];
+        const timingNotes: string[] = [];
+        let placed = 0;
+        for (const row of batch.results) {
+          if (row.skipped || !row.file_path) continue;
+          const entry = voicedSegments[row.index];
+          if (!entry) continue;
+          let playPath = row.file_path;
+          let speechSec = (await probeDuration(playPath, 'audio')).dur;
+          let tempo = 1;
+          // One take covers the whole picture from its start. Several takes
+          // share the remaining room on V1 so A1 never outruns the video.
+          const startAt = singleTake
+            ? Math.max(0, timelineOffset)
+            : Math.max(0, Math.min(entry.seg.start_sec + timelineOffset, pictureStart + pictureSpan - 0.4));
+          const roomEnd = pictureStart + pictureSpan;
+          const windowSec = Math.max(0.8, roomEnd - startAt);
+          setVoiceoverApplyProgress({
+            current: placed + 1,
+            total: voicedSegments.length,
+            detail: t('video.vo_step_check'),
+          });
+          if (window.api.fitSpeechDuration) {
+            const fitted = await window.api.fitSpeechDuration({
+              file_path: playPath,
+              target_sec: windowSec,
+              match_picture: true,
+            });
+            playPath = fitted.file_path || playPath;
+            speechSec = Math.min(
+              windowSec,
+              fitted.output_sec || fitted.speech_sec || speechSec,
+            );
+            tempo = fitted.tempo || 1;
+          } else {
+            speechSec = Math.min(speechSec, windowSec);
+          }
+          const plan = speechLockPlan(speechSec, windowSec);
+          const spoken = segmentSpoken(entry.seg, narrationLang);
+          await ingestAudioPathAt(playPath, startAt, spoken, speechSec);
+          speechUpdates.push({
+            scriptIndex: entry.scriptIndex,
+            speech_sec: speechSec,
+            speech_tempo: tempo,
+            start_sec: startAt,
+            end_sec: startAt + speechSec,
+          });
+          if (plan === 'keep' || plan === 'pad' || Math.abs(speechSec - windowSec) <= 0.12) {
+            timingNotes.push(t('video.vo_timing_ok', {
+              speech: speechSec.toFixed(1),
+              picture: windowSec.toFixed(1),
+            }));
+          } else if (tempo > 1.02) {
+            timingNotes.push(t('video.vo_timing_tempo', {
+              speech: speechSec.toFixed(1),
+              picture: windowSec.toFixed(1),
+              pct: Math.round((tempo - 1) * 100),
+            }));
+          } else {
+            timingNotes.push(t('video.vo_timing_ok', {
+              speech: speechSec.toFixed(1),
+              picture: windowSec.toFixed(1),
+            }));
+          }
+          placed += 1;
+        }
+        if (!placed) throw new Error(t('video.vo_voice_apply_fail'));
+        setNarrationAlignNote(timingNotes.join(' '));
+        setVoiceover((prev) => {
+          if (!prev.script) return { ...prev, status: 'voiced' };
+          const nextSegments = prev.script.segments.map((seg, idx) => {
+            const row = speechUpdates.find((item) => item.scriptIndex === idx);
+            if (!row) return seg;
+            return {
+              ...seg,
+              speech_sec: row.speech_sec,
+              speech_tempo: row.speech_tempo,
+              start_sec: row.start_sec,
+              end_sec: row.end_sec,
+              review_issues: row.review_issues,
+            };
+          });
+          return {
+            ...prev,
+            status: 'voiced',
+            script: { ...prev.script, segments: nextSegments },
+          };
+        });
+        setVoiceoverApplyProgress({
+          current: placed,
+          total: placed,
+          detail: t('video.vo_voice_apply_done'),
+        });
+        seekTo(0);
         return;
       }
       // The script is already one line per window. Voicing never reassigns text between windows.
@@ -4295,6 +4568,10 @@ export function DirectorProvider({ children, projectId = null }: DirectorProvide
     saveTimelineAsTemplate: () => { void saveTimelineAsTemplate(); },
     templateNotice,
     replaceOwnNarration: () => { void replaceOwnNarration(); },
+    stretchAndRespeak: (targetSec) => { void stretchAndRespeak(targetSec); },
+    pictureMasterSec: pictureMaster?.durationSec
+      ?? voiceoverSource?.durationSec
+      ?? 0,
     chapterCount,
     replaceVoiceoverVideo,
     scriptBusy,

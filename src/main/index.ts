@@ -534,6 +534,15 @@ function listReadyModels(kind: 'image' | 'video' | '3d' = 'image'): { id: string
   if (hasRunwayKey() && !rows.some((m) => m.id === RUNWAY_MODEL_ID)) {
     extra.push({ id: RUNWAY_MODEL_ID, name: 'Runway Gen-4.5' });
   }
+  if (hasKlingKey() && !rows.some((m) => m.id === KLING_MODEL_ID)) {
+    extra.push({ id: KLING_MODEL_ID, name: 'Kling 4.0' });
+  }
+  if (hasSeedanceKey() && !rows.some((m) => m.id === SEEDANCE_MODEL_ID)) {
+    extra.push({ id: SEEDANCE_MODEL_ID, name: 'Seedance 2.5' });
+  }
+  if (hasLumaKey() && !rows.some((m) => m.id === LUMA_MODEL_ID)) {
+    extra.push({ id: LUMA_MODEL_ID, name: 'Luma Dream Machine' });
+  }
   return extra.length ? [...extra, ...rows] : rows;
 }
 
@@ -549,9 +558,33 @@ function resolveActiveModelId(): string | null {
 const RUNWAY_MODEL_ID = 'runwayml/gen4.5';
 const H3_MODEL_ID = 'MiniMaxAI/MiniMax-H3';
 const TI2V_MODEL_ID = 'Anes1032/Wan2.2-TI2V-5B-mlx-q8';
+const KLING_MODEL_ID = 'kling-ai/kling-4.0';
+const SEEDANCE_MODEL_ID = 'seedance/seedance-2.5';
+const WAN3_MODEL_ID = 'alibaba/wan3.0-video';
+const LUMA_MODEL_ID = 'luma/dream-machine-1.6';
 
 function hasRunwayKey(): boolean {
   return Boolean(getSettingValue('RUNWAY_API_SECRET')?.trim());
+}
+
+function hasKlingKey(): boolean {
+  return Boolean(getSettingValue('KLING_API_KEY')?.trim());
+}
+
+function hasSeedanceKey(): boolean {
+  return Boolean(getSettingValue('SEEDANCE_API_KEY')?.trim() || getSettingValue('FAL_KEY')?.trim());
+}
+
+function hasWan3Key(): boolean {
+  return Boolean(
+    getSettingValue('DASHSCOPE_API_KEY')?.trim()
+    || getSettingValue('WAN3_API_KEY')?.trim()
+    || getSettingValue('QWEN_API_KEY')?.trim(),
+  );
+}
+
+function hasLumaKey(): boolean {
+  return Boolean(getSettingValue('LUMA_API_KEY')?.trim());
 }
 
 function hasH3Endpoint(): boolean {
@@ -569,6 +602,54 @@ function runwayModelRow() {
   return {
     id: RUNWAY_MODEL_ID,
     name: 'Runway Gen-4.5',
+    type: 'video',
+    path: null as string | null,
+    status: 'ready',
+    errorMessage: null as string | null,
+    createdAt: new Date(0),
+  };
+}
+
+function klingModelRow() {
+  return {
+    id: KLING_MODEL_ID,
+    name: 'Kling 4.0',
+    type: 'video',
+    path: null as string | null,
+    status: 'ready',
+    errorMessage: null as string | null,
+    createdAt: new Date(0),
+  };
+}
+
+function seedanceModelRow() {
+  return {
+    id: SEEDANCE_MODEL_ID,
+    name: 'Seedance 2.5',
+    type: 'video',
+    path: null as string | null,
+    status: 'ready',
+    errorMessage: null as string | null,
+    createdAt: new Date(0),
+  };
+}
+
+function wan3ModelRow() {
+  return {
+    id: WAN3_MODEL_ID,
+    name: 'Wan 3.0',
+    type: 'video',
+    path: null as string | null,
+    status: 'ready',
+    errorMessage: null as string | null,
+    createdAt: new Date(0),
+  };
+}
+
+function lumaModelRow() {
+  return {
+    id: LUMA_MODEL_ID,
+    name: 'Luma Dream Machine',
     type: 'video',
     path: null as string | null,
     status: 'ready',
@@ -606,7 +687,7 @@ function resolveVideoModelForMode(mode: string): string | null {
     return svd?.id ?? null;
   }
   if (mode === 't2v') {
-    const wan = ready.find((m) => /wan/i.test(m.id) && !/ti2v|anes1032/i.test(m.id));
+    const wan = ready.find((m) => /wan/i.test(m.id) && !/ti2v|anes1032|wan3|alibaba\/wan3/i.test(m.id));
     return wan?.id ?? null;
   }
   // Prompt-driven product video: local TI2V first, then H3 / Runway. SVD is animation.
@@ -1027,6 +1108,18 @@ function setupIpc() {
     if (hasRunwayKey() && !rows.some((row) => row.id === RUNWAY_MODEL_ID)) {
       injected.push(runwayModelRow());
     }
+    if (hasKlingKey() && !rows.some((row) => row.id === KLING_MODEL_ID)) {
+      injected.push(klingModelRow());
+    }
+    if (hasSeedanceKey() && !rows.some((row) => row.id === SEEDANCE_MODEL_ID)) {
+      injected.push(seedanceModelRow());
+    }
+    if (hasWan3Key() && !rows.some((row) => row.id === WAN3_MODEL_ID)) {
+      injected.push(wan3ModelRow());
+    }
+    if (hasLumaKey() && !rows.some((row) => row.id === LUMA_MODEL_ID)) {
+      injected.push(lumaModelRow());
+    }
     return injected.length ? [...injected, ...rows] : rows;
   });
 
@@ -1276,10 +1369,29 @@ function setupIpc() {
     }
     const useH3 = /minimax|h3/i.test(modelId);
     const useRunway = /runway/i.test(modelId);
+    const useKling = /kling/i.test(modelId);
+    const useSeedance = /seedance/i.test(modelId);
+    const useWan3 = /wan3|wan-3|alibaba\/wan3/i.test(modelId);
+    const useLuma = /luma|dream/i.test(modelId);
     const useTi2v = /ti2v|anes1032/i.test(modelId);
-    const useWan = /wan/i.test(modelId) && !useTi2v;
+    const useLtx = /ltx/i.test(modelId);
+    const useCogVideo = /cogvideo/i.test(modelId);
+    const useHunyuan = /hunyuan/i.test(modelId);
+    const useWan = /wan/i.test(modelId) && !useTi2v && !useWan3;
     const useSvd = /stable-video-diffusion|img2vid|svd/i.test(modelId) && !useTi2v;
-    const apiSecret = useRunway ? (getSettingValue('RUNWAY_API_SECRET')?.trim() || '') : '';
+
+    let apiSecret = '';
+    if (useRunway) apiSecret = getSettingValue('RUNWAY_API_SECRET')?.trim() || '';
+    else if (useKling) apiSecret = getSettingValue('KLING_API_KEY')?.trim() || '';
+    else if (useSeedance) apiSecret = getSettingValue('SEEDANCE_API_KEY')?.trim() || getSettingValue('FAL_KEY')?.trim() || '';
+    else if (useWan3) {
+      apiSecret = getSettingValue('DASHSCOPE_API_KEY')?.trim()
+        || getSettingValue('WAN3_API_KEY')?.trim()
+        || getSettingValue('QWEN_API_KEY')?.trim()
+        || '';
+    }
+    else if (useLuma) apiSecret = getSettingValue('LUMA_API_KEY')?.trim() || '';
+
     const h3Endpoint = useH3 ? (getSettingValue('H3_ENDPOINT')?.trim() || '') : '';
     if (mode === 'ai_video' && useSvd) {
       throw new Error(
@@ -1288,13 +1400,25 @@ function setupIpc() {
     }
     if (mode === 'ai_video' && useWan) {
       throw new Error(
-        'VIDEO_CAPABILITY_UNSUPPORTED: Wan 2.1 T2V is text-to-video and will not keep this product photo. Use Wan 2.2 TI2V, Runway, or H3.',
+        'VIDEO_CAPABILITY_UNSUPPORTED: Wan 2.1 T2V is text-to-video and will not keep this product photo. Use Wan 2.2 TI2V, Wan 3.0, Runway, or H3.',
       );
     }
     if (useRunway && !apiSecret) {
       throw new Error('VIDEO_CAPABILITY_UNSUPPORTED: Runway API key is missing. Set it in Settings.');
     }
-    if (!useH3 && !useRunway && !useWan && !useSvd && !useTi2v) {
+    if (useKling && !apiSecret) {
+      throw new Error('VIDEO_CAPABILITY_UNSUPPORTED: Kling API key is missing. Set it in Settings.');
+    }
+    if (useSeedance && !apiSecret) {
+      throw new Error('VIDEO_CAPABILITY_UNSUPPORTED: Seedance/fal.ai API key is missing. Set it in Settings.');
+    }
+    if (useWan3 && !apiSecret) {
+      throw new Error('VIDEO_CAPABILITY_UNSUPPORTED: DashScope / Qwen Cloud API key is missing. Set DASHSCOPE_API_KEY in Settings.');
+    }
+    if (useLuma && !apiSecret) {
+      throw new Error('VIDEO_CAPABILITY_UNSUPPORTED: Luma API key is missing. Set it in Settings.');
+    }
+    if (!useH3 && !useRunway && !useKling && !useSeedance && !useWan3 && !useLuma && !useWan && !useSvd && !useTi2v && !useLtx && !useCogVideo && !useHunyuan) {
       throw new Error('VIDEO_CAPABILITY_UNSUPPORTED: Unknown video provider.');
     }
     if (!useWan && !payload.image_path && !payload.image_base64) {
@@ -1336,6 +1460,7 @@ function setupIpc() {
     }
     const filePath = body.file_path ?? null;
     if (filePath) {
+      rememberPickedMedia(filePath);
       try {
         writeFileSync(
           filePath.replace(/\.[^.]+$/i, '.json'),
@@ -1363,6 +1488,40 @@ function setupIpc() {
       prompt_consumed: Boolean(body.prompt_consumed),
       quality: body.quality ?? null,
     };
+  });
+
+  ipcMain.handle('face-swap', async (_, payload: { targetImage: string; sourceFace: string; selector?: string }) => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) throw new Error(ready.error || 'Sidecar unavailable');
+
+    const targetIsVideo = /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(payload.targetImage || '');
+    const res = await net.fetch(`${SIDECAR_URL}/api/generate/face-swap`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target_image: payload.targetImage,
+        source_face: payload.sourceFace,
+        target_face_selector: payload.selector || 'center',
+      }),
+      // Image swap ~1 min; video frame loop up to ~10 min.
+      signal: AbortSignal.timeout(targetIsVideo ? 10 * 60 * 1000 : 60_000),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      detail?: unknown;
+      success?: boolean;
+      output_path?: string;
+      data_url?: string;
+      faces_detected_source?: number;
+      faces_detected_target?: number;
+      kind?: 'image' | 'video';
+      frame_count?: number;
+      duration_sec?: number;
+    };
+    if (!res.ok) {
+      throw new Error(body.detail != null ? String(body.detail).slice(0, 400) : `HTTP ${res.status}`);
+    }
+    if (body.output_path) rememberPickedMedia(body.output_path);
+    return body;
   });
 
   ipcMain.handle('generate-image', async (_, payload: {
@@ -2267,6 +2426,7 @@ function setupIpc() {
     items: Array<{ text: string; index: number; prepared_text?: string }>;
     language?: string;
     seed?: number;
+    skip_prepare?: boolean;
   }) => sidecarJson('/api/audio/tts/batch', payload, 60 * 60 * 1000));
 
   ipcMain.handle('fit-speech-duration', async (_, payload: {
@@ -2274,7 +2434,19 @@ function setupIpc() {
     target_sec: number;
     force?: boolean;
     fill_window?: boolean;
+    match_picture?: boolean;
   }) => sidecarJson('/api/audio/fit-speech', payload, 3 * 60 * 1000));
+
+  ipcMain.handle('stretch-video', async (_, payload: {
+    path: string;
+    target_sec: number;
+    output_name?: string;
+  }) => {
+    const data = await sidecarJson('/api/video/stretch', payload, 10 * 60 * 1000);
+    const out = data.file_path;
+    if (typeof out === 'string' && out.trim()) rememberPickedMedia(out);
+    return data;
+  });
 
   ipcMain.handle('mix-voiceover-track', async (_, payload: {
     parts: Array<{ file_path: string; start_sec: number }>;
@@ -2727,6 +2899,21 @@ function assetPathFromUrl(url: string): string {
   return decoded.startsWith('/') ? decoded : `/${decoded}`;
 }
 
+function assetContentType(filePath: string): string {
+  const ext = extname(filePath).toLowerCase();
+  if (ext === '.mp4' || ext === '.m4v') return 'video/mp4';
+  if (ext === '.mov') return 'video/quicktime';
+  if (ext === '.webm') return 'video/webm';
+  if (ext === '.mkv') return 'video/x-matroska';
+  if (ext === '.png') return 'image/png';
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.webp') return 'image/webp';
+  if (ext === '.gif') return 'image/gif';
+  if (ext === '.wav') return 'audio/wav';
+  if (ext === '.mp3') return 'audio/mpeg';
+  return 'application/octet-stream';
+}
+
 function serveAssetFile(request: Request): Response | Promise<Response> {
   const filePath = assetPathFromUrl(request.url);
   if (!existsSync(filePath)) {
@@ -2744,6 +2931,13 @@ function serveAssetFile(request: Request): Response | Promise<Response> {
     return net.fetch(pathToFileURL(filePath).href, {
       headers,
       bypassCustomProtocolHandlers: true,
+    }).then((res) => {
+      const out = new Headers(res.headers);
+      if (!out.get('content-type') || out.get('content-type') === 'application/octet-stream') {
+        out.set('Content-Type', assetContentType(filePath));
+      }
+      out.set('Accept-Ranges', 'bytes');
+      return new Response(res.body, { status: res.status, statusText: res.statusText, headers: out });
     });
   } catch {
     return new Response('Unreadable', { status: 500 });

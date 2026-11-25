@@ -437,6 +437,97 @@ def erase_region(request: EraseRegionRequest):
     return {"status": "completed", "file_path": output_path}
 
 
+# ── Stretch / slow a finished cut so narration can speak clearly ──────────────
+
+
+class StretchVideoRequest(BaseModel):
+    path: str
+    target_sec: float
+    output_name: Optional[str] = None
+
+
+def _atempo_filter(tempo: float) -> str:
+    """ffmpeg atempo is 0.5–2.0; chain filters for slower/faster rates."""
+    filters: List[str] = []
+    remaining = float(tempo)
+    while remaining > 2.0 + 1e-3:
+        filters.append("atempo=2.0")
+        remaining /= 2.0
+    while remaining < 0.5 - 1e-3:
+        filters.append("atempo=0.5")
+        remaining /= 0.5
+    if abs(remaining - 1.0) > 0.01:
+        filters.append(f"atempo={max(0.5, min(2.0, remaining)):.4f}")
+    return ",".join(filters) if filters else "anull"
+
+
+@router.post("/video/stretch")
+def stretch_video(request: StretchVideoRequest):
+    """Slow or speed a clip to an exact length. Used before a calmer respeak."""
+    src = _disk_image_path(os.path.expanduser((request.path or "").strip()))
+    if not src or not os.path.isfile(src):
+        raise HTTPException(status_code=400, detail="Video file not found")
+    source_sec = max(0.4, _video_duration_sec(src))
+    target = max(0.5, min(120.0, float(request.target_sec)))
+    if abs(source_sec - target) < 0.08:
+        return {
+            "status": "completed",
+            "file_path": src,
+            "duration_sec": round(source_sec, 3),
+            "source_sec": round(source_sec, 3),
+            "factor": 1.0,
+            "stretched": False,
+        }
+
+    factor = target / source_sec
+    audio_tempo = source_sec / target
+    stamp = int(time.time() * 1000)
+    name = (request.output_name or f"stretch-{stamp}-{target:.0f}s").strip()
+    if not name.lower().endswith(".mp4"):
+        name = f"{name}.mp4"
+    dest = os.path.join(_video_draft_dir(), name)
+    ffmpeg = _ffmpeg_bin()
+    vf = f"setpts={factor:.6f}*PTS"
+    try:
+        if _has_audio(src):
+            af = _atempo_filter(audio_tempo)
+            cmd = [
+                ffmpeg, "-y", "-i", src,
+                "-filter_complex", f"[0:v]{vf}[v];[0:a]{af}[a]",
+                "-map", "[v]", "-map", "[a]",
+                "-t", f"{target:.3f}",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "160k",
+                "-movflags", "+faststart",
+                dest,
+            ]
+        else:
+            cmd = [
+                ffmpeg, "-y", "-i", src,
+                "-vf", vf, "-an",
+                "-t", f"{target:.3f}",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                dest,
+            ]
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(exc.stderr or exc.stdout or "ffmpeg stretch failed")[:500],
+        ) from exc
+
+    out_sec = _video_duration_sec(dest) or target
+    return {
+        "status": "completed",
+        "file_path": dest,
+        "duration_sec": round(out_sec, 3),
+        "source_sec": round(source_sec, 3),
+        "factor": round(factor, 4),
+        "stretched": True,
+    }
+
+
 # ── Timeline render: the single "make MP4" for the director desk ──────────────
 
 

@@ -1,45 +1,45 @@
 .bar {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 8px 8px;
-  border-top: 1px solid var(--color-border-subtle);
-  background: color-mix(in srgb, var(--color-bg-elevated) 88%, transparent);
-}
-
-.lead {
-  margin: 0;
-  font-size: var(--text-caption);
-  color: var(--color-text-secondary);
-  line-height: 1.35;
-}
-
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
   align-items: center;
+  gap: 6px;
+  padding: 4px 8px 6px;
+  border-top: 1px solid var(--color-border-subtle);
+  background: transparent;
 }
 
-.chip {
+.label {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  margin-right: 2px;
+}
+
+.chip,
+.chipQuiet {
   border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
+  border-radius: 4px;
   background: transparent;
-  color: inherit;
+  color: var(--color-text-secondary);
   font: inherit;
-  font-size: var(--text-caption);
-  padding: 3px 8px;
+  font-size: 11px;
+  padding: 2px 8px;
   cursor: pointer;
 }
 
-.chip[data-on='true'] {
-  border-color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+.chip:hover,
+.chipQuiet:hover {
+  color: var(--color-text-primary);
+  border-color: color-mix(in srgb, var(--color-text-primary) 28%, transparent);
 }
 
-.hint {
-  margin: 0;
-  font-size: 10px;
-  line-height: 1.35;
+.chip[data-on='true'] {
+  color: var(--color-text-primary);
+  border-color: color-mix(in srgb, var(--color-text-primary) 35%, transparent);
+  background: color-mix(in srgb, var(--color-bg-raised) 80%, transparent);
+}
+
+.chipQuiet {
+  border-color: transparent;
   color: var(--color-text-tertiary);
 }

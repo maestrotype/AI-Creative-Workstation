@@ -98,6 +98,16 @@ interface Window {
       image_base64?: string;
       images_base64?: string[];
     }) => Promise<{ job_id: string; file_path: string | null; model_id: string }>;
+    faceSwap?: (payload: { targetImage: string; sourceFace: string; selector?: string }) => Promise<{
+      success: boolean;
+      output_path: string;
+      data_url: string;
+      faces_detected_source: number;
+      faces_detected_target: number;
+      kind?: 'image' | 'video';
+      frame_count?: number;
+      duration_sec?: number;
+    }>;
     listProjects: () => Promise<Array<{
       id: string;
       name: string;
@@ -409,6 +419,7 @@ interface Window {
       items: Array<{ text: string; index: number; prepared_text?: string }>;
       language?: string;
       seed?: number;
+      skip_prepare?: boolean;
     }) => Promise<{
       status: string;
       engine: string;
@@ -420,11 +431,24 @@ interface Window {
         spoken_text?: string;
       }>;
     }>;
+    stretchVideo?: (payload: {
+      path: string;
+      target_sec: number;
+      output_name?: string;
+    }) => Promise<{
+      status: string;
+      file_path: string;
+      duration_sec: number;
+      source_sec: number;
+      factor: number;
+      stretched: boolean;
+    }>;
     fitSpeechDuration?: (payload: {
       file_path: string;
       target_sec: number;
       force?: boolean;
       fill_window?: boolean;
+      match_picture?: boolean;
     }) => Promise<{
       file_path: string;
       source_sec: number;
@@ -435,6 +459,7 @@ interface Window {
       fitted: boolean;
       needs_shorten: boolean;
       needs_expand: boolean;
+      matched_picture?: boolean;
     }>;
     mixVoiceoverTrack?: (payload: {
       parts: Array<{ file_path: string; start_sec: number; max_duration_sec?: number }>;
@@ -533,7 +558,7 @@ interface Window {
       start_sec?: number;
       end_sec?: number;
     }) => Promise<{ file_path: string }>;
-    transcribeAudio: (payload: { path: string; language?: string }) => Promise<{
+    transcribeAudio: (payload: { path: string; language?: string; model_size?: string }) => Promise<{
       segments: Array<{ start: number; end: number; text: string }>;
       language: string;
       full_text: string;

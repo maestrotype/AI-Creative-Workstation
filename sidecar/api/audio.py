@@ -187,6 +187,8 @@ class FitSpeechRequest(BaseModel):
     target_sec: float
     force: bool = False
     fill_window: bool = False
+    # Respeak onto an existing cut: tempo into the picture, cut only if still long.
+    match_picture: bool = False
 
 
 class VoiceoverTrackPart(BaseModel):
@@ -979,12 +981,17 @@ def lock_speech_to_window(
     *,
     force: bool = False,
     fill_window: bool = False,
+    match_picture: bool = False,
 ) -> Dict[str, Any]:
     """Finish one spoken line so the next line can sit against it.
 
     fill_window validates against the slot but never stretches speech to hide
     missing text. Tempo correction is deliberately limited to 0.94–1.08.
     Larger differences must be fixed in the script before synthesis.
+
+    match_picture (respeak): fit speech onto the picture track. Wider tempo
+    (0.82–1.35); if still longer after max speedup, cut to the window.
+    Short speech is left short — silence at the end of the picture is fine.
     """
     source_sec = audio_duration_sec(src)
     window = max(0.4, float(target_sec))
@@ -992,6 +999,45 @@ def lock_speech_to_window(
     tempo = 1.0
     cut_sec: Optional[float] = None
     needs_shorten = False
+    if match_picture:
+        trimmed = f"{dest}.speech.wav"
+        speech_sec = _write_finished_speech(src, trimmed, tempo=1.0, cut_sec=None)
+        ratio = speech_sec / window if window else 1.0
+        # Longer picture → slower speech (tempo < 1). Shorter → speed up, cut only if needed.
+        if abs(ratio - 1.0) <= 0.02:
+            tempo = 1.0
+            cut_sec = None
+            output_sec = _write_finished_speech(trimmed, dest, tempo=1.0, cut_sec=None)
+        elif 0.82 <= ratio <= 1.35:
+            tempo = ratio
+            output_sec = _write_finished_speech(trimmed, dest, tempo=tempo, cut_sec=None)
+            if output_sec > window + 0.04:
+                cut_sec = window
+                output_sec = _write_finished_speech(trimmed, dest, tempo=tempo, cut_sec=cut_sec)
+        elif ratio > 1.35:
+            tempo = 1.35
+            cut_sec = window
+            output_sec = _write_finished_speech(trimmed, dest, tempo=tempo, cut_sec=cut_sec)
+        else:
+            tempo = 0.82
+            cut_sec = None
+            output_sec = _write_finished_speech(trimmed, dest, tempo=tempo, cut_sec=None)
+        try:
+            os.remove(trimmed)
+        except OSError:
+            pass
+        return {
+            "file_path": dest,
+            "source_sec": round(source_sec, 3),
+            "speech_sec": round(speech_sec, 3),
+            "output_sec": round(min(output_sec, window), 3),
+            "window_sec": round(window, 3),
+            "tempo": round(tempo, 4),
+            "fitted": True,
+            "needs_shorten": False,
+            "needs_expand": output_sec < window * 0.90,
+            "matched_picture": True,
+        }
     if fill_window:
         trimmed = f"{dest}.speech.wav"
         speech_sec = _write_finished_speech(src, trimmed, tempo=1.0, cut_sec=None)
@@ -1105,6 +1151,7 @@ def fit_speech_route(request: FitSpeechRequest):
         request.target_sec,
         force=request.force,
         fill_window=request.fill_window,
+        match_picture=request.match_picture,
     )
 
 
@@ -1408,7 +1455,11 @@ async def extract_audio_from_video(body: ExtractAudioRequest):
 
 class TranscribeAudioRequest(BaseModel):
     path: str
-    language: str = "ru"
+    language: str = ""
+    model_size: str = "small"
+
+
+_WHISPER_SIZES = {"tiny", "base", "small", "medium", "large-v3"}
 
 
 @router.post("/audio/transcribe")
@@ -1416,7 +1467,15 @@ def transcribe_audio_route(body: TranscribeAudioRequest):
     """Turn a voice message or audio file into text. Does not change the TTS voice sample."""
     from transcribe import transcribe_media
 
-    result = transcribe_media(os.path.expanduser(body.path.strip()), language=body.language or "ru")
+    lang = (body.language or "").strip()
+    if lang in ("", "auto", "unknown"):
+        lang = None
+    size = body.model_size if body.model_size in _WHISPER_SIZES else "small"
+    result = transcribe_media(
+        os.path.expanduser(body.path.strip()),
+        language=lang,
+        model_size=size,
+    )
     warnings = result.get("warnings") or []
     if "FILE_NOT_FOUND" in warnings:
         raise HTTPException(status_code=404, detail="Audio file not found")

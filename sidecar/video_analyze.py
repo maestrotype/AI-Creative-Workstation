@@ -14,7 +14,7 @@ from scene_detect import detect_scenes
 from transcribe import transcribe_video, whisper_available
 from scene_understand import analyze_visual_scenes
 
-CACHE_VERSION = 6
+CACHE_VERSION = 7
 
 _analyze_lock = threading.Lock()
 _analyze_job: Dict[str, Any] = {
@@ -189,6 +189,7 @@ def analyze_video(
             transcript = transcribe_video(
                 resolved,
                 language=None if language == "auto" else language,
+                model_size="medium",
                 on_progress=_progress_cb,
             )
             warnings.extend(transcript.get("warnings") or [])

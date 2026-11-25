@@ -11,6 +11,10 @@
   animation: fadeSlideUp var(--duration-moderate) var(--ease-out) both;
 }
 
+.container[data-medium='video'] {
+  max-width: 1240px;
+}
+
 .title {
   margin: 0;
   color: var(--color-text-primary);
@@ -26,6 +30,70 @@
   text-align: center;
   color: var(--color-text-secondary);
   font-size: var(--text-body);
+}
+
+.dubCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-4);
+  text-align: left;
+  border: 1px solid var(--color-accent-border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-card));
+}
+
+.dubCard strong {
+  color: var(--color-text-primary);
+  font-size: var(--text-body-lg);
+}
+
+.dubCard p,
+.dubError {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
+.dubError {
+  color: var(--color-danger, #e5484d);
+  font-size: var(--text-body-sm);
+}
+
+.dubActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.dubPrimary,
+.dubGhost {
+  padding: var(--space-2) var(--space-4);
+  font: inherit;
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+
+.dubPrimary {
+  color: var(--color-text-inverse);
+  background: var(--color-accent);
+  border: none;
+}
+
+.dubPrimary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.dubGhost {
+  color: var(--color-text-primary);
+  background: transparent;
+  border: 1px solid var(--color-border-default);
 }
 
 .engineBanner {
@@ -216,6 +284,49 @@
 .createButton:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.durationRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.durationBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  color: var(--color-text-primary);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-full);
+  font: inherit;
+  font-size: 18px;
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.durationBtn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-default);
+}
+
+.durationBtn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.durationValue {
+  min-width: 3rem;
+  text-align: center;
+  color: var(--color-text-primary);
+  font-size: var(--text-heading-sm);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
 }
 
 @keyframes fadeSlideUp {

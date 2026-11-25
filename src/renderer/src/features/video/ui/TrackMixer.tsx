@@ -871,38 +871,44 @@ export function TrackMixer({ embedded = false }: { embedded?: boolean } = {}): R
           <div className={s.headerCol}>Таймлайн</div>
           <div className={s.trackHeader} data-lane="overlay" title={t('video.track_v2_hint')}>
             <div className={s.trackTitleWrap}>
-              <span className={s.trackIcon}>🖼</span>
+              <span className={s.trackId}>V2</span>
               <span className={s.trackLabelCol}>
-                <span className={s.trackLabel}>{t('video.track_v2')}</span>
+                <span className={s.trackLabel}>{t('video.track_v2_name')}</span>
                 <span className={s.trackSub}>{t('video.track_v2_sub')}</span>
               </span>
             </div>
           </div>
           <div className={s.trackHeader} data-lane="video" title={t('video.track_v1_hint')}>
             <div className={s.trackTitleWrap}>
-              <span className={s.trackIcon}>🎬</span>
+              <span className={s.trackId}>V1</span>
               <span className={s.trackLabelCol}>
-                <span className={s.trackLabel}>{t('video.track_v1')}</span>
+                <span className={s.trackLabel}>{t('video.track_v1_name')}</span>
                 <span className={s.trackSub}>{t('video.track_v1_sub')}</span>
               </span>
             </div>
           </div>
           <div className={s.trackHeader} title={t('video.track_a1_hint')}>
             <div className={s.trackTitleWrap}>
-              <span className={s.trackIcon}>🔊</span>
-              <span className={s.trackLabel}>{t('video.track_a1')}</span>
+              <span className={s.trackId}>A1</span>
+              <span className={s.trackLabelCol}>
+                <span className={s.trackLabel}>{t('video.track_a1_name')}</span>
+              </span>
             </div>
           </div>
           <div className={s.trackHeader}>
             <div className={s.trackTitleWrap}>
-              <span className={s.trackIcon}>🎵</span>
-              <span className={s.trackLabel}>{t('video.track_a2')}</span>
+              <span className={s.trackId}>A2</span>
+              <span className={s.trackLabelCol}>
+                <span className={s.trackLabel}>{t('video.track_a2_name')}</span>
+              </span>
             </div>
           </div>
           <div className={s.trackHeader}>
             <div className={s.trackTitleWrap}>
-              <span className={s.trackIcon}>💬</span>
-              <span className={s.trackLabel}>{t('video.track_c1')}</span>
+              <span className={s.trackId}>C1</span>
+              <span className={s.trackLabelCol}>
+                <span className={s.trackLabel}>{t('video.track_c1_name')}</span>
+              </span>
             </div>
           </div>
         </div>

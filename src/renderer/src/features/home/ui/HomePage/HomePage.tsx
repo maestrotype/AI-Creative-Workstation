@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 import { IntentInput } from '../../../../shared/ui/IntentInput/IntentInput';
 import { filePathFromAssetUrl } from '../../../studio/store/workspaceBridgeStore';
 import { attachGeneratedToFilm } from '../../../projects/model/attachToFilm';
+import { isVoiceoverIntent, pickAndStartVoiceover, startProjectFromVideo } from '../../../projects/model/startVoiceover';
 import { useHomeStore } from '../../store/homeStore';
 import { useCreateStore } from '../../../create/store/createStore';
 import { ContinueWorking } from '../ContinueWorking/ContinueWorking';
@@ -51,6 +52,9 @@ export function HomePage(): ReactNode {
   const [assetsExpanded, setAssetsExpanded] = useState(false);
   const [filmNote, setFilmNote] = useState<string | null>(null);
   const [filmOpenId, setFilmOpenId] = useState<string | null>(null);
+  const [jobMode, setJobMode] = useState<'voice' | 'picture' | 'film'>('voice');
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
 
   const inspirationStatus = useHomeStore((s) => s.inspirationStatus);
   const inspirationItems = useHomeStore((s) => s.inspirationItems);
@@ -63,7 +67,38 @@ export function HomePage(): ReactNode {
     loadInspirationItems();
   }, [loadRecentProjects, loadRecentAssets, loadInspirationItems]);
 
+  const attachedVideo = referenceDrafts.find((ref) => ref.kind === 'video' && ref.sourcePath)?.sourcePath;
+
+  const startVoice = async (path?: string) => {
+    setVoiceBusy(true);
+    setVoiceError(null);
+    try {
+      const options = {
+        untitled: t('projects.untitled'),
+        chapterTitle: t('projects.imported_video_chapter'),
+        brief: intentDraft.trim(),
+      };
+      const href = path
+        ? await startProjectFromVideo(path, { ...options, voice: true })
+        : await pickAndStartVoiceover(options);
+      if (href) navigate(href);
+    } catch (err) {
+      setVoiceError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setVoiceBusy(false);
+    }
+  };
+
   const handleSubmit = () => {
+    if (jobMode === 'voice' || isVoiceoverIntent(intentDraft)) {
+      setJobMode('voice');
+      void startVoice(attachedVideo);
+      return;
+    }
+    if (jobMode === 'film') {
+      navigate('/projects');
+      return;
+    }
     if (intentDraft.trim().length > 0) {
       navigate('/create');
     }
@@ -123,19 +158,80 @@ export function HomePage(): ReactNode {
 
       {/* Intent bar — the centrepiece */}
       <div className={styles.intentSection}>
+        <div className={styles.modes} role="tablist" aria-label={t('home.hero_heading')}>
+          {([
+            ['voice', 'home.job_voice'],
+            ['picture', 'home.job_picture'],
+            ['film', 'home.job_film'],
+          ] as const).map(([id, key]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={jobMode === id}
+              className={styles.mode}
+              data-on={jobMode === id || undefined}
+              onClick={() => setJobMode(id)}
+            >
+              {t(key)}
+            </button>
+          ))}
+        </div>
+
+        {jobMode === 'voice' ? (
+          <div className={styles.voiceCard}>
+            <strong>{t('home.job_voice_title')}</strong>
+            <p>{t('home.job_voice_body')}</p>
+            <div className={styles.voiceActions}>
+              <button
+                type="button"
+                className={styles.voicePrimary}
+                disabled={voiceBusy}
+                onClick={() => { void startVoice(attachedVideo); }}
+              >
+                {voiceBusy
+                  ? t('home.job_voice_busy')
+                  : attachedVideo
+                    ? t('home.job_voice_attached')
+                    : t('home.job_voice_pick')}
+              </button>
+              <button type="button" className={styles.chip} onClick={() => navigate('/assets?tab=voice')}>
+                {t('home.job_voice_sample')}
+              </button>
+            </div>
+            {voiceError ? <p className={styles.voiceError}>{voiceError}</p> : null}
+          </div>
+        ) : null}
+
+        {jobMode === 'film' ? (
+          <p className={styles.modeNote}>{t('home.job_film_body')}</p>
+        ) : null}
+
         <IntentInput
           value={intentDraft}
           onChange={setIntentDraft}
           onSubmit={handleSubmit}
-          isDisabled={isCreating}
-          placeholder={t('home.intent_placeholder')}
-          hint={t('home.intent_hint')}
+          isDisabled={isCreating || voiceBusy}
+          placeholder={t(
+            jobMode === 'voice'
+              ? 'home.intent_placeholder_voice'
+              : jobMode === 'film'
+                ? 'home.intent_placeholder_film'
+                : 'home.intent_placeholder',
+          )}
+          hint={t(
+            jobMode === 'voice'
+              ? 'home.intent_hint_voice'
+              : jobMode === 'film'
+                ? 'home.intent_hint_film'
+                : 'home.intent_hint',
+          )}
           references={referenceDrafts}
           onReferencesChange={setReferenceDrafts}
         />
 
         {/* Quick-start suggestion chips */}
-        {showSuggestions ? (
+        {jobMode === 'picture' && showSuggestions ? (
           <div className={styles.suggestions}>
             {(['suggest_1', 'suggest_2', 'suggest_3'] as const).map((key) => (
               <button

@@ -37,6 +37,8 @@ const api = {
       seed?: number;
       segments?: { prompt: string; seconds: number }[];
     }) => ipcRenderer.invoke('generate-video', payload),
+  faceSwap: (payload: { targetImage: string; sourceFace: string; selector?: string }) =>
+    ipcRenderer.invoke('face-swap', payload),
   generateImage: (payload: {
     prompt: string;
     format: string;
@@ -197,12 +199,26 @@ const api = {
     items: Array<{ text: string; index: number; prepared_text?: string }>;
     language?: string;
     seed?: number;
+    skip_prepare?: boolean;
   }) => ipcRenderer.invoke('synthesize-voice-batch', payload),
+  stretchVideo: (payload: {
+    path: string;
+    target_sec: number;
+    output_name?: string;
+  }) => ipcRenderer.invoke('stretch-video', payload) as Promise<{
+    status: string;
+    file_path: string;
+    duration_sec: number;
+    source_sec: number;
+    factor: number;
+    stretched: boolean;
+  }>,
   fitSpeechDuration: (payload: {
     file_path: string;
     target_sec: number;
     force?: boolean;
     fill_window?: boolean;
+    match_picture?: boolean;
   }) => ipcRenderer.invoke('fit-speech-duration', payload) as Promise<{
     file_path: string;
     source_sec: number;

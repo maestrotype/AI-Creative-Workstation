@@ -279,6 +279,7 @@ export function shotProviderShort(shot: FilmShot): string {
 /** Short label for a narrow media card. Full id stays on the tooltip. */
 export function shotModelLabel(shot: FilmShot): string {
   const raw = shotProviderShort(shot);
+  if (/wan\s*3\.0|wan3\.0|wan3/i.test(raw)) return 'Wan 3.0';
   if (/wan\s*2\.2|wan2\.2/i.test(raw)) return 'Wan 2.2';
   if (/^wan/i.test(raw)) return 'Wan';
   if (/flux/i.test(raw)) return 'FLUX';

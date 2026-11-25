@@ -391,17 +391,20 @@ export function filmTotalSec(
   const calloutEnd = Math.max(0, ...callouts.map((c) => c.endSec));
 
   if (pictureEnd > 0.5) {
-    // Allow short audio overhang; ignore narration that dwarfs the picture.
-    const audioSlack = Math.max(pictureEnd + 2, pictureEnd * 1.08);
+    // Allow a short overhang so the last word is not clipped. Never pad the
+    // ruler past the actual picture/audio — that left empty black on short cuts.
+    const audioSlack = Math.max(pictureEnd + 0.6, pictureEnd * 1.05);
     const usableAudio = audioEnd > audioSlack * 1.35 ? 0 : Math.min(audioEnd, audioSlack);
-    return Math.max(8, pictureEnd, usableAudio, calloutEnd);
+    return Math.max(pictureEnd, usableAudio, calloutEnd);
   }
 
   const audioOrSource = Math.max(audioEnd, voiceoverSourceDur > 0.5 ? voiceoverSourceDur : 0);
+  // Empty canvas only: keep a short working length until media lands.
   return Math.max(8, audioOrSource, calloutEnd);
 }
 
-/** Cap audio clips that wildly overshoot the picture (e.g. 20min narration on a 2min cut). */
+/** Cap audio that dwarfs the picture (e.g. 20min narration on a 2min cut).
+ * A short overhang is kept so the last words of a respeak are not chopped. */
 export function trimRunawayAudioClips(clips: TimelineClip[]): TimelineClip[] {
   const pictureEnd = Math.max(
     0,
@@ -410,14 +413,14 @@ export function trimRunawayAudioClips(clips: TimelineClip[]): TimelineClip[] {
       .map((c) => c.startSec + c.durationSec),
   );
   if (pictureEnd < 1) return clips;
-  const limit = pictureEnd;
+  const wild = Math.max(pictureEnd + 2.5, pictureEnd * 1.35);
   let changed = false;
   const next = clips.map((clip) => {
     if (!clip.track.startsWith('a')) return clip;
     const end = clip.startSec + clip.durationSec;
-    if (end <= limit + 0.35) return clip;
-    const durationSec = Math.max(0.4, Math.round((limit - clip.startSec) * 100) / 100);
-    if (durationSec <= 0.4 && clip.startSec >= limit) return clip;
+    if (end <= wild) return clip;
+    const durationSec = Math.max(0.4, Math.round((pictureEnd - clip.startSec) * 100) / 100);
+    if (durationSec <= 0.4 && clip.startSec >= pictureEnd) return clip;
     if (Math.abs(durationSec - clip.durationSec) < 0.05) return clip;
     changed = true;
     return { ...clip, durationSec, autoLength: false };

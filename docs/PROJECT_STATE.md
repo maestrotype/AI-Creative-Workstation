@@ -44,13 +44,13 @@ Short version:
 | Projects on disk (`~/Documents/Canvas/Projects/{id}/project.json`) | **IMPLEMENTED** |
 | Scene: still, clip, prompt, overlay, Ken Burns stitch | **IMPLEMENTED** |
 | Image gen: FLUX / SDXL via Diffusers + PyTorch (MPS), not MLX | **IMPLEMENTED** |
-| Generate video | **IMPLEMENTED** (local Wan 2.2 TI2V-5B MLX q8; fallback H3/Runway; SVD is animation only) |
+| Generate video | **IMPLEMENTED** (Hybrid Hub: ModelPicker with search, Speed/Price/Quality sorting; Local Wan 2.2 TI2V-5B MLX q8; Cloud APIs: Kling 4.0, Seedance 2.5 via fal.ai, Runway Gen-4.5, MiniMax H3; SVD for still animation) |
 | Narration coverage | **FIXED** (empty windows after a split are filled before TTS; leading picture idle is covered from V1 start; a hole >1.5s is not closed by stretching the previous line with silence; short caption lines are rewritten to the word budget) |
 | Long AI shot (segment plan) | **IMPLEMENTED** (chapter card → «План длинного AI-кадра»; TI2V only. Segments of 1.7 / 3.4 / 5 s, one seed. Each segment starts from the sharpest of the previous segment's last 8 frames; the seam drops 9 frames (handoff still + two VAE groups settling colour). ~5 min per 1.7 s segment on M4 Max. Later segments can drift from the still) |
 | Wan / SVD in catalog | **IMPLEMENTED** (TI2V = AI video; SVD = animation; Wan 2.1 T2V is not the ad path) |
 | Video director + analyze → script → XTTS → export | **IMPLEMENTED** (session mostly **localStorage**) |
 | 3D image → mesh | **IMPLEMENTED** (separate from video) |
-| MLX, fal.ai, SQLite job queue, Creative Asset Graph | **PARTIAL** (MLX only for Wan 2.2 TI2V subprocess; fal.ai / queue / graph are docs) |
+| MLX, fal.ai, SQLite job queue, Creative Asset Graph | **PARTIAL** (MLX for Wan 2.2 TI2V subprocess; fal.ai queue API in `seedance_cloud.py`; queue / graph are docs) |
 
 ## Current conceptual problem
 

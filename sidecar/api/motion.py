@@ -15,6 +15,9 @@ from api import generation
 from api import h3_local
 from api import mlx_ti2v
 from api import runway_cloud
+from api import kling_cloud
+from api import seedance_cloud
+from api import wan3_cloud
 from api.video import _ffmpeg_bin, _run_ffmpeg
 from video_capability import IMAGE_TO_VIDEO, assert_mode_allowed, resolve_mode
 
@@ -61,14 +64,31 @@ def _is_ti2v(model_id: str) -> bool:
     return "ti2v" in key or "anes1032" in key
 
 
+def _is_wan3(model_id: str) -> bool:
+    key = (model_id or "").lower()
+    return "wan3" in key or "wan-3" in key or "alibaba/wan3" in key
+
+
 def _is_wan(model_id: str) -> bool:
     key = (model_id or "").lower()
-    return "wan" in key and not _is_ti2v(model_id)
+    return "wan" in key and not _is_ti2v(model_id) and not _is_wan3(model_id)
 
 
 def _is_svd(model_id: str) -> bool:
     key = model_id.lower()
     return "stable-video-diffusion" in key or "img2vid" in key
+
+
+def _is_ltx(model_id: str) -> bool:
+    return "ltx" in (model_id or "").lower()
+
+
+def _is_cogvideox(model_id: str) -> bool:
+    return "cogvideo" in (model_id or "").lower()
+
+
+def _is_hunyuan(model_id: str) -> bool:
+    return "hunyuan" in (model_id or "").lower()
 
 
 def _on_apple_silicon() -> bool:
@@ -868,6 +888,122 @@ def _run_svd(request: VideoGenRequest, job_id: str):
     return dest, quality
 
 
+def _run_diffusers_i2v(request: VideoGenRequest, job_id: str):
+    generation._ensure_ml()
+    torch = generation.torch
+    cache_key = generation._to_cache_key(request.model_id)
+    local_dir = os.path.expanduser(f"~/Documents/Canvas/Models/{cache_key}")
+
+    if _is_ltx(request.model_id):
+        name = "LTX-Video"
+    elif _is_cogvideox(request.model_id):
+        name = "CogVideoX-5B"
+    elif _is_hunyuan(request.model_id):
+        name = "HunyuanVideo"
+    else:
+        name = request.model_id
+
+    if not os.path.isdir(local_dir):
+        raise RuntimeError(
+            f"VIDEO_MODEL_MISSING: Download {name} in Studio → Video first."
+        )
+
+    generation.set_runtime_job(
+        active=True,
+        kind="video",
+        stage="load",
+        percent=4,
+        detail=name,
+        model_id=request.model_id,
+        started_at=time.time(),
+        error=None,
+        cancel=False,
+    )
+
+    dropped = generation._unload_all_models()
+    if dropped:
+        print(f"[motion] freed {dropped} pipeline(s) before {name} load", flush=True)
+
+    from PIL import Image
+    still_path = request.image_path or ""
+    if not still_path or not os.path.isfile(still_path):
+        raise RuntimeError("IMAGE_REQUIRED: Import or select an image first.")
+
+    source_image = Image.open(still_path).convert("RGB")
+
+    import diffusers
+    dtype = torch.bfloat16 if torch.cuda.is_available() else (torch.float16 if _on_apple_silicon() else torch.float32)
+
+    if _is_ltx(request.model_id):
+        pipe_cls = diffusers.LTXImageToVideoPipeline
+        default_frames = 121
+        fps = 24
+        width, height = (704, 480) if request.format in ("portrait", "shorts") else (480, 704)
+        if request.format == "square":
+            width, height = 512, 512
+    elif _is_cogvideox(request.model_id):
+        pipe_cls = diffusers.CogVideoXImageToVideoPipeline
+        default_frames = 49
+        fps = 8
+        width, height = (480, 720) if request.format in ("portrait", "shorts") else (720, 480)
+    elif _is_hunyuan(request.model_id):
+        # 13B weights freeze Apple Silicon during from_pretrained — refuse before load.
+        if _on_apple_silicon():
+            raise RuntimeError(
+                "VIDEO_CAPABILITY_UNSUPPORTED: HunyuanVideo (13B) freezes this Mac while loading. "
+                "Use Wan 2.2 TI2V (local), Wan 3.0 (DashScope cloud), Kling, or Seedance."
+            )
+        pipe_cls = diffusers.HunyuanVideoImageToVideoPipeline
+        default_frames = 61
+        fps = 24
+        width, height = (544, 960) if request.format in ("portrait", "shorts") else (960, 544)
+        if request.format == "square":
+            width, height = 720, 720
+    else:
+        raise RuntimeError(f"Unknown diffusers model: {request.model_id}")
+
+    if _is_cogvideox(request.model_id) and _on_apple_silicon():
+        raise RuntimeError(
+            "VIDEO_CAPABILITY_UNSUPPORTED: CogVideoX-5B is not practical on Apple Silicon. "
+            "Use Wan 2.2 TI2V (local) or a cloud provider."
+        )
+
+    image_input = source_image.resize((width, height), Image.Resampling.LANCZOS)
+
+    generation.set_runtime_job(stage="load", percent=8, detail=f"Loading {name} weights")
+    pipe = pipe_cls.from_pretrained(local_dir, torch_dtype=dtype, local_files_only=True)
+    pipe = _attach_video_pipe(pipe)
+
+    generation.set_runtime_job(stage="infer", percent=20, detail=f"Generating with {name}")
+
+    import inspect
+    sig = inspect.signature(pipe.__call__).parameters
+    kwargs = {
+        "image": image_input,
+        "prompt": request.prompt or "cinematic video, high quality",
+        "num_frames": request.num_frames or default_frames,
+    }
+    if "height" in sig:
+        kwargs["height"] = height
+        kwargs["width"] = width
+
+    out = pipe(**kwargs)
+    frames = out.frames[0]
+
+    dest_dir = os.path.expanduser("~/Documents/Canvas/Generated/Video")
+    os.makedirs(dest_dir, exist_ok=True)
+    dest = os.path.join(dest_dir, f"{job_id}.mp4")
+
+    generation.set_runtime_job(stage="encode", percent=92, detail="ffmpeg")
+    _encode_frames(frames, fps, dest)
+    quality = _motion_report(frames, fps=fps)
+    quality.update(_identity_vs_source(source_image, frames))
+
+    generation._unload_model(cache_key)
+    generation.set_runtime_job(active=False, stage="idle", percent=100, detail="done")
+    return dest, quality
+
+
 def _still_from_request(request: VideoGenRequest) -> str:
     path = (request.image_path or "").strip()
     if path and os.path.isfile(path):
@@ -955,6 +1091,9 @@ async def generate_video(request: VideoGenRequest):
     elif _is_svd(request.model_id):
         def runner():
             return _run_svd(request, job_id)
+    elif _is_ltx(request.model_id) or _is_cogvideox(request.model_id) or _is_hunyuan(request.model_id):
+        def runner():
+            return _run_diffusers_i2v(request, job_id)
     else:
         use_h3 = "minimax" in (request.model_id or "").lower() or "h3" in (request.model_id or "").lower()
         if "runway" in (request.model_id or "").lower():
@@ -967,6 +1106,75 @@ async def generate_video(request: VideoGenRequest):
                     fmt=request.format,
                     duration_sec=request.duration_sec,
                     endpoint=request.h3_endpoint or "",
+                    job_id=job_id,
+                )
+                return path, {
+                    "frame_count": 0,
+                    "fps": 24,
+                    "duration_sec": float(request.duration_sec or 5),
+                    "motion_score": None,
+                    "low_motion": False,
+                    "prompt_consumed": True,
+                }
+        elif "kling" in (request.model_id or "").lower():
+            if not (request.api_secret or "").strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="VIDEO_CAPABILITY_UNSUPPORTED: Kling API key is missing. Set it in Settings.",
+                )
+            def runner():
+                path = kling_cloud.run_kling(
+                    image_path=request.image_path or "",
+                    prompt=request.prompt,
+                    fmt=request.format,
+                    duration_sec=request.duration_sec,
+                    api_key=request.api_secret or "",
+                    job_id=job_id,
+                )
+                return path, {
+                    "frame_count": 0,
+                    "fps": 24,
+                    "duration_sec": float(request.duration_sec or 5),
+                    "motion_score": None,
+                    "low_motion": False,
+                    "prompt_consumed": True,
+                }
+        elif "seedance" in (request.model_id or "").lower():
+            if not (request.api_secret or "").strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="VIDEO_CAPABILITY_UNSUPPORTED: Seedance/fal.ai API key is missing. Set it in Settings.",
+                )
+            def runner():
+                path = seedance_cloud.run_seedance(
+                    image_path=request.image_path or "",
+                    prompt=request.prompt,
+                    fmt=request.format,
+                    duration_sec=request.duration_sec,
+                    api_key=request.api_secret or "",
+                    job_id=job_id,
+                )
+                return path, {
+                    "frame_count": 0,
+                    "fps": 24,
+                    "duration_sec": float(request.duration_sec or 5),
+                    "motion_score": None,
+                    "low_motion": False,
+                    "prompt_consumed": True,
+                }
+        elif _is_wan3(request.model_id):
+            if not (request.api_secret or "").strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="VIDEO_CAPABILITY_UNSUPPORTED: DashScope / Qwen Cloud API key is missing. Set DASHSCOPE_API_KEY in Settings.",
+                )
+            def runner():
+                path = wan3_cloud.run_wan3(
+                    image_path=request.image_path or "",
+                    prompt=request.prompt,
+                    fmt=request.format,
+                    duration_sec=request.duration_sec,
+                    api_key=request.api_secret or "",
                     job_id=job_id,
                 )
                 return path, {

@@ -331,11 +331,7 @@ export function DirectorPreview({
               window.addEventListener('pointerup', up);
             }}
           >
-            <i className={styles.pipBadge}>
-              {id.toUpperCase()}
-              {' · '}
-              {t('video.preview_pip_badge')}
-            </i>
+            <i className={styles.pipBadge}>{id.toUpperCase()}</i>
             {isVideo ? (
               <video
                 ref={(el) => { overlayRefs.current[id] = el; }}
