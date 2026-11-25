@@ -21,6 +21,14 @@ import {
   type ProjectDoc,
   type ProjectFormat,
 } from './projectStore';
+import { deleteFilmTemplate, listFilmTemplates, saveFilmTemplate } from './templateStore';
+import {
+  canvasRoot,
+  canvasRootStatus,
+  rememberCanvasRoot,
+  setCanvasUserDataRoot,
+} from './canvasFs';
+import { ECOMMERCE_TEMPLATE_ID, type FilmTemplateDraft } from '../shared/filmTemplate';
 import { registerOllamaIpc, stopOllamaIfStartedByApp, prepareOllamaForScript } from './ollamaEngine';
 
 app.setName('AI Creative Workstation');
@@ -29,6 +37,7 @@ const legacyUserData = join(app.getPath('appData'), 'canvas');
 if (existsSync(legacyUserData)) {
   app.setPath('userData', legacyUserData);
 }
+setCanvasUserDataRoot(join(app.getPath('userData'), 'Canvas'));
 
 process.on('uncaughtException', (err) => {
   if (err.message.includes('EPIPE')) {
@@ -525,6 +534,15 @@ function listReadyModels(kind: 'image' | 'video' | '3d' = 'image'): { id: string
   if (hasRunwayKey() && !rows.some((m) => m.id === RUNWAY_MODEL_ID)) {
     extra.push({ id: RUNWAY_MODEL_ID, name: 'Runway Gen-4.5' });
   }
+  if (hasKlingKey() && !rows.some((m) => m.id === KLING_MODEL_ID)) {
+    extra.push({ id: KLING_MODEL_ID, name: 'Kling 4.0' });
+  }
+  if (hasSeedanceKey() && !rows.some((m) => m.id === SEEDANCE_MODEL_ID)) {
+    extra.push({ id: SEEDANCE_MODEL_ID, name: 'Seedance 2.5' });
+  }
+  if (hasLumaKey() && !rows.some((m) => m.id === LUMA_MODEL_ID)) {
+    extra.push({ id: LUMA_MODEL_ID, name: 'Luma Dream Machine' });
+  }
   return extra.length ? [...extra, ...rows] : rows;
 }
 
@@ -540,9 +558,33 @@ function resolveActiveModelId(): string | null {
 const RUNWAY_MODEL_ID = 'runwayml/gen4.5';
 const H3_MODEL_ID = 'MiniMaxAI/MiniMax-H3';
 const TI2V_MODEL_ID = 'Anes1032/Wan2.2-TI2V-5B-mlx-q8';
+const KLING_MODEL_ID = 'kling-ai/kling-4.0';
+const SEEDANCE_MODEL_ID = 'seedance/seedance-2.5';
+const WAN3_MODEL_ID = 'alibaba/wan3.0-video';
+const LUMA_MODEL_ID = 'luma/dream-machine-1.6';
 
 function hasRunwayKey(): boolean {
   return Boolean(getSettingValue('RUNWAY_API_SECRET')?.trim());
+}
+
+function hasKlingKey(): boolean {
+  return Boolean(getSettingValue('KLING_API_KEY')?.trim());
+}
+
+function hasSeedanceKey(): boolean {
+  return Boolean(getSettingValue('SEEDANCE_API_KEY')?.trim() || getSettingValue('FAL_KEY')?.trim());
+}
+
+function hasWan3Key(): boolean {
+  return Boolean(
+    getSettingValue('DASHSCOPE_API_KEY')?.trim()
+    || getSettingValue('WAN3_API_KEY')?.trim()
+    || getSettingValue('QWEN_API_KEY')?.trim(),
+  );
+}
+
+function hasLumaKey(): boolean {
+  return Boolean(getSettingValue('LUMA_API_KEY')?.trim());
 }
 
 function hasH3Endpoint(): boolean {
@@ -560,6 +602,54 @@ function runwayModelRow() {
   return {
     id: RUNWAY_MODEL_ID,
     name: 'Runway Gen-4.5',
+    type: 'video',
+    path: null as string | null,
+    status: 'ready',
+    errorMessage: null as string | null,
+    createdAt: new Date(0),
+  };
+}
+
+function klingModelRow() {
+  return {
+    id: KLING_MODEL_ID,
+    name: 'Kling 4.0',
+    type: 'video',
+    path: null as string | null,
+    status: 'ready',
+    errorMessage: null as string | null,
+    createdAt: new Date(0),
+  };
+}
+
+function seedanceModelRow() {
+  return {
+    id: SEEDANCE_MODEL_ID,
+    name: 'Seedance 2.5',
+    type: 'video',
+    path: null as string | null,
+    status: 'ready',
+    errorMessage: null as string | null,
+    createdAt: new Date(0),
+  };
+}
+
+function wan3ModelRow() {
+  return {
+    id: WAN3_MODEL_ID,
+    name: 'Wan 3.0',
+    type: 'video',
+    path: null as string | null,
+    status: 'ready',
+    errorMessage: null as string | null,
+    createdAt: new Date(0),
+  };
+}
+
+function lumaModelRow() {
+  return {
+    id: LUMA_MODEL_ID,
+    name: 'Luma Dream Machine',
     type: 'video',
     path: null as string | null,
     status: 'ready',
@@ -597,7 +687,7 @@ function resolveVideoModelForMode(mode: string): string | null {
     return svd?.id ?? null;
   }
   if (mode === 't2v') {
-    const wan = ready.find((m) => /wan/i.test(m.id) && !/ti2v|anes1032/i.test(m.id));
+    const wan = ready.find((m) => /wan/i.test(m.id) && !/ti2v|anes1032|wan3|alibaba\/wan3/i.test(m.id));
     return wan?.id ?? null;
   }
   // Prompt-driven product video: local TI2V first, then H3 / Runway. SVD is animation.
@@ -629,11 +719,14 @@ function startSidecar(): void {
   console.log('Starting Python Sidecar:', sidecarPath);
   setEngineStatus('starting');
 
+  const dataRoot = canvasRoot();
+  console.log('Canvas data root:', dataRoot);
   sidecarProcess = spawn('python3', ['-u', sidecarPath], {
     cwd: sidecarDir,
     env: {
       ...process.env,
       PYTHONUNBUFFERED: '1',
+      ACW_CANVAS_ROOT: dataRoot,
       PYTORCH_ENABLE_MPS_FALLBACK: '1',
       PYTORCH_MPS_HIGH_WATERMARK_RATIO: '0.0',
       PYTORCH_MPS_LOW_WATERMARK_RATIO: '0.0',
@@ -781,12 +874,13 @@ async function unloadFromSidecar(modelId: string): Promise<{ unloaded: boolean; 
       return { unloaded: false, reason: 'sidecar-unavailable' };
     }
   }
-  const cacheKey = toCacheKey(modelId);
+  const raw = (modelId || '').trim();
+  const cacheKey = raw.startsWith('ollama:') ? raw : toCacheKey(raw);
   try {
     const res = await net.fetch(`${SIDECAR_URL}/api/models/unload`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model_id: modelId, cache_key: cacheKey }),
+      body: JSON.stringify({ model_id: raw, cache_key: cacheKey }),
       signal: AbortSignal.timeout(180_000),
     });
     if (!res.ok) {
@@ -1013,6 +1107,18 @@ function setupIpc() {
     }
     if (hasRunwayKey() && !rows.some((row) => row.id === RUNWAY_MODEL_ID)) {
       injected.push(runwayModelRow());
+    }
+    if (hasKlingKey() && !rows.some((row) => row.id === KLING_MODEL_ID)) {
+      injected.push(klingModelRow());
+    }
+    if (hasSeedanceKey() && !rows.some((row) => row.id === SEEDANCE_MODEL_ID)) {
+      injected.push(seedanceModelRow());
+    }
+    if (hasWan3Key() && !rows.some((row) => row.id === WAN3_MODEL_ID)) {
+      injected.push(wan3ModelRow());
+    }
+    if (hasLumaKey() && !rows.some((row) => row.id === LUMA_MODEL_ID)) {
+      injected.push(lumaModelRow());
     }
     return injected.length ? [...injected, ...rows] : rows;
   });
@@ -1243,6 +1349,7 @@ function setupIpc() {
     shot_index?: number;
     shot_total?: number;
     seed?: number;
+    segments?: { prompt: string; seconds: number }[];
   }) => {
     const ready = await ensureSidecarReady();
     if (!ready.ok) {
@@ -1262,10 +1369,29 @@ function setupIpc() {
     }
     const useH3 = /minimax|h3/i.test(modelId);
     const useRunway = /runway/i.test(modelId);
+    const useKling = /kling/i.test(modelId);
+    const useSeedance = /seedance/i.test(modelId);
+    const useWan3 = /wan3|wan-3|alibaba\/wan3/i.test(modelId);
+    const useLuma = /luma|dream/i.test(modelId);
     const useTi2v = /ti2v|anes1032/i.test(modelId);
-    const useWan = /wan/i.test(modelId) && !useTi2v;
+    const useLtx = /ltx/i.test(modelId);
+    const useCogVideo = /cogvideo/i.test(modelId);
+    const useHunyuan = /hunyuan/i.test(modelId);
+    const useWan = /wan/i.test(modelId) && !useTi2v && !useWan3;
     const useSvd = /stable-video-diffusion|img2vid|svd/i.test(modelId) && !useTi2v;
-    const apiSecret = useRunway ? (getSettingValue('RUNWAY_API_SECRET')?.trim() || '') : '';
+
+    let apiSecret = '';
+    if (useRunway) apiSecret = getSettingValue('RUNWAY_API_SECRET')?.trim() || '';
+    else if (useKling) apiSecret = getSettingValue('KLING_API_KEY')?.trim() || '';
+    else if (useSeedance) apiSecret = getSettingValue('SEEDANCE_API_KEY')?.trim() || getSettingValue('FAL_KEY')?.trim() || '';
+    else if (useWan3) {
+      apiSecret = getSettingValue('DASHSCOPE_API_KEY')?.trim()
+        || getSettingValue('WAN3_API_KEY')?.trim()
+        || getSettingValue('QWEN_API_KEY')?.trim()
+        || '';
+    }
+    else if (useLuma) apiSecret = getSettingValue('LUMA_API_KEY')?.trim() || '';
+
     const h3Endpoint = useH3 ? (getSettingValue('H3_ENDPOINT')?.trim() || '') : '';
     if (mode === 'ai_video' && useSvd) {
       throw new Error(
@@ -1274,13 +1400,25 @@ function setupIpc() {
     }
     if (mode === 'ai_video' && useWan) {
       throw new Error(
-        'VIDEO_CAPABILITY_UNSUPPORTED: Wan 2.1 T2V is text-to-video and will not keep this product photo. Use Wan 2.2 TI2V, Runway, or H3.',
+        'VIDEO_CAPABILITY_UNSUPPORTED: Wan 2.1 T2V is text-to-video and will not keep this product photo. Use Wan 2.2 TI2V, Wan 3.0, Runway, or H3.',
       );
     }
     if (useRunway && !apiSecret) {
       throw new Error('VIDEO_CAPABILITY_UNSUPPORTED: Runway API key is missing. Set it in Settings.');
     }
-    if (!useH3 && !useRunway && !useWan && !useSvd && !useTi2v) {
+    if (useKling && !apiSecret) {
+      throw new Error('VIDEO_CAPABILITY_UNSUPPORTED: Kling API key is missing. Set it in Settings.');
+    }
+    if (useSeedance && !apiSecret) {
+      throw new Error('VIDEO_CAPABILITY_UNSUPPORTED: Seedance/fal.ai API key is missing. Set it in Settings.');
+    }
+    if (useWan3 && !apiSecret) {
+      throw new Error('VIDEO_CAPABILITY_UNSUPPORTED: DashScope / Qwen Cloud API key is missing. Set DASHSCOPE_API_KEY in Settings.');
+    }
+    if (useLuma && !apiSecret) {
+      throw new Error('VIDEO_CAPABILITY_UNSUPPORTED: Luma API key is missing. Set it in Settings.');
+    }
+    if (!useH3 && !useRunway && !useKling && !useSeedance && !useWan3 && !useLuma && !useWan && !useSvd && !useTi2v && !useLtx && !useCogVideo && !useHunyuan) {
       throw new Error('VIDEO_CAPABILITY_UNSUPPORTED: Unknown video provider.');
     }
     if (!useWan && !payload.image_path && !payload.image_base64) {
@@ -1303,8 +1441,9 @@ function setupIpc() {
         shot_index: payload.shot_index ?? null,
         shot_total: payload.shot_total ?? null,
         seed: payload.seed ?? null,
+        segments: payload.segments?.length ? payload.segments : null,
       }),
-      signal: AbortSignal.timeout(60 * 60 * 1000),
+      signal: AbortSignal.timeout((payload.segments?.length ? 4 : 1) * 60 * 60 * 1000),
     });
     const body = (await res.json().catch(() => ({}))) as {
       detail?: unknown;
@@ -1321,6 +1460,7 @@ function setupIpc() {
     }
     const filePath = body.file_path ?? null;
     if (filePath) {
+      rememberPickedMedia(filePath);
       try {
         writeFileSync(
           filePath.replace(/\.[^.]+$/i, '.json'),
@@ -1348,6 +1488,40 @@ function setupIpc() {
       prompt_consumed: Boolean(body.prompt_consumed),
       quality: body.quality ?? null,
     };
+  });
+
+  ipcMain.handle('face-swap', async (_, payload: { targetImage: string; sourceFace: string; selector?: string }) => {
+    const ready = await ensureSidecarReady();
+    if (!ready.ok) throw new Error(ready.error || 'Sidecar unavailable');
+
+    const targetIsVideo = /\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(payload.targetImage || '');
+    const res = await net.fetch(`${SIDECAR_URL}/api/generate/face-swap`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target_image: payload.targetImage,
+        source_face: payload.sourceFace,
+        target_face_selector: payload.selector || 'center',
+      }),
+      // Image swap ~1 min; video frame loop up to ~10 min.
+      signal: AbortSignal.timeout(targetIsVideo ? 10 * 60 * 1000 : 60_000),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      detail?: unknown;
+      success?: boolean;
+      output_path?: string;
+      data_url?: string;
+      faces_detected_source?: number;
+      faces_detected_target?: number;
+      kind?: 'image' | 'video';
+      frame_count?: number;
+      duration_sec?: number;
+    };
+    if (!res.ok) {
+      throw new Error(body.detail != null ? String(body.detail).slice(0, 400) : `HTTP ${res.status}`);
+    }
+    if (body.output_path) rememberPickedMedia(body.output_path);
+    return body;
   });
 
   ipcMain.handle('generate-image', async (_, payload: {
@@ -1443,17 +1617,62 @@ function setupIpc() {
 
   ipcMain.handle('list-projects', async () => listProjects());
 
+  ipcMain.handle('get-canvas-root-status', async () => canvasRootStatus());
+
+  ipcMain.handle('open-canvas-privacy-settings', async () => {
+    // Full Disk Access pane on macOS. Files and Folders is nearby in the same section.
+    await shell.openExternal(
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles',
+    );
+    return { ok: true };
+  });
+
+  ipcMain.handle('pick-canvas-folder', async () => {
+    const status = canvasRootStatus();
+    const picked = await dialog.showOpenDialog({
+      title: 'Выберите папку Canvas',
+      message: 'Обычно это Documents/Canvas — там лежат Projects, Models и Generated.',
+      defaultPath: status.documents,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (picked.canceled || !picked.filePaths[0]) return { ok: false as const, root: status.root };
+    const root = rememberCanvasRoot(picked.filePaths[0]);
+    // Sidecar must see the same root for analysis and TTS writes.
+    if (sidecarProcess && !sidecarProcess.killed) {
+      ignoreSidecarExit = true;
+      sidecarProcess.kill('SIGTERM');
+      sidecarProcess = null;
+      sidecarBoot = null;
+      await bootSidecar(45_000);
+    }
+    return { ok: true as const, root };
+  });
+
   ipcMain.handle('create-project', async (_, payload: {
     name?: string;
     format?: ProjectFormat;
     preset?: 'marketplace' | 'hero' | 'youtube' | 'shorts';
+    templateId?: string | null;
   } = {}) => {
-    const preset = payload.preset === 'hero' || payload.preset === 'youtube' || payload.preset === 'shorts'
+    const preset = payload.preset === 'hero' || payload.preset === 'youtube' || payload.preset === 'shorts' || payload.preset === 'marketplace'
       ? payload.preset
-      : 'marketplace';
+      : 'youtube';
     const format = preset === 'shorts' || payload.format === 'shorts' ? 'shorts' : 'landscape';
-    return createProject(payload.name || 'Новый фильм', format, preset);
+    const templateId = typeof payload.templateId === 'string' && payload.templateId.trim()
+      ? payload.templateId.trim()
+      : payload.templateId === null
+        ? null
+        : preset === 'marketplace'
+          ? ECOMMERCE_TEMPLATE_ID
+          : null;
+    return createProject(payload.name || 'Новый фильм', format, preset, templateId);
   });
+
+  ipcMain.handle('list-film-templates', async () => listFilmTemplates());
+
+  ipcMain.handle('save-film-template', async (_, draft: FilmTemplateDraft) => saveFilmTemplate(draft));
+
+  ipcMain.handle('delete-film-template', async (_, id: string) => ({ deleted: deleteFilmTemplate(id) }));
 
   ipcMain.handle('load-project', async (_, id: string) => loadProject(id));
 
@@ -1741,6 +1960,10 @@ function setupIpc() {
     return sidecarJson('/api/video/erase-region', payload, 30 * 60 * 1000);
   });
 
+  ipcMain.handle('transcribe-audio', async (_, payload: { path: string; language?: string }) => {
+    return sidecarJson('/api/audio/transcribe', payload, 15 * 60 * 1000);
+  });
+
   ipcMain.handle('analyze-video', async (_, payload: {
     video_path: string;
     transcribe?: boolean;
@@ -1785,7 +2008,7 @@ function setupIpc() {
     ollama_model?: string;
   }) => {
     await prepareOllamaForScript(broadcast);
-    return sidecarJson('/api/script/generate', payload, 15 * 60 * 1000);
+    return sidecarJson('/api/script/generate', payload, 60 * 60 * 1000);
   });
 
   ipcMain.handle('fit-chapter-script', async (_, payload: {
@@ -1798,7 +2021,7 @@ function setupIpc() {
     ollama_model?: string;
   }) => {
     await prepareOllamaForScript(broadcast);
-    return sidecarJson('/api/script/fit-chapters', payload, 15 * 60 * 1000);
+    return sidecarJson('/api/script/fit-chapters', payload, 45 * 60 * 1000);
   });
 
   ipcMain.handle('translate-script', async (_, payload: {
@@ -1824,6 +2047,23 @@ function setupIpc() {
   }) => {
     await prepareOllamaForScript(broadcast);
     return sidecarJson('/api/script/expand', payload, 3 * 60 * 1000);
+  });
+
+  ipcMain.handle('review-script', async (_, payload: {
+    segments: Array<{
+      start_sec: number;
+      end_sec: number;
+      text: string;
+      brief?: string;
+      purpose?: string;
+      visual_summary?: string;
+    }>;
+    language?: string;
+    ollama_model?: string;
+    critic?: boolean;
+  }) => {
+    await prepareOllamaForScript(broadcast);
+    return sidecarJson('/api/script/review', payload, 15 * 60 * 1000);
   });
 
   ipcMain.handle('shorten-script', async (_, payload: {
@@ -2186,13 +2426,27 @@ function setupIpc() {
     items: Array<{ text: string; index: number; prepared_text?: string }>;
     language?: string;
     seed?: number;
+    skip_prepare?: boolean;
   }) => sidecarJson('/api/audio/tts/batch', payload, 60 * 60 * 1000));
 
   ipcMain.handle('fit-speech-duration', async (_, payload: {
     file_path: string;
     target_sec: number;
     force?: boolean;
-  }) => sidecarJson('/api/audio/fit-speech', payload, 60 * 1000));
+    fill_window?: boolean;
+    match_picture?: boolean;
+  }) => sidecarJson('/api/audio/fit-speech', payload, 3 * 60 * 1000));
+
+  ipcMain.handle('stretch-video', async (_, payload: {
+    path: string;
+    target_sec: number;
+    output_name?: string;
+  }) => {
+    const data = await sidecarJson('/api/video/stretch', payload, 10 * 60 * 1000);
+    const out = data.file_path;
+    if (typeof out === 'string' && out.trim()) rememberPickedMedia(out);
+    return data;
+  });
 
   ipcMain.handle('mix-voiceover-track', async (_, payload: {
     parts: Array<{ file_path: string; start_sec: number }>;
@@ -2341,14 +2595,21 @@ function setupIpc() {
     return result.filePath;
   });
 
-  ipcMain.handle('save-video-as', async (_, sourcePath: string) => {
+  ipcMain.handle('save-video-as', async (_, sourcePath: string, defaultName?: string) => {
     const resolved = resolveAllowedVideoFile(sourcePath);
     if (!resolved) {
       throw new Error('No video draft to save');
     }
+    const exportDir = join(homedir(), 'Documents/Canvas/Generated/Video');
+    mkdirSync(exportDir, { recursive: true });
+    const stem = (defaultName || 'video')
+      .replace(/\.mp4$/i, '')
+      .replace(/[^a-zA-Z0-9._\u0400-\u04FF-]+/g, '-')
+      .replace(/-+/g, '-')
+      .slice(0, 80) || 'video';
     const result = await dialog.showSaveDialog({
       title: 'Save video',
-      defaultPath: 'video.mp4',
+      defaultPath: join(exportDir, `${stem}.mp4`),
       filters: [{ name: 'MP4', extensions: ['mp4'] }],
     });
     if (result.canceled || !result.filePath) return null;
@@ -2638,6 +2899,21 @@ function assetPathFromUrl(url: string): string {
   return decoded.startsWith('/') ? decoded : `/${decoded}`;
 }
 
+function assetContentType(filePath: string): string {
+  const ext = extname(filePath).toLowerCase();
+  if (ext === '.mp4' || ext === '.m4v') return 'video/mp4';
+  if (ext === '.mov') return 'video/quicktime';
+  if (ext === '.webm') return 'video/webm';
+  if (ext === '.mkv') return 'video/x-matroska';
+  if (ext === '.png') return 'image/png';
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.webp') return 'image/webp';
+  if (ext === '.gif') return 'image/gif';
+  if (ext === '.wav') return 'audio/wav';
+  if (ext === '.mp3') return 'audio/mpeg';
+  return 'application/octet-stream';
+}
+
 function serveAssetFile(request: Request): Response | Promise<Response> {
   const filePath = assetPathFromUrl(request.url);
   if (!existsSync(filePath)) {
@@ -2655,6 +2931,13 @@ function serveAssetFile(request: Request): Response | Promise<Response> {
     return net.fetch(pathToFileURL(filePath).href, {
       headers,
       bypassCustomProtocolHandlers: true,
+    }).then((res) => {
+      const out = new Headers(res.headers);
+      if (!out.get('content-type') || out.get('content-type') === 'application/octet-stream') {
+        out.set('Content-Type', assetContentType(filePath));
+      }
+      out.set('Accept-Ranges', 'bytes');
+      return new Response(res.body, { status: res.status, statusText: res.statusText, headers: out });
     });
   } catch {
     return new Response('Unreadable', { status: 500 });

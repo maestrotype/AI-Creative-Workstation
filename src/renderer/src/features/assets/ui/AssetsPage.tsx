@@ -1,8 +1,9 @@
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { pickAndStartVoiceover } from '../../projects/model/startVoiceover';
 import { WorkspaceFlow } from '../../studio/ui/WorkspaceFlow';
 import { studioHref } from '../../studio/model/studioReturn';
 import { useMediaLibraryStore } from '../store/mediaLibraryStore';
@@ -103,7 +104,10 @@ function VoiceProgressPanel({ job, t }: { job: VoiceJob; t: (key: string, opts?:
 
 export function AssetsPage(): ReactNode {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
   const [search, setSearch] = useSearchParams();
+  const [dubBusy, setDubBusy] = useState(false);
+  const [dubError, setDubError] = useState<string | null>(null);
   const tab = search.get('tab') === 'voice' ? 'voice' : 'media';
   const audioClips = useMediaLibraryStore((s) => s.audioClips);
   const voicePath = useMediaLibraryStore((s) => s.voicePath);
@@ -143,6 +147,13 @@ export function AssetsPage(): ReactNode {
   const [libDrop, setLibDrop] = useState(false);
   const [playingPath, setPlayingPath] = useState<string | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
+  const [transcript, setTranscript] = useState<{
+    name: string;
+    status: 'working' | 'ready' | 'empty' | 'error';
+    text: string;
+    error: string | null;
+    copied: boolean;
+  } | null>(null);
   const systemStopRef = useRef<(() => void) | null>(null);
   const jobTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -162,6 +173,42 @@ export function AssetsPage(): ReactNode {
     setSelectedAudioPath(filePath);
     await loadLibrary();
     setSelectedAudioPath(filePath);
+  };
+
+  const openTranscript = async (filePath: string, name: string) => {
+    if (!window.api?.transcribeAudio) return;
+    setTranscript({ name, status: 'working', text: '', error: null, copied: false });
+    try {
+      const language = i18n.language.toLowerCase().startsWith('en') ? 'en' : 'ru';
+      const result = await window.api.transcribeAudio({ path: filePath, language });
+      const text = result.full_text.trim();
+      setTranscript({
+        name,
+        status: text ? 'ready' : 'empty',
+        text,
+        error: text ? null : t('assets.library_transcript_empty'),
+        copied: false,
+      });
+    } catch (err) {
+      const raw = ipcMessage(err);
+      setTranscript({
+        name,
+        status: 'error',
+        text: '',
+        error: /WHISPER_NOT_INSTALLED/i.test(raw) ? t('video.vo_whisper_missing') : raw,
+        copied: false,
+      });
+    }
+  };
+
+  const copyTranscript = async () => {
+    if (!transcript?.text) return;
+    try {
+      await navigator.clipboard.writeText(transcript.text);
+      setTranscript({ ...transcript, copied: true });
+    } catch {
+      setTranscript({ ...transcript, copied: false, error: t('assets.library_transcript_copy_fail') });
+    }
   };
 
   const refreshVoiceEngine = async () => {
@@ -540,6 +587,22 @@ export function AssetsPage(): ReactNode {
     setPlayingPath(target);
   };
 
+  const downloadClip = async (path: string) => {
+    if (!window.api?.saveMediaAs) return;
+    setCaptureError(null);
+    let target = path;
+    try {
+      if (window.api?.prepareLibraryAudio) {
+        const prepared = await window.api.prepareLibraryAudio(path);
+        target = prepared.path;
+        if (prepared.converted) await loadLibrary();
+      }
+      await window.api.saveMediaAs(target);
+    } catch (err) {
+      setCaptureError(captureFailMessage(err, t));
+    }
+  };
+
   useEffect(() => {
     if (!playingPath || !window.api?.readMediaFile) {
       setPlayUrl(null);
@@ -701,6 +764,29 @@ export function AssetsPage(): ReactNode {
             </div>
           ) : null}
           <p className={styles.sampleHint}>{t('assets.voice_sample_hint')}</p>
+          <div className={ui.actions}>
+            <button
+              type="button"
+              className={ui.primary}
+              disabled={!sampleLabel || dubBusy || voiceBusy || recording !== 'idle'}
+              onClick={() => {
+                setDubBusy(true);
+                setDubError(null);
+                void pickAndStartVoiceover({
+                  untitled: t('projects.untitled'),
+                  chapterTitle: t('projects.imported_video_chapter'),
+                }).then((href) => {
+                  if (href) navigate(href);
+                }).catch((err: unknown) => {
+                  setDubError(err instanceof Error ? err.message : String(err));
+                }).finally(() => setDubBusy(false));
+              }}
+            >
+              {dubBusy ? t('home.job_voice_busy') : t('assets.voice_dub')}
+            </button>
+          </div>
+          {!sampleLabel ? <p className={styles.sampleMissing}>{t('assets.voice_dub_need')}</p> : null}
+          {dubError ? <p className={ui.error}>{dubError}</p> : null}
         </div>
 
         {job ? <VoiceProgressPanel job={job} t={t} /> : null}
@@ -929,6 +1015,20 @@ export function AssetsPage(): ReactNode {
                           </button>
                           <button
                             type="button"
+                            className={ui.link}
+                            onClick={() => { void openTranscript(clip.path, audioClipLabel(clip.name, i18n.language)); }}
+                          >
+                            {t('assets.library_to_text')}
+                          </button>
+                          <button
+                            type="button"
+                            className={ui.link}
+                            onClick={() => { void downloadClip(clip.path); }}
+                          >
+                            {t('assets.library_download')}
+                          </button>
+                          <button
+                            type="button"
                             className={styles.clipDelete}
                             onClick={() => {
                               if (playingPath === clip.path) setPlayingPath(null);
@@ -949,6 +1049,36 @@ export function AssetsPage(): ReactNode {
         </div>
         {playingPath && playUrl ? (
           <audio className={styles.player} src={playUrl} controls autoPlay onEnded={() => setPlayingPath(null)} />
+        ) : null}
+        {transcript ? (
+          <div className={styles.transcriptBackdrop} onClick={() => setTranscript(null)}>
+            <div
+              className={styles.transcriptDialog}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="audio-transcript-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <h3 id="audio-transcript-title" className={styles.transcriptTitle}>{t('assets.library_transcript_title')}</h3>
+              <p className={styles.transcriptName}>{transcript.name}</p>
+              {transcript.status === 'working' ? <p className={styles.transcriptStatus}>{t('assets.library_transcript_working')}</p> : null}
+              {transcript.error ? <p className={styles.transcriptError}>{transcript.error}</p> : null}
+              <textarea className={styles.transcriptText} readOnly rows={8} value={transcript.text} />
+              <div className={styles.transcriptActions}>
+                <button
+                  type="button"
+                  className={ui.primary}
+                  onClick={() => { void copyTranscript(); }}
+                  disabled={!transcript.text}
+                >
+                  {transcript.copied ? t('assets.library_transcript_copied') : t('assets.library_transcript_copy')}
+                </button>
+                <button type="button" className={ui.secondary} onClick={() => setTranscript(null)}>
+                  {t('assets.library_transcript_close')}
+                </button>
+              </div>
+            </div>
+          </div>
         ) : null}
       </section>
       </>

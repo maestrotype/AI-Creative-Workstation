@@ -674,7 +674,124 @@
   height: auto;
   flex: 0 0 auto;
   padding: 8px;
+  gap: 10px;
+}
+
+.aiSteps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.aiSteps li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: var(--color-bg-card);
+}
+
+.aiSteps li[data-done='true'] {
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-border-subtle));
+}
+
+.aiSteps strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.aiSteps p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.aiStillRow {
+  display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+.aiStillThumb {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-elevated);
+  flex: none;
+}
+
+.aiStillEmpty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  border: 1px dashed var(--color-border-default);
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  text-align: center;
+  padding: 4px;
+  flex: none;
+}
+
+.aiActionList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.aiActionCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-default);
+  border-radius: 8px;
+  background: var(--color-bg-elevated);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.aiActionCard span {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.aiActionCard small {
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.aiActionCard:hover:not(:disabled) {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-subtle);
+}
+
+.aiActionCard:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.aiFormLead {
+  margin: 0;
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 .densePane .card {
@@ -1040,9 +1157,12 @@
   align-items: center;
 }
 
-.shotRow[data-status='failed'],
+.shotRow[data-status='failed'] {
+  box-shadow: inset 2px 0 0 var(--color-error);
+}
+
 .shotRow[data-status='warning'] {
-  opacity: 0.78;
+  box-shadow: inset 2px 0 0 var(--color-warning);
 }
 
 .shotThumb {
@@ -1061,26 +1181,69 @@
 }
 
 .shotMeta strong {
-  font-size: var(--text-caption);
+  color: var(--color-text-primary);
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-semibold);
   text-transform: capitalize;
 }
 
-.shotMeta span {
-  color: var(--color-text-tertiary);
+.shotFacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.45rem;
+  min-width: 0;
+  color: var(--color-text-primary);
   font-size: var(--text-caption);
+  line-height: var(--leading-ui);
 }
 
-.shotFacts,
-.shotModel {
-  display: block;
+.shotDur {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+}
+
+.shotWhere {
+  color: var(--color-text-primary);
+}
+
+.shotWhere[data-on='true'] {
+  color: var(--color-accent-hover);
+  font-weight: var(--weight-semibold);
+}
+
+.shotFlags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.shotFlag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  font-size: var(--text-micro);
+  font-weight: var(--weight-semibold);
+  line-height: 1;
   white-space: nowrap;
 }
 
-.shotModel {
-  color: var(--color-text-tertiary);
+.shotFlag[data-tone='warn'] {
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
+  border-color: color-mix(in srgb, var(--color-warning) 48%, transparent);
+}
+
+.shotFlag[data-tone='bad'] {
+  color: var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 16%, transparent);
+  border-color: color-mix(in srgb, var(--color-error) 48%, transparent);
 }
 
 .shotActions {
@@ -1115,7 +1278,7 @@
     "thumb meta"
     "actions actions";
   gap: 6px 8px;
-  align-items: center;
+  align-items: start;
   min-width: 0;
   padding: 6px;
   border: 1px solid var(--color-border-subtle);
@@ -1144,8 +1307,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--text-body-sm);
+  line-height: var(--leading-ui);
   text-transform: none;
+}
+
+.sourcesPane[data-compact='true'] .shotFacts,
+.sourcesPane[data-compact='true'] .shotFlags {
+  overflow: visible;
+  white-space: normal;
 }
 
 .sourcesPane[data-compact='true'] .shotActions {
@@ -1673,6 +1843,91 @@
   border-top: 1px solid var(--color-border-subtle);
 }
 
+.voHeardBox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-bg-elevated) 70%, transparent);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.voHeardLabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.voHeardText {
+  margin: 0;
+  font-size: var(--text-body-sm);
+  line-height: 1.5;
+  color: var(--color-text-primary);
+  white-space: pre-wrap;
+}
+
+.voPaceBox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-bg-elevated) 70%, transparent);
+}
+
+.voPaceRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.voPaceKey {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.voPaceChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.voPaceChip {
+  min-width: 2.75rem;
+  height: 1.85rem;
+  padding: 0 0.65rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-default);
+  background: var(--color-bg-base);
+  color: var(--color-text-secondary);
+  font-size: var(--text-body-sm);
+  cursor: pointer;
+}
+
+.voPaceChip:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+}
+
+.voPaceChip[data-on='true'] {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 22%, var(--color-bg-base));
+  color: var(--color-text-primary);
+}
+
+.voPaceChip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .transcriptList {
   list-style: none;
   margin: 0;
@@ -2094,9 +2349,9 @@
 .voScriptRole {
   display: block;
   font-size: var(--text-caption);
-  color: var(--color-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .voSteps {

@@ -306,6 +306,63 @@
   margin-top: var(--space-3);
 }
 
+.transcriptBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.transcriptDialog {
+  width: min(36rem, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.transcriptTitle {
+  margin: 0;
+  font-size: var(--text-body);
+}
+
+.transcriptName,
+.transcriptStatus {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-body-sm);
+}
+
+.transcriptError {
+  margin: 0;
+  color: var(--color-error);
+  font-size: var(--text-body-sm);
+}
+
+.transcriptText {
+  width: 100%;
+  min-height: 8rem;
+  resize: vertical;
+  padding: var(--space-3);
+  color: var(--color-text-primary);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  font: inherit;
+}
+
+.transcriptActions {
+  display: flex;
+  gap: var(--space-2);
+}
+
 .sampleBox {
   display: flex;
   flex-direction: column;

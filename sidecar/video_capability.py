@@ -90,6 +90,113 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "typical_frames": 49,
         "prompt_consumed": True,
     },
+    "kling-ai/kling-4.0": {
+        "id": "kling-ai/kling-4.0",
+        "capability": IMAGE_TO_VIDEO,
+        "supports_text_prompt": True,
+        "supports_image_conditioning": True,
+        "supports_camera_motion": True,
+        "supports_object_motion": True,
+        "supports_scene_description": True,
+        "supports_duration_control": True,
+        "supports_negative_prompt": True,
+        "typical_fps": 24,
+        "typical_frames_mac": 0,
+        "typical_frames": 0,
+        "prompt_consumed": True,
+    },
+    "seedance/seedance-2.5": {
+        "id": "seedance/seedance-2.5",
+        "capability": IMAGE_TO_VIDEO,
+        "supports_text_prompt": True,
+        "supports_image_conditioning": True,
+        "supports_camera_motion": True,
+        "supports_object_motion": True,
+        "supports_scene_description": True,
+        "supports_duration_control": True,
+        "supports_negative_prompt": True,
+        "typical_fps": 24,
+        "typical_frames_mac": 0,
+        "typical_frames": 0,
+        "prompt_consumed": True,
+    },
+    "alibaba/wan3.0-video": {
+        "id": "alibaba/wan3.0-video",
+        "capability": IMAGE_TO_VIDEO,
+        "supports_text_prompt": True,
+        "supports_image_conditioning": True,
+        "supports_camera_motion": True,
+        "supports_object_motion": True,
+        "supports_scene_description": True,
+        "supports_duration_control": True,
+        "supports_negative_prompt": True,
+        "typical_fps": 24,
+        "typical_frames_mac": 0,
+        "typical_frames": 0,
+        "prompt_consumed": True,
+    },
+    "luma/dream-machine-1.6": {
+        "id": "luma/dream-machine-1.6",
+        "capability": IMAGE_TO_VIDEO,
+        "supports_text_prompt": True,
+        "supports_image_conditioning": True,
+        "supports_camera_motion": True,
+        "supports_object_motion": True,
+        "supports_scene_description": True,
+        "supports_duration_control": True,
+        "supports_negative_prompt": False,
+        "typical_fps": 24,
+        "typical_frames_mac": 0,
+        "typical_frames": 0,
+        "prompt_consumed": True,
+    },
+    "Lightricks/LTX-Video": {
+        "id": "Lightricks/LTX-Video",
+        "capability": IMAGE_TO_VIDEO,
+        "supports_text_prompt": True,
+        "supports_image_conditioning": True,
+        "supports_camera_motion": True,
+        "supports_object_motion": True,
+        "supports_scene_description": True,
+        "supports_duration_control": True,
+        "supports_negative_prompt": True,
+        "typical_fps": 24,
+        "typical_frames_mac": 121,
+        "typical_frames": 121,
+        "prompt_consumed": True,
+    },
+    "THUDM/CogVideoX-5B": {
+        "id": "THUDM/CogVideoX-5B",
+        "capability": IMAGE_TO_VIDEO,
+        "supports_text_prompt": True,
+        "supports_image_conditioning": True,
+        "supports_camera_motion": True,
+        "supports_object_motion": True,
+        "supports_scene_description": True,
+        "supports_duration_control": True,
+        "supports_negative_prompt": True,
+        "typical_fps": 24,
+        "typical_frames_mac": 81,
+        "typical_frames": 81,
+        "prompt_consumed": True,
+    },
+    "tencent/HunyuanVideo": {
+        "id": "tencent/HunyuanVideo",
+        "capability": IMAGE_TO_VIDEO,
+        "supports_text_prompt": True,
+        "supports_image_conditioning": True,
+        "supports_camera_motion": True,
+        "supports_object_motion": True,
+        "supports_scene_description": True,
+        "supports_duration_control": True,
+        "supports_negative_prompt": True,
+        "typical_fps": 24,
+        "typical_frames_mac": 61,
+        "typical_frames": 121,
+        "prompt_consumed": True,
+        # Loading 13B on Apple Silicon freezes the process — see motion guard.
+        "requires_cuda": True,
+    },
 }
 
 _AI_VIDEO_NEEDLES = (
@@ -111,6 +218,20 @@ def normalize_model_id(model_id: str) -> str:
         return "MiniMaxAI/MiniMax-H3"
     if "ti2v" in lower or "anes1032" in lower:
         return "Anes1032/Wan2.2-TI2V-5B-mlx-q8"
+    if "ltx" in lower:
+        return "Lightricks/LTX-Video"
+    if "cogvideo" in lower:
+        return "THUDM/CogVideoX-5B"
+    if "hunyuan" in lower:
+        return "tencent/HunyuanVideo"
+    if "kling" in lower:
+        return "kling-ai/kling-4.0"
+    if "seedance" in lower:
+        return "seedance/seedance-2.5"
+    if "luma" in lower or "dream" in lower:
+        return "luma/dream-machine-1.6"
+    if "wan3" in lower or "wan-3" in lower or "wan3.0" in lower:
+        return "alibaba/wan3.0-video"
     if "wan" in lower:
         return "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
     return raw

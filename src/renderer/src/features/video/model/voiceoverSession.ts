@@ -45,18 +45,22 @@ export function emptyVoiceoverSession(): VoiceoverSession {
   };
 }
 
-const LEGACY_SCRIPT_PROMPT = /3D-модели сумки|3D handbag model|handbag model, friendly|обзор 3D-модели/i;
+const LEGACY_SCRIPT_PROMPT = /3D-модели сумки|3D handbag model|handbag model, friendly|обзор 3D-модели|3D Store|Angular ecommerce/i;
+
+/** Empty, or a sample brief the app used to paste in. A sentence the user typed stays. */
+export function isStockBrief(text: string, sample = ''): boolean {
+  const value = text.trim();
+  if (!value) return true;
+  if (sample.trim() && value === sample.trim()) return true;
+  return LEGACY_SCRIPT_PROMPT.test(value);
+}
 
 export function applyTemplateVoiceoverDefaults(
   session: VoiceoverSession,
   defaults: { scriptPrompt: string; projectContext: string },
 ): VoiceoverSession {
-  const scriptPrompt = !session.scriptPrompt.trim() || LEGACY_SCRIPT_PROMPT.test(session.scriptPrompt)
-    ? defaults.scriptPrompt
-    : session.scriptPrompt;
-  const projectContext = session.projectContext.trim()
-    ? session.projectContext
-    : defaults.projectContext;
+  const scriptPrompt = isStockBrief(session.scriptPrompt, defaults.scriptPrompt) ? '' : session.scriptPrompt;
+  const projectContext = isStockBrief(session.projectContext, defaults.projectContext) ? '' : session.projectContext;
   if (scriptPrompt === session.scriptPrompt && projectContext === session.projectContext) {
     return session;
   }

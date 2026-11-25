@@ -1,0 +1,745 @@
+/* Krea.ai-style Video Studio Panel */
+
+.studioContainer {
+  display: flex;
+  gap: var(--space-6);
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  align-items: flex-start;
+  min-height: 580px;
+}
+
+/* Left Canvas / Preview Area */
+.canvasArea {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  background: #111216;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-xl);
+  padding: var(--space-5);
+  min-height: 560px;
+}
+
+.canvasHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.canvasTitle {
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.canvasPreview {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #090a0d;
+  border-radius: var(--radius-lg);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  position: relative;
+  min-height: 400px;
+}
+
+.canvasPreview[data-has-media='true'] {
+  border-style: solid;
+}
+
+.previewImage {
+  max-width: 100%;
+  max-height: 480px;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+}
+
+.dropPlaceholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-text-tertiary);
+  text-align: center;
+  padding: var(--space-6);
+  cursor: pointer;
+}
+
+.dropIcon {
+  font-size: 40px;
+  opacity: 0.6;
+}
+
+.dropText {
+  font-size: var(--text-body);
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-medium);
+}
+
+.dropSubtext {
+  font-size: var(--text-body-xs);
+  color: var(--color-text-tertiary);
+  max-width: 320px;
+}
+
+/* Right Control Panel (Krea Panel) */
+.kreaPanel {
+  width: 380px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+}
+
+/* Base Card Style */
+.panelCard {
+  background: #18191f;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  padding: 12px 14px;
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.panelCard:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.cardLabel {
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
+  color: #838596;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Mode & Model Clickable Cards */
+.clickableCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  background: #18191f;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.clickableCard:hover {
+  background: #202129;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.clickableCard[data-active='true'] {
+  border-color: #52525b;
+  background: #1f2028;
+}
+
+.cardIconBox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  background: #242530;
+  border-radius: 10px;
+  flex-shrink: 0;
+  font-size: 18px;
+}
+
+.cardMeta {
+  flex: 1;
+  min-width: 0;
+}
+
+.cardSublabel {
+  font-size: 10px;
+  color: #797b8a;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: var(--weight-medium);
+}
+
+.cardValue {
+  font-size: 14px;
+  font-weight: var(--weight-semibold);
+  color: #f0f1f5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cardChevron {
+  color: #797b8a;
+  font-size: 13px;
+}
+
+/* References Section */
+.refList {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.refThumbBox {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #0d0e12;
+}
+
+.refThumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.refRemoveBtn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  border: none;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+}
+
+.refRemoveBtn:hover {
+  opacity: 1;
+  background: #e53e3e;
+}
+
+.addRefBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #23242e;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  color: #e2e4ec;
+  font-size: 20px;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.addRefBtn:hover {
+  background: #2d2f3d;
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: scale(1.05);
+}
+
+.faceSwapBtn {
+  width: 100%;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all var(--duration-fast) var(--ease-out);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+}
+
+.faceSwapBtn:hover:not(:disabled) {
+  opacity: 0.95;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+}
+
+.faceSwapBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+  background: #3f3f46;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.faceSwapBtn[data-busy='true'] {
+  opacity: 0.85;
+  cursor: wait;
+  background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
+}
+
+/* Prompt Card */
+.promptTextarea {
+  width: 100%;
+  min-height: 86px;
+  background: transparent;
+  border: none;
+  color: #f0f1f5;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+
+.promptTextarea::placeholder {
+  color: #5c5e6d;
+}
+
+/* Duration & Aspect Ratio Side by Side */
+.controlsRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.stepperBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: #23242e;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #e2e4ec;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.stepperBtn:hover:not(:disabled) {
+  background: #2f303d;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.stepperBtn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.stepperValue {
+  font-size: 14px;
+  font-weight: var(--weight-semibold);
+  color: #f0f1f5;
+}
+
+.aspectSelector {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.aspectPill {
+  flex: 1;
+  padding: 6px 0;
+  text-align: center;
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  border-radius: 8px;
+  background: #23242e;
+  border: 1px solid transparent;
+  color: #8e90a0;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.aspectPill:hover {
+  color: #f0f1f5;
+  background: #2a2b37;
+}
+
+.aspectPill[data-selected='true'] {
+  color: #ffffff;
+  background: #363848;
+  border-color: rgba(255, 255, 255, 0.25);
+  font-weight: var(--weight-semibold);
+}
+
+/* Generate Button */
+.generateBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 14px 20px;
+  margin-top: 4px;
+  border-radius: 28px;
+  background: #ffffff;
+  color: #0b0c10;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: var(--weight-semibold);
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(255, 255, 255, 0.18);
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.generateBtn:hover:not(:disabled) {
+  background: #f0f1f5;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px rgba(255, 255, 255, 0.26);
+}
+
+.generateBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.generateArrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #000;
+  color: #fff;
+  font-size: 12px;
+}
+
+/* ── Krea Popover Dropdown for Model Selection ──────────────────────── */
+.modelPopover {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 14px);
+  width: 390px;
+  max-height: 580px;
+  background: #15161b;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.65);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 50;
+  animation: popoverFadeIn 0.18s var(--ease-out) both;
+}
+
+.popoverHeader {
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.popoverTabs {
+  display: flex;
+  background: #0c0d10;
+  padding: 3px;
+  border-radius: 10px;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.popoverTab {
+  flex: 1;
+  padding: 5px 0;
+  text-align: center;
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  color: #797b8a;
+  border-radius: 7px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.popoverTab:hover {
+  color: #d1d3df;
+}
+
+.popoverTab[data-active='true'] {
+  color: #ffffff;
+  background: #22232c;
+  font-weight: var(--weight-semibold);
+}
+
+.popoverSearchBox {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.popoverSearchInput {
+  width: 100%;
+  padding: 8px 12px;
+  padding-right: 32px;
+  background: #1b1c23;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  color: #f0f1f5;
+  font-size: 12px;
+  outline: none;
+}
+
+.popoverSearchInput:focus {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.popoverFilterIcon {
+  position: absolute;
+  right: 10px;
+  color: #696b79;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.popoverList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.popoverItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+  width: 100%;
+  color: inherit;
+}
+
+.popoverItem:hover:not([data-disabled='true']) {
+  background: #1e1f27;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.popoverItem[data-selected='true'] {
+  background: #252632;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.popoverItem[data-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.popoverItemBadge[data-badge='nvidia'] {
+  color: #a1a1aa;
+  border-color: #3f3f46;
+  background: #27272a;
+}
+
+.popoverItemIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #22232c;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.popoverItemBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.popoverItemTop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.popoverItemName {
+  font-size: 13px;
+  font-weight: var(--weight-medium);
+  color: #f0f1f5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popoverItemBadge {
+  font-size: 9px;
+  font-weight: var(--weight-semibold);
+  padding: 1px 5px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.08);
+  color: #d1d3df;
+}
+
+.popoverItemBadge[data-badge='popular'] {
+  color: #f6c043;
+  background: rgba(246, 192, 67, 0.12);
+  border: 1px solid rgba(246, 192, 67, 0.25);
+}
+
+.popoverItemBadge[data-badge='free'] {
+  color: #6ee7b7;
+  background: rgba(110, 231, 183, 0.12);
+  border: 1px solid rgba(110, 231, 183, 0.25);
+}
+
+.popoverItemRatingRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.eloBarContainer {
+  flex: 1;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.eloBarFill {
+  height: 100%;
+  background: #e5a93b;
+  border-radius: 2px;
+}
+
+.eloText {
+  font-size: 10px;
+  color: #8c8e9d;
+  font-variant-numeric: tabular-nums;
+}
+
+.popoverItemCheck {
+  color: var(--color-accent);
+  font-size: 13px;
+  flex-shrink: 0;
+  width: 16px;
+  text-align: right;
+}
+
+/* Modal for API Key prompt if cloud model chosen */
+.apiKeyBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+}
+
+.apiKeyModal {
+  background: #1a1b22;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 24px;
+  width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+}
+
+.apiKeyTitle {
+  font-size: 16px;
+  font-weight: var(--weight-semibold);
+  color: #fff;
+  margin: 0;
+}
+
+.apiKeyDesc {
+  font-size: 12px;
+  color: #9fa1b0;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.apiKeyInput {
+  width: 100%;
+  padding: 10px 14px;
+  background: #101116;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  color: #fff;
+  font-size: 13px;
+  outline: none;
+}
+
+.apiKeyActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.apiKeyCancelBtn {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: #b0b2c0;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.apiKeySaveBtn {
+  padding: 8px 20px;
+  background: var(--color-accent);
+  border: none;
+  border-radius: 8px;
+  color: var(--color-text-inverse);
+  font-size: 13px;
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+@keyframes popoverFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}

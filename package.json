@@ -16,7 +16,9 @@
         "CFBundleDisplayName": "AI Creative Workstation",
         "NSMicrophoneUsageDescription": "AI Creative Workstation records your microphone for voice samples and voiceover.",
         "NSAudioCaptureUsageDescription": "AI Creative Workstation captures Mac playback (YouTube, games) as an audio track.",
-        "NSScreenCaptureDescription": "Screen capture is used so macOS can attach system audio to the recording."
+        "NSScreenCaptureDescription": "Screen capture is used so macOS can attach system audio to the recording.",
+        "NSDocumentsFolderUsageDescription": "AI Creative Workstation stores projects, templates, models and generated media in Documents/Canvas.",
+        "NSDownloadsFolderUsageDescription": "AI Creative Workstation can import media you download."
       }
     },
     "directories": {

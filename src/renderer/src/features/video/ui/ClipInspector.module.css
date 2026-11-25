@@ -84,6 +84,21 @@
   color: var(--color-text-tertiary);
 }
 
+.heardPreview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-bg-base) 55%, transparent);
+}
+
+.heardPreview .hint {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
 .row {
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);
@@ -148,15 +163,15 @@
 }
 
 .preset[data-on='true'] {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  background: var(--color-accent-subtle);
+  border-color: #71717a;
+  color: var(--color-text-primary);
+  background: #27272a;
 }
 
 .btnPrimary {
-  border-color: var(--color-accent-border);
-  color: var(--color-accent);
-  background: var(--color-accent-subtle);
+  border-color: #52525b;
+  color: var(--color-text-primary);
+  background: #27272a;
 }
 
 .btnDanger {
@@ -245,9 +260,9 @@
 }
 
 .policyBtn[data-on='true'] {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  background: var(--color-accent-subtle);
+  border-color: color-mix(in srgb, var(--color-text-primary) 35%, transparent);
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-bg-raised) 85%, transparent);
 }
 
 .fold {
@@ -413,11 +428,16 @@
 }
 
 .btnPrimaryWide {
-  border-color: var(--color-accent-border);
-  color: var(--color-bg-base);
-  background: var(--color-accent);
+  border-color: var(--color-border-default);
+  color: var(--color-text-primary);
+  background: var(--color-bg-raised);
   font-weight: 600;
   text-align: center;
+}
+
+.btnPrimaryWide:hover {
+  border-color: var(--color-accent-border);
+  color: var(--color-accent);
 }
 
 .btnWide:disabled,

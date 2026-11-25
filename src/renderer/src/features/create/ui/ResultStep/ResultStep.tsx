@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -7,40 +7,77 @@ import { useHomeStore } from '../../../home/store/homeStore';
 import { filePathFromAssetUrl, useWorkspaceBridgeStore } from '../../../studio/store/workspaceBridgeStore';
 import { attachGeneratedToFilm } from '../../../projects/model/attachToFilm';
 import { isJobLikeId } from '../../model/resultStill';
+import { mediaMime, toAssetUrl } from '../../../video/model/directorMedia';
 import { DownloadIcon, ImageIcon, RefreshIcon, TrashIcon } from '../../../../shared/ui/icons';
 import styles from './ResultStep.module.css';
 import { cx } from '../../../../shared/lib/cx';
 
 function ResultVideo({ src, label }: { src: string; label: string }): ReactNode {
-  const ref = useRef<HTMLVideoElement>(null);
-  const [paused, setPaused] = useState(false);
+  const diskPath = filePathFromAssetUrl(src);
+  const [playUrl, setPlayUrl] = useState(() => (diskPath ? toAssetUrl(diskPath) : src));
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const toggle = () => {
-    const el = ref.current;
-    if (!el) return;
-    if (el.paused) {
-      void el.play();
-    } else {
-      el.pause();
+  useEffect(() => {
+    setLoadError(null);
+    const next = diskPath ? toAssetUrl(diskPath) : src;
+    setPlayUrl((prev) => {
+      if (prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+      return next;
+    });
+    return () => {
+      /* blob revoked on next src change / unmount via setPlayUrl path above */
+    };
+  }, [src, diskPath]);
+
+  useEffect(() => () => {
+    if (playUrl.startsWith('blob:')) URL.revokeObjectURL(playUrl);
+  }, [playUrl]);
+
+  const fallbackToBlob = async () => {
+    if (!diskPath || !window.api?.readMediaFile) {
+      setLoadError('Не удалось открыть клип');
+      return;
+    }
+    try {
+      await window.api.rememberDroppedMedia?.(diskPath);
+      const buf = await window.api.readMediaFile(diskPath);
+      const next = URL.createObjectURL(new Blob([buf], { type: mediaMime(diskPath) }));
+      setPlayUrl((prev) => {
+        if (prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+        return next;
+      });
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : String(err));
     }
   };
 
   return (
-    <button type="button" className={styles.videoHit} onClick={toggle} aria-label={label}>
+    <div className={styles.videoContainer}>
       <video
-        ref={ref}
-        src={src}
+        key={playUrl}
+        src={playUrl}
         className={styles.generatedImage}
         preload="auto"
         playsInline
         autoPlay
         loop
         muted
-        onPlay={() => setPaused(false)}
-        onPause={() => setPaused(true)}
+        controls
+        aria-label={label}
+        onLoadedMetadata={(event) => {
+          if (event.currentTarget.duration > 0) setLoadError(null);
+        }}
+        onError={() => {
+          if (playUrl.startsWith('blob:')) {
+            setLoadError('Клип есть на диске, но плеер его не декодирует');
+            return;
+          }
+          void fallbackToBlob();
+        }}
       />
-      {paused ? <span className={styles.playMark} aria-hidden="true" /> : null}
-    </button>
+      {loadError ? <p className={styles.error}>{loadError}</p> : null}
+    </div>
   );
 }
 
@@ -75,7 +112,9 @@ export function ResultStep(): ReactNode {
   if (!result) return null;
   const resultPath = filePathFromAssetUrl(result.thumbnailUrl);
   const isVideoResult = result.kind === 'video' || Boolean(resultPath && /\.(mp4|mov|m4v|webm|mkv)$/i.test(resultPath));
-  const promptMissing = !result.prompt.trim() || isJobLikeId(result.prompt) || isJobLikeId(result.id);
+  // Never treat job id (vid_…) as a missing prompt — that hid real prompts on every AI clip.
+  const displayPrompt = (result.prompt || prompt || '').trim();
+  const promptMissing = !displayPrompt || isJobLikeId(displayPrompt);
   const isSvd = result.capability === 'IMAGE_ANIMATION' || result.promptConsumed === false;
   const isAiVideo = result.capability === 'IMAGE_TO_VIDEO' || result.promptConsumed === true;
 
@@ -227,7 +266,7 @@ export function ResultStep(): ReactNode {
       <p className={styles.prompt}>
         {promptMissing
           ? t(isVideoResult ? 'create.clip_unnamed' : 'create.still_unnamed')
-          : `"${result.prompt}"`}
+          : `"${displayPrompt}"`}
       </p>
       {isVideoResult ? (
         <>

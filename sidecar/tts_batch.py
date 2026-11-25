@@ -29,7 +29,8 @@ MAX_REF_LEN = 30
 # XTTS v2 config defaults, measured to give speech close to the intended length.
 # Lowering repetition_penalty makes the model ramble; raising it truncates.
 TEMPERATURE = 0.75
-REPETITION_PENALTY = 5.0
+# 5.0 stops the voice mid-word. 2.5 keeps the phrase intact without rambling.
+REPETITION_PENALTY = 2.5
 TOP_K = 50
 TOP_P = 0.85
 

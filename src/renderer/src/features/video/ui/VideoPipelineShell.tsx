@@ -224,12 +224,6 @@ function hasOsFiles(event: DragEvent): boolean {
   return Array.from(event.dataTransfer?.types ?? []).includes('Files');
 }
 
-function ipcMessage(err: unknown, fallback: string): string {
-  const raw = err instanceof Error ? err.message : String(err);
-  const cleaned = raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, '').trim();
-  return cleaned || fallback;
-}
-
 function SourceRow(): ReactNode {
   const d = useDirector();
   const source = d.voiceoverSource;
@@ -428,7 +422,8 @@ function StageBrief(): ReactNode {
           onChange={(e) => d.setScriptModel(e.target.value)}
           disabled={busy}
         >
-          <option value="qwen2.5:14b">Qwen 2.5 14B (Высокое качество, точные тайминги)</option>
+          <option value="qwen2.5:32b">Qwen 2.5 32B</option>
+          <option value="qwen2.5:14b">Qwen 2.5 14B</option>
           <option value="qwen2.5:7b">Qwen 2.5 7B (Быстрая)</option>
         </select>
         <button

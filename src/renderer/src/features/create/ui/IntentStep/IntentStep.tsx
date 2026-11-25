@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { useTranslation } from 'react-i18next';
+import { isVoiceoverIntent, pickAndStartVoiceover } from '../../../projects/model/startVoiceover';
 import { WorkspaceFlow } from '../../../studio/ui/WorkspaceFlow';
 import { IntentInput } from '../../../../shared/ui/IntentInput/IntentInput';
 import type { CreateJob, GenerationFormat, GenerationStyle } from '../../api/generationApi';
 import { useCreateStore, type CreateMedium } from '../../store/createStore';
 import { isAiVideoProvider, isAnimationProvider } from '../../model/videoCapability';
+import { ModelPicker, ModelPickerTrigger } from '../ModelPicker/ModelPicker';
+import { KreaVideoPanel } from '../KreaVideoPanel/KreaVideoPanel';
 import styles from './IntentStep.module.css';
 
 const FORMATS: GenerationFormat[] = ['square', 'portrait', 'wide'];
@@ -20,6 +24,9 @@ interface ReadyModel {
 
 export function IntentStep(): ReactNode {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const [dubBusy, setDubBusy] = useState(false);
+  const [dubError, setDubError] = useState<string | null>(null);
   const prompt = useCreateStore((s) => s.prompt);
   const medium = useCreateStore((s) => s.medium);
   const job = useCreateStore((s) => s.job);
@@ -37,6 +44,8 @@ export function IntentStep(): ReactNode {
   const [activeModelId, setActiveModelId] = useState<string>('');
   const [engineStatus, setEngineStatus] = useState<'ready' | 'starting' | 'error' | 'stopped'>('starting');
   const [engineRestarting, setEngineRestarting] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [durationSec, setDurationSec] = useState(5);
 
   const refreshEngine = async () => {
     if (!window.api?.getEngineStatus) {
@@ -152,6 +161,11 @@ export function IntentStep(): ReactNode {
     else await window.api?.setActiveModel(modelId);
   };
 
+  const handleModelSelect = (modelId: string) => {
+    void handleModelChange(modelId);
+    setPickerOpen(false);
+  };
+
   const hasStill = referenceImages.some((ref) => ref.kind !== 'video' && (ref.sourcePath || ref.dataUrl));
   const needsStill = medium !== 'image';
   const engineReady = engineStatus === 'ready';
@@ -167,8 +181,48 @@ export function IntentStep(): ReactNode {
       ? 'create.animate_lead'
       : 'create.photos_lead';
 
+  const readyModelIds = readyModels.map((m) => m.id);
+  const capabilityFilter = medium === 'video'
+    ? 'IMAGE_TO_VIDEO' as const
+    : medium === 'animate'
+      ? 'IMAGE_ANIMATION' as const
+      : null;
+
+  const voiceRequest = isVoiceoverIntent(prompt);
+  const openVoiceover = async () => {
+    setDubBusy(true);
+    setDubError(null);
+    try {
+      const href = await pickAndStartVoiceover({
+        untitled: t('projects.untitled'),
+        chapterTitle: t('projects.imported_video_chapter'),
+        brief: prompt.trim(),
+      });
+      if (href) navigate(href);
+    } catch (err) {
+      setDubError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDubBusy(false);
+    }
+  };
+
   return (
-    <div className={styles.container}>
+    <div className={styles.container} data-medium={medium}>
+      {voiceRequest ? (
+        <div className={styles.dubCard} role="status">
+          <strong>{t('create.dub_title')}</strong>
+          <p>{t('create.dub_body')}</p>
+          <div className={styles.dubActions}>
+            <button type="button" className={styles.dubPrimary} disabled={dubBusy} onClick={() => { void openVoiceover(); }}>
+              {dubBusy ? t('home.job_voice_busy') : t('create.dub_action')}
+            </button>
+            <button type="button" className={styles.dubGhost} onClick={() => navigate('/assets?tab=voice')}>
+              {t('create.dub_sample')}
+            </button>
+          </div>
+          {dubError ? <p className={styles.dubError}>{dubError}</p> : null}
+        </div>
+      ) : null}
       {!engineReady ? (
         <div className={styles.engineBanner} role="status">
           <p>{t(engineStatus === 'starting' ? 'create.engine_starting' : 'create.engine_down')}</p>
@@ -213,156 +267,171 @@ export function IntentStep(): ReactNode {
         </button>
       </div>
 
-      {medium === 'image' ? (
-        <>
-          <div className={styles.jobRow}>
-            {JOBS.map((item) => (
-              <button
-                key={item}
-                type="button"
-                className={styles.jobBtn}
-                data-checked={job === item}
-                onClick={() => handleJob(item)}
-              >
-                {t(`create.job_${item}`)}
-              </button>
-            ))}
-          </div>
-          <p className={styles.jobLead}>
-            {t(`create.job_lead_${job}`)}
-            {referenceImages.length > 0 ? ` ${t('create.job_lead_ref')}` : ''}
-            {referenceImages.some((ref) => ref.kind === 'video')
-              ? ` ${t('create.job_lead_video_ref')}`
-              : ''}
-          </p>
-        </>
+      {medium === 'video' ? (
+        <KreaVideoPanel
+          prompt={prompt}
+          onPromptChange={setPrompt}
+          activeModelId={activeModelId}
+          onModelChange={handleModelSelect}
+          referenceImages={referenceImages}
+          onReferencesChange={setReferenceImages}
+          durationSec={durationSec}
+          onDurationChange={setDurationSec}
+          format={format}
+          onFormatChange={setFormat}
+          onGenerate={() => { if (canCreate) startGeneration(undefined, activeModelId || undefined); }}
+          canGenerate={canCreate}
+          readyModelIds={readyModelIds}
+        />
       ) : (
-        <p className={styles.jobLead}>
-          {t(medium === 'animate' ? 'create.job_lead_animate' : 'create.job_lead_clip')}
-          {needsStill && !hasStill ? ` ${t('create.video_need_still')}` : ''}
-        </p>
-      )}
-
-      <IntentInput
-        value={prompt}
-        onChange={setPrompt}
-        onSubmit={() => { if (canCreate) startGeneration(undefined, activeModelId || undefined); }}
-        placeholder={t(
-          medium === 'video'
-            ? 'create.placeholder_video'
-            : medium === 'animate'
-              ? 'create.placeholder_animate'
-              : `create.placeholder_${job}`,
-        )}
-        hint={t(
-          medium === 'video'
-            ? 'create.video_hint'
-            : medium === 'animate'
-              ? 'create.animate_hint'
-              : 'create.intent_hint',
-        )}
-        references={referenceImages}
-        onReferencesChange={setReferenceImages}
-      />
-
-      <div className={styles.options}>
-        <div className={styles.field}>
-          <span className={styles.label}>{t('create.model')}</span>
-          {readyModels.length === 0 ? (
-            <p className={styles.hint}>
-              {t(
-                medium === 'video'
-                  ? 'create.no_ai_video_provider'
-                  : medium === 'animate'
-                    ? 'create.no_animation_model'
-                    : 'create.no_model_installed',
-              )}
-            </p>
+        <>
+          {medium === 'image' ? (
+            <>
+              <div className={styles.jobRow}>
+                {JOBS.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    className={styles.jobBtn}
+                    data-checked={job === item}
+                    onClick={() => handleJob(item)}
+                  >
+                    {t(`create.job_${item}`)}
+                  </button>
+                ))}
+              </div>
+              <p className={styles.jobLead}>
+                {t(`create.job_lead_${job}`)}
+                {referenceImages.length > 0 ? ` ${t('create.job_lead_ref')}` : ''}
+                {referenceImages.some((ref) => ref.kind === 'video')
+                  ? ` ${t('create.job_lead_video_ref')}`
+                  : ''}
+              </p>
+            </>
           ) : (
-            <select
-              className={styles.select}
-              value={activeModelId}
-              onChange={(e) => { void handleModelChange(e.target.value); }}
-            >
-              {readyModels.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
+            <p className={styles.jobLead}>
+              {t('create.job_lead_animate')}
+              {needsStill && !hasStill ? ` ${t('create.video_need_still')}` : ''}
+            </p>
           )}
-        </div>
-        {medium !== 'image' ? (
-          <p className={styles.hint}>
-            {t(medium === 'video' ? 'create.cap_ai_video' : 'create.cap_animation')}
-          </p>
-        ) : null}
 
-        {medium !== 'animate' ? (
-          <div className={styles.field}>
-            <span className={styles.label}>{t('create.format')}</span>
-            <div className={styles.radioGroup}>
-              {FORMATS.map((f) => (
-                <label
-                  key={f}
-                  className={styles.radioLabel}
-                  data-checked={format === f}
-                >
-                  <input
-                    type="radio"
-                    name="format"
-                    value={f}
-                    checked={format === f}
-                    onChange={() => setFormat(f)}
-                    className={styles.radioInput}
+          <IntentInput
+            value={prompt}
+            onChange={setPrompt}
+            onSubmit={() => { if (canCreate) startGeneration(undefined, activeModelId || undefined); }}
+            placeholder={t(
+              medium === 'animate'
+                ? 'create.placeholder_animate'
+                : `create.placeholder_${job}`,
+            )}
+            hint={t(
+              medium === 'animate'
+                ? 'create.animate_hint'
+                : 'create.intent_hint',
+            )}
+            references={referenceImages}
+            onReferencesChange={setReferenceImages}
+          />
+
+          <div className={styles.options}>
+            <div className={styles.field}>
+              <span className={styles.label}>{t('create.model')}</span>
+              {medium === 'image' ? (
+                readyModels.length === 0 ? (
+                  <p className={styles.hint}>{t('create.no_model_installed')}</p>
+                ) : (
+                  <select
+                    className={styles.select}
+                    value={activeModelId}
+                    onChange={(e) => { void handleModelChange(e.target.value); }}
+                  >
+                    {readyModels.map((m) => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
+                )
+              ) : (
+                <>
+                  <ModelPickerTrigger
+                    activeModelId={activeModelId}
+                    readyModelIds={readyModelIds}
+                    onOpen={() => setPickerOpen(true)}
                   />
-                  {t(`create.formats.${f}`)}
-                </label>
-              ))}
+                  <ModelPicker
+                    open={pickerOpen}
+                    activeModelId={activeModelId}
+                    readyModelIds={readyModelIds}
+                    onSelect={handleModelSelect}
+                    onClose={() => setPickerOpen(false)}
+                    capabilityFilter={capabilityFilter}
+                  />
+                </>
+              )}
+            </div>
+
+            {medium === 'image' ? (
+              <>
+                <div className={styles.field}>
+                  <span className={styles.label}>{t('create.format')}</span>
+                  <div className={styles.radioGroup}>
+                    {FORMATS.map((f) => (
+                      <label
+                        key={f}
+                        className={styles.radioLabel}
+                        data-checked={format === f}
+                      >
+                        <input
+                          type="radio"
+                          name="format"
+                          value={f}
+                          checked={format === f}
+                          onChange={() => setFormat(f)}
+                          className={styles.radioInput}
+                        />
+                        {t(`create.formats.${f}`)}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className={styles.field}>
+                  <span className={styles.label}>{t('create.style_intensity')}</span>
+                  <div className={styles.radioGroup}>
+                    {STYLES.map((s) => (
+                      <label
+                        key={s}
+                        className={styles.radioLabel}
+                        data-checked={style === s}
+                      >
+                        <input
+                          type="radio"
+                          name="style"
+                          value={s}
+                          checked={style === s}
+                          onChange={() => setStyle(s)}
+                          className={styles.radioInput}
+                        />
+                        {t(`create.styles.${s}`)}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            <div className={styles.actions}>
+              <button
+                type="button"
+                className={styles.createButton}
+                onClick={() => { startGeneration(undefined, activeModelId || undefined); }}
+                disabled={!canCreate}
+              >
+                {t(medium === 'animate' ? 'create.btn_animate' : 'create.btn_create')}
+              </button>
             </div>
           </div>
-        ) : null}
-
-        {medium === 'image' ? (
-          <div className={styles.field}>
-            <span className={styles.label}>{t('create.style_intensity')}</span>
-          <div className={styles.radioGroup}>
-            {STYLES.map((s) => (
-              <label
-                key={s}
-                className={styles.radioLabel}
-                data-checked={style === s}
-              >
-                <input
-                  type="radio"
-                  name="style"
-                  value={s}
-                  checked={style === s}
-                  onChange={() => setStyle(s)}
-                  className={styles.radioInput}
-                />
-                {t(`create.styles.${s}`)}
-              </label>
-            ))}
-          </div>
-        </div>
-        ) : null}
-
-        <div className={styles.actions}>
-          <button
-            type="button"
-            className={styles.createButton}
-            onClick={() => { startGeneration(undefined, activeModelId || undefined); }}
-            disabled={!canCreate}
-          >
-            {t(
-              medium === 'video'
-                ? 'create.btn_create_clip'
-                : medium === 'animate'
-                  ? 'create.btn_animate'
-                  : 'create.btn_create',
-            )}
-          </button>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }

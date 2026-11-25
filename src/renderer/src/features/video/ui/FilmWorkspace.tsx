@@ -1,11 +1,13 @@
 import type { ReactNode, PointerEvent as ReactPointerEvent } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { formatClock } from '../model/directorTimeline';
 import { toAssetUrl } from '../model/directorMedia';
 import { useDirector } from './DirectorBoard';
 import { DirectorGeneratePane, DirectorResultPane, DirectorSourcesPane } from './DirectorPanes';
+import { FilmProcessMap } from './FilmProcessMap';
 import { TrackMixer } from './TrackMixer';
 import { ClipInspector } from './ClipInspector';
 import { VoiceoverSection } from './VoiceoverSection';
@@ -13,9 +15,13 @@ import { FromIdeaPanel } from './FromIdeaPanel';
 import { FromRecordingPanel } from './FromRecordingPanel';
 import s from './FilmWorkspace.module.css';
 
-const TIMELINE_PREF = 268;
-const TIMELINE_MIN = 176;
-const FRAME_MIN = 220;
+/** Prefer room for process map + mixer chrome + V2/V1/A1/A2/C1. */
+const TIMELINE_PREF = 420;
+/** Never shrink timeline below process map + V2/V1/A1. */
+const TIMELINE_MIN = 300;
+const FRAME_MIN = 200;
+/** Cap preview share so maximizing the window grows the timeline, not only the stage. */
+const STAGE_SHARE_MAX = 0.52;
 const SPLITTER = 8;
 const COLUMN_KEY = 'acw-film-columns';
 const MEDIA_MIN = 200;
@@ -58,11 +64,12 @@ export function FilmWorkspace({
   const [columnDrag, setColumnDrag] = useState<'media' | 'inspector' | null>(null);
   const [mediaTab, setMediaTab] = useState<'assets' | 'generate' | 'record'>('assets');
   const [generateTab, setGenerateTab] = useState<'storyboard' | 'ai'>('storyboard');
-  const [inspectorTab, setInspectorTab] = useState<'edit' | 'narration'>('edit');
+  const [inspectorTab, setInspectorTab] = useState<'edit' | 'narration'>(openNarration ? 'narration' : 'edit');
   const dragRef = useRef<{ startY: number; startH: number } | null>(null);
   const columnDragRef = useRef<{ edge: 'media' | 'inspector'; startX: number; startW: number } | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const openedNarrationRef = useRef(false);
+  const lastAvailableRef = useRef(0);
 
   const openVoiceover = useCallback(() => {
     setInspectorTab('narration');
@@ -84,16 +91,34 @@ export function FilmWorkspace({
   }, [openNarration, d]);
 
   useEffect(() => {
+    const onShotReady = () => setMediaTab('assets');
+    window.addEventListener('acw-ai-shot-ready', onShotReady);
+    return () => window.removeEventListener('acw-ai-shot-ready', onShotReady);
+  }, []);
+
+  useEffect(() => {
     const root = rootRef.current;
     if (!root) return undefined;
     const measure = () => {
-      const toolbar = root.querySelector('header')?.clientHeight ?? 40;
-      const available = root.clientHeight - toolbar - SPLITTER;
-      const maxStage = Math.max(FRAME_MIN, available - TIMELINE_MIN);
-      const autoStage = clamp(available - TIMELINE_PREF, FRAME_MIN, maxStage);
+      const topChrome = root.querySelector('[data-film-top]') as HTMLElement | null;
+      const topH = topChrome?.offsetHeight
+        ?? root.querySelector('header')?.clientHeight
+        ?? 40;
+      const available = Math.max(0, root.clientHeight - topH - SPLITTER);
+      // Maximize / large resize: drop a stale manual split so the timeline can grow.
+      const grew = available - lastAvailableRef.current;
+      lastAvailableRef.current = available;
+      if (frameOverride != null && grew > 160) {
+        setFrameOverride(null);
+        return;
+      }
+      const maxStage = Math.max(0, available - TIMELINE_MIN);
+      const preferred = available - TIMELINE_PREF;
+      const capped = available * STAGE_SHARE_MAX;
+      const autoStage = clamp(Math.min(preferred, capped), Math.min(FRAME_MIN, maxStage), maxStage);
       const nextH = frameOverride == null
         ? autoStage
-        : clamp(frameOverride, FRAME_MIN, maxStage);
+        : clamp(frameOverride, Math.min(FRAME_MIN, maxStage), maxStage);
       setFrameH((prev) => (Math.abs(prev - nextH) < 0.5 ? prev : nextH));
       root.style.setProperty('--frame-h', `${Math.round(nextH)}px`);
     };
@@ -175,13 +200,18 @@ export function FilmWorkspace({
         gridTemplateRows: 'auto var(--frame-h, 420px) 8px minmax(0, 1fr)',
       }}
     >
+      <div className={s.topChrome} data-film-top>
       <header className={s.toolbar}>
         <div className={s.brand}>
           {productThumb ? <img className={s.productMark} src={productThumb} alt="" /> : null}
           <div className={s.brandText}>
             <span className={s.filmName}>{filmName}</span>
             <span className={s.sub}>
-              {d.productStillPath ? 'Товарный still для AI-вставок' : 'Монтаж · озвучка · подсказки'}
+              {inspectorTab === 'narration'
+                ? t('video.dub_toolbar_sub')
+                : d.productStillPath
+                  ? t('video.dub_product_sub')
+                  : t('video.dub_edit_sub')}
               {d.assemblyRationale ? ` · ${d.assemblyRationale}` : ''}
             </span>
           </div>
@@ -203,65 +233,11 @@ export function FilmWorkspace({
           <button
             type="button"
             className={s.ghost}
-            disabled={!d.canUndo}
-            onClick={d.undo}
-            title={t('video.dir_undo_hint')}
+            onClick={d.saveTimelineAsTemplate}
+            disabled={!d.clips.some((clip) => clip.track === 'v1')}
+            title={t('video.save_template_hint')}
           >
-            {t('video.dir_undo')}
-          </button>
-          <button
-            type="button"
-            className={s.ghost}
-            disabled={!d.canRedo}
-            onClick={d.redo}
-            title={t('video.dir_redo_hint')}
-          >
-            {t('video.dir_redo')}
-          </button>
-          <button
-            type="button"
-            className={s.ghost}
-            onClick={d.splitAtPlayhead}
-            disabled={!d.selectedClip && !d.clips.length}
-            title={t('video.dir_split_hint')}
-          >
-            {t('video.dir_split')}
-          </button>
-          <button
-            type="button"
-            className={s.ghost}
-            data-on={d.cutInSec != null || undefined}
-            onClick={d.markCutStart}
-            title={t('video.dir_cut_in_hint')}
-          >
-            {t('video.dir_cut_in')}{d.cutInSec != null ? ` ${formatClock(d.cutInSec)}` : ''}
-          </button>
-          <button
-            type="button"
-            className={s.ghost}
-            data-on={d.cutOutSec != null || undefined}
-            onClick={d.markCutEnd}
-            title={t('video.dir_cut_out_hint')}
-          >
-            {t('video.dir_cut_out')}{d.cutOutSec != null ? ` ${formatClock(d.cutOutSec)}` : ''}
-          </button>
-          <button
-            type="button"
-            className={s.ghost}
-            onClick={d.exciseMarkedRange}
-            disabled={d.cutInSec == null || d.cutOutSec == null}
-            title={t('video.dir_excise_hint')}
-          >
-            {t('video.dir_excise')}
-          </button>
-          <button
-            type="button"
-            className={s.ghost}
-            onClick={() => d.replaceChapterMedia()}
-            disabled={!d.clips.some((clip) => clip.id === d.selectedClip && clip.track.startsWith('v')) && !d.bins.some((bin) => bin.id === d.selectedBin && bin.kind === 'video')}
-            title={t('video.dir_replace_clip_hint')}
-          >
-            {t('video.dir_replace_clip')}
+            {t('projects.save_template')}
           </button>
           <button
             type="button"
@@ -271,8 +247,48 @@ export function FilmWorkspace({
           >
             {d.exportBusy ? t('video.dir_exporting') : t('video.dir_export')}
           </button>
+          {d.exportPath && !d.exportSavedTo ? (
+            <button type="button" className={s.exportSave} onClick={d.saveExportAs}>
+              {t('video.save_as')}
+            </button>
+          ) : null}
         </div>
       </header>
+      {d.exportError || d.exportPath ? (
+        <div className={s.exportBar} role="status">
+          {d.exportError ? <p className={s.exportError}>{d.exportError}</p> : null}
+          {d.exportSavedTo ? (
+            <p className={s.exportOk}>
+              {t('video.saved_to')} <code>{d.exportSavedTo}</code>
+              {' '}
+              <button
+                type="button"
+                className={s.exportLink}
+                onClick={() => { void window.api?.openPath?.(d.exportSavedTo!); }}
+              >
+                {t('video.dir_open_folder')}
+              </button>
+            </p>
+          ) : null}
+          {d.exportPath && !d.exportSavedTo && !d.exportError ? (
+            <p className={s.exportOk}>{t('video.dir_export_done')}</p>
+          ) : null}
+        </div>
+      ) : null}
+      {inspectorTab === 'narration' ? (
+        <div className={s.jobBanner} role="status">
+          <strong>{t('video.dub_banner_title')}</strong>
+          <span>
+            {d.voiceHasSample
+              ? t('video.dub_banner_ready', { name: d.voiceSampleName || t('video.vo_dub_sample_fallback') })
+              : t('video.dub_banner_need')}
+          </span>
+          {d.voiceHasSample ? null : (
+            <Link to="/assets?tab=voice">{t('video.dub_need_sample_link')}</Link>
+          )}
+        </div>
+      ) : null}
+      </div>
 
       <div
         className={s.stage}
@@ -303,8 +319,8 @@ export function FilmWorkspace({
             {mediaTab === 'generate' ? (
               <div className={s.generateShell}>
                 <div className={s.subTabs}>
-                  <button type="button" data-on={generateTab === 'storyboard' || undefined} onClick={() => setGenerateTab('storyboard')}>Идея</button>
-                  <button type="button" data-on={generateTab === 'ai' || undefined} onClick={() => setGenerateTab('ai')}>AI</button>
+                  <button type="button" data-on={generateTab === 'storyboard' || undefined} onClick={() => setGenerateTab('storyboard')}>{t('video.generate_tab_idea')}</button>
+                  <button type="button" data-on={generateTab === 'ai' || undefined} onClick={() => setGenerateTab('ai')}>{t('video.generate_tab_clip')}</button>
                 </div>
                 <div className={s.generateBody}>
                   {generateTab === 'storyboard' ? (
@@ -376,10 +392,10 @@ export function FilmWorkspace({
         <aside className={s.inspector}>
           <div className={s.panelTabs} role="tablist" aria-label="Inspector">
             <button type="button" role="tab" data-on={inspectorTab === 'edit' || undefined} aria-selected={inspectorTab === 'edit'} onClick={() => setInspectorTab('edit')}>
-              {d.selectedCallout ? 'Hint' : d.selectedClip ? 'Clip' : 'Film'}
+              {d.selectedCallout ? t('video.inspector_hint') : d.selectedClip ? t('video.inspector_clip') : t('video.inspector_film')}
             </button>
             <button type="button" role="tab" data-on={inspectorTab === 'narration' || undefined} aria-selected={inspectorTab === 'narration'} onClick={openVoiceover}>
-              Narration
+              {t('video.inspector_narration')}
             </button>
           </div>
           <div className={s.panelContent}>
@@ -401,6 +417,73 @@ export function FilmWorkspace({
       </div>
 
       <section className={s.timeline}>
+        <FilmProcessMap onOpenVoiceover={openVoiceover} />
+        <div className={s.editBar} role="toolbar" aria-label={t('video.dir_edit_bar')}>
+          <button
+            type="button"
+            className={s.ghost}
+            disabled={!d.canUndo}
+            onClick={d.undo}
+            title={t('video.dir_undo_hint')}
+          >
+            {t('video.dir_undo')}
+          </button>
+          <button
+            type="button"
+            className={s.ghost}
+            disabled={!d.canRedo}
+            onClick={d.redo}
+            title={t('video.dir_redo_hint')}
+          >
+            {t('video.dir_redo')}
+          </button>
+          <span className={s.editSplit} aria-hidden />
+          <button
+            type="button"
+            className={s.ghost}
+            onClick={d.splitAtPlayhead}
+            disabled={!d.selectedClip && !d.clips.length}
+            title={t('video.dir_split_hint')}
+          >
+            {t('video.dir_split')}
+          </button>
+          <button
+            type="button"
+            className={s.ghost}
+            data-on={d.cutInSec != null || undefined}
+            onClick={d.markCutStart}
+            title={t('video.dir_cut_in_hint')}
+          >
+            {t('video.dir_cut_in')}{d.cutInSec != null ? ` ${formatClock(d.cutInSec)}` : ''}
+          </button>
+          <button
+            type="button"
+            className={s.ghost}
+            data-on={d.cutOutSec != null || undefined}
+            onClick={d.markCutEnd}
+            title={t('video.dir_cut_out_hint')}
+          >
+            {t('video.dir_cut_out')}{d.cutOutSec != null ? ` ${formatClock(d.cutOutSec)}` : ''}
+          </button>
+          <button
+            type="button"
+            className={s.ghost}
+            onClick={d.exciseMarkedRange}
+            disabled={d.cutInSec == null || d.cutOutSec == null}
+            title={t('video.dir_excise_hint')}
+          >
+            {t('video.dir_excise')}
+          </button>
+          <button
+            type="button"
+            className={s.ghost}
+            onClick={() => d.replaceChapterMedia()}
+            disabled={!d.clips.some((clip) => clip.id === d.selectedClip && clip.track.startsWith('v')) && !d.bins.some((bin) => bin.id === d.selectedBin && bin.kind === 'video')}
+            title={t('video.dir_replace_clip_hint')}
+          >
+            {t('video.dir_replace_clip')}
+          </button>
+        </div>
         <div className={s.timelineBody}>
           <TrackMixer embedded />
         </div>

@@ -34,7 +34,9 @@ _render_state: Dict[str, Any] = {
 
 def _video_draft_dir() -> str:
     """Working copies only. The app copies out via Save As, like 3D mesh drafts."""
-    path = os.path.expanduser("~/Documents/Canvas/Generated/Video/drafts")
+    from canvas_paths import canvas_join
+
+    path = canvas_join("Generated", "Video", "drafts")
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -114,24 +116,36 @@ def assemble_video(request: AssembleRequest):
     return {"status": "completed", "file_path": output_path}
 
 
+def _wants_still_zoom(clip: "TimelineClipModel") -> bool:
+    """Slow push-in only when the Look/effect field asks for it — never by default."""
+    raw = (clip.effect or "").lower()
+    return bool(re.search(
+        r"приближ|наезд|zoom|зум|ken\s*burns|slow\s*push|camera\s*move|лёгк\w*\s*зум|легк\w*\s*зум",
+        raw,
+    ))
+
+
 def _ken_burns_filter(index: int, w: int, h: int, frames: int) -> str:
-    """Visible camera move on a still. Not generative motion — just Ken Burns."""
+    """Gentle push-in that starts from a full-frame fit (same as the preview).
+
+    Older cover-crop zoom cut storefront headlines off the left edge. We fit the
+    whole still first, then ease in only a little so WYSIWYG stays intact.
+    """
     last = max(1, frames - 1)
-    # Scale large so zoom/pan has pixels to travel.
-    prep = f"scale={w * 2}:{h * 2}:force_original_aspect_ratio=increase,crop={w * 2}:{h * 2}"
-    kind = index % 6
+    prep = (
+        f"scale={w}:{h}:force_original_aspect_ratio=decrease:flags=lanczos,"
+        f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=0x101018"
+    )
+    kind = index % 4
+    # Cap zoom near 1.08 so edge text on a banner still stays readable.
     if kind == 0:
-        z, x, y = "min(1+0.0018*on,1.32)", "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
+        z, x, y = "min(1+0.00035*on,1.08)", "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
     elif kind == 1:
-        z, x, y = "min(1+0.0014*on,1.28)", f"min((iw-iw/zoom)*on/{last},iw-iw/zoom)", "ih/2-(ih/zoom/2)"
+        z, x, y = "min(1+0.0003*on,1.07)", f"iw/2-(iw/zoom/2)+((iw-iw/zoom)*0.08*on/{last})", "ih/2-(ih/zoom/2)"
     elif kind == 2:
-        z, x, y = "min(1+0.0014*on,1.28)", f"max((iw-iw/zoom)*(1-on/{last}),0)", "ih/2-(ih/zoom/2)"
-    elif kind == 3:
-        z, x, y = "if(lte(on,1),1.28,max(1.28-0.0015*on,1.02))", "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
-    elif kind == 4:
-        z, x, y = "min(1+0.0013*on,1.24)", "iw/2-(iw/zoom/2)", f"min((ih-ih/zoom)*on/{last},ih-ih/zoom)"
+        z, x, y = "min(1+0.0003*on,1.07)", f"iw/2-(iw/zoom/2)-((iw-iw/zoom)*0.08*on/{last})", "ih/2-(ih/zoom/2)"
     else:
-        z, x, y = "min(1+0.0016*on,1.3)", "iw/2-(iw/zoom/2)", f"max((ih-ih/zoom)*(1-on/{last}),0)"
+        z, x, y = "min(1+0.00028*on,1.06)", "iw/2-(iw/zoom/2)", f"ih/2-(ih/zoom/2)+((ih-ih/zoom)*0.06*on/{last})"
     return f"{prep},zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps=30"
 
 
@@ -423,6 +437,97 @@ def erase_region(request: EraseRegionRequest):
     return {"status": "completed", "file_path": output_path}
 
 
+# ── Stretch / slow a finished cut so narration can speak clearly ──────────────
+
+
+class StretchVideoRequest(BaseModel):
+    path: str
+    target_sec: float
+    output_name: Optional[str] = None
+
+
+def _atempo_filter(tempo: float) -> str:
+    """ffmpeg atempo is 0.5–2.0; chain filters for slower/faster rates."""
+    filters: List[str] = []
+    remaining = float(tempo)
+    while remaining > 2.0 + 1e-3:
+        filters.append("atempo=2.0")
+        remaining /= 2.0
+    while remaining < 0.5 - 1e-3:
+        filters.append("atempo=0.5")
+        remaining /= 0.5
+    if abs(remaining - 1.0) > 0.01:
+        filters.append(f"atempo={max(0.5, min(2.0, remaining)):.4f}")
+    return ",".join(filters) if filters else "anull"
+
+
+@router.post("/video/stretch")
+def stretch_video(request: StretchVideoRequest):
+    """Slow or speed a clip to an exact length. Used before a calmer respeak."""
+    src = _disk_image_path(os.path.expanduser((request.path or "").strip()))
+    if not src or not os.path.isfile(src):
+        raise HTTPException(status_code=400, detail="Video file not found")
+    source_sec = max(0.4, _video_duration_sec(src))
+    target = max(0.5, min(120.0, float(request.target_sec)))
+    if abs(source_sec - target) < 0.08:
+        return {
+            "status": "completed",
+            "file_path": src,
+            "duration_sec": round(source_sec, 3),
+            "source_sec": round(source_sec, 3),
+            "factor": 1.0,
+            "stretched": False,
+        }
+
+    factor = target / source_sec
+    audio_tempo = source_sec / target
+    stamp = int(time.time() * 1000)
+    name = (request.output_name or f"stretch-{stamp}-{target:.0f}s").strip()
+    if not name.lower().endswith(".mp4"):
+        name = f"{name}.mp4"
+    dest = os.path.join(_video_draft_dir(), name)
+    ffmpeg = _ffmpeg_bin()
+    vf = f"setpts={factor:.6f}*PTS"
+    try:
+        if _has_audio(src):
+            af = _atempo_filter(audio_tempo)
+            cmd = [
+                ffmpeg, "-y", "-i", src,
+                "-filter_complex", f"[0:v]{vf}[v];[0:a]{af}[a]",
+                "-map", "[v]", "-map", "[a]",
+                "-t", f"{target:.3f}",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "160k",
+                "-movflags", "+faststart",
+                dest,
+            ]
+        else:
+            cmd = [
+                ffmpeg, "-y", "-i", src,
+                "-vf", vf, "-an",
+                "-t", f"{target:.3f}",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                dest,
+            ]
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(exc.stderr or exc.stdout or "ffmpeg stretch failed")[:500],
+        ) from exc
+
+    out_sec = _video_duration_sec(dest) or target
+    return {
+        "status": "completed",
+        "file_path": dest,
+        "duration_sec": round(out_sec, 3),
+        "source_sec": round(source_sec, 3),
+        "factor": round(factor, 4),
+        "stretched": True,
+    }
+
+
 # ── Timeline render: the single "make MP4" for the director desk ──────────────
 
 
@@ -684,10 +789,16 @@ def _encode_segment(ffmpeg: str, clip: TimelineClipModel, dur: float, index: int
     silence = ["-f", "lavfi", "-t", f"{dur:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
     if clip.kind == "image":
         frames = max(2, int(round(dur * fps)))
+        # Match the director preview: whole still visible. Zoom only if requested.
+        image_vf = (
+            _ken_burns_filter(index, w, h, frames)
+            if _wants_still_zoom(clip)
+            else _fit_filter(w, h, fps)
+        )
         cmd = [
             ffmpeg, "-y", "-loop", "1", "-t", f"{dur:.3f}", "-i", src, *silence,
             "-frames:v", str(frames),
-            "-vf", _with_effect(_ken_burns_filter(index, w, h, frames), clip),
+            "-vf", _with_effect(image_vf, clip),
             "-map", "0:v", "-map", "1:a",
             *_SEG_VIDEO, *_SEG_AUDIO,
             out,
@@ -899,8 +1010,12 @@ def render_timeline(request: RenderTimelineRequest):
                 "-t", f"{clip.duration_sec:.3f}", "-i", src,
             ]
             ms = int(round(clip.start_sec * 1000))
+            fade = min(0.012, max(0.004, clip.duration_sec / 10))
+            out_at = max(0.0, clip.duration_sec - fade)
             parts.append(
-                f"[{input_idx}:a]aresample=48000,volume={max(0.0, min(2.0, clip.volume)):.3f},"
+                f"[{input_idx}:a]aresample=48000,"
+                f"afade=t=in:st=0:d={fade:.3f},afade=t=out:st={out_at:.3f}:d={fade:.3f},"
+                f"volume={max(0.0, min(2.0, clip.volume)):.3f},"
                 f"adelay={ms}:all=1[au{k}]"
             )
             audio_labels.append(f"[au{k}]")
@@ -909,7 +1024,7 @@ def render_timeline(request: RenderTimelineRequest):
         if len(audio_labels) > 1:
             parts.append(
                 f"{''.join(audio_labels)}amix=inputs={len(audio_labels)}:"
-                f"duration=first:dropout_transition=0:normalize=0[aout]"
+                f"duration=first:dropout_transition=0.02:normalize=0[aout]"
             )
             amap = "[aout]"
         else:
@@ -958,8 +1073,16 @@ def analyze_video_route(request: AnalyzeVideoRequest):
         if "already running" in str(exc):
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except PermissionError as exc:
+        from canvas_paths import access_denied_message
+
+        raise HTTPException(status_code=500, detail=access_denied_message(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        from canvas_paths import access_denied_message
+
+        raise HTTPException(status_code=500, detail=access_denied_message(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)[:500]) from exc
     return {"status": "completed", "context": result}

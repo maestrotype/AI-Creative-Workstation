@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from script_llm import valid_narration_line  # noqa: E402
+from script_llm import spoken_stutters, valid_narration_line  # noqa: E402
 
 GLITCH = (
     "现有句子已经是中文，按照要求需要保持原样不变并提供俄文翻译。"
@@ -27,6 +27,11 @@ class NarrationLineTests(unittest.TestCase):
 
     def test_accepts_russian_chapter_copy(self):
         self.assertTrue(valid_narration_line(GOOD, "ru"))
+
+    def test_short_repeated_clause_is_a_stutter(self):
+        stutter = "новые товары. новые товары. новые товары. На странице магазина новые модели."
+        self.assertTrue(spoken_stutters(stutter))
+        self.assertFalse(spoken_stutters(GOOD))
 
 
 if __name__ == "__main__":

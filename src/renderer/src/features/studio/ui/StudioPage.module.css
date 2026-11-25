@@ -97,20 +97,35 @@
   color: var(--color-text-secondary);
 }
 
-.status {
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  font-size: 12px;
-  font-weight: var(--weight-medium);
-  background-color: var(--color-accent-subtle);
-  color: var(--color-accent);
-}
-
+.status,
+.badgeReady,
+.badgeSelected,
 .statusMuted {
   padding: 2px 8px;
   border-radius: var(--radius-full);
   font-size: 12px;
   font-weight: var(--weight-medium);
+  cursor: default;
+  user-select: none;
+  pointer-events: none;
+}
+
+.badgeReady {
+  background-color: rgba(72, 187, 120, 0.16);
+  color: #48bb78;
+}
+
+.badgeSelected {
+  background-color: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  color: color-mix(in srgb, var(--color-accent) 85%, #fff);
+}
+
+.status {
+  background-color: var(--color-bg-elevated);
+  color: var(--color-text-secondary);
+}
+
+.statusMuted {
   background-color: var(--color-bg-elevated);
   color: var(--color-text-tertiary);
 }
@@ -166,7 +181,8 @@
 }
 
 .textButton,
-.textButtonDanger {
+.textButtonDanger,
+.useButton {
   background: transparent;
   border: 1px solid var(--color-border-default);
   color: var(--color-text-secondary);
@@ -177,18 +193,93 @@
   text-decoration: none;
 }
 
+.useButton {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, #3f3f46);
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  font-weight: var(--weight-medium);
+}
+
+.useButton:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
 .textButton:hover:not(:disabled) {
   color: var(--color-text-primary);
 }
 
-.textButton:disabled {
+.textButton:disabled,
+.useButton:disabled {
   opacity: 0.4;
   cursor: default;
 }
 
-.textButtonDanger:hover {
-  color: #e53e3e;
-  border-color: #e53e3e;
+.textButtonDanger {
+  border-color: transparent;
+  color: #71717a;
+}
+
+.textButtonDanger:hover:not(:disabled) {
+  color: #ef4444;
+  border-color: color-mix(in srgb, #ef4444 35%, transparent);
+  background: color-mix(in srgb, #ef4444 8%, transparent);
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.modalCard {
+  width: min(420px, 100%);
+  padding: 20px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-elevated);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modalCard p {
+  margin: 0;
+  color: var(--color-text-primary);
+  line-height: 1.45;
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.modalCancel {
+  border: 1px solid #3f3f46;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-md);
+  padding: 8px 14px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.modalContinue {
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-bg-base);
+  border-radius: var(--radius-md);
+  padding: 8px 14px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
 }
 
 .unloadError {

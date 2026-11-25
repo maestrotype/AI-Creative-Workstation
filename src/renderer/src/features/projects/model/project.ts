@@ -1,6 +1,11 @@
 import type { Callout } from '../../video/model/callout';
 import type { VoiceoverSession } from '../../video/model/voiceoverSession';
 import { MARKETPLACE_BRIEF_RU, MARKETPLACE_V0_BLOCKS, marketplaceVoiceoverSession } from '../../video/model/marketplaceVoiceoverPack';
+import { inferTemplateId } from '../../../../../shared/filmTemplate';
+import type { EditorGenerationJob, EditorMediaAsset } from '../../../../../shared/editorProject';
+import type { MotionPlan } from './motionPlan';
+
+export { inferTemplateId };
 
 export type ProjectFormat = 'landscape' | 'shorts';
 export type FilmPreset = 'marketplace' | 'hero' | 'youtube' | 'shorts';
@@ -50,6 +55,8 @@ export interface FilmTimelineClip {
   autoLength?: boolean;
   previousBinId?: string;
   previousDurationSec?: number;
+  /** Passed to ffmpeg for still zoom / grade. Empty = match the desk preview. */
+  effect?: string;
 }
 
 export interface FilmTimelineBin {
@@ -82,7 +89,7 @@ export interface FilmTimeline {
   edited?: boolean;
 }
 
-export const PROJECT_SCHEMA_VERSION = 2;
+export const PROJECT_SCHEMA_VERSION = 3;
 
 export type ProjectAudioPolicy = 'original' | 'duck' | 'replace';
 export type ProjectExportPreset = 'draft' | 'youtube-1080p' | 'shorts-1080p';
@@ -117,12 +124,14 @@ export interface ProjectScene {
   stillPath: string | null;
   clipPath: string | null;
   motion: ShotMotion;
+  /** Long AI shot from the still, built segment by segment. */
+  motionPlan?: MotionPlan;
 }
 
 /**
  * In this app a Film is a ProjectDoc. One identity: projectId.
- * Route `/projects/:projectId` is the Film workspace.
- * Route `/video?project=:projectId` is that same Film’s Director/narration.
+ * Route `/video?project=:projectId` is the editor (timeline, preview, AI).
+ * Route `/projects/:projectId` is optional script/storyboard planning.
  * Shots, timeline, narration-derived preview, and export live on project.json.
  * localStorage may cache director UI; it is not the source of truth.
  */
@@ -133,9 +142,15 @@ export interface ProjectDoc {
   kind: string;
   format: ProjectFormat;
   preset: FilmPreset;
+  /** Built-in ecommerce id, a saved template id, or null for a custom film. */
+  templateId: string | null;
   brief: string;
   scenes: ProjectScene[];
   shots: FilmShot[];
+  /** Canonical media and its non-destructive versions. */
+  media?: EditorMediaAsset[];
+  /** Persistent AI operations associated with this project. */
+  generationJobs?: EditorGenerationJob[];
   timeline: FilmTimeline | null;
   /** Durable editor data. localStorage is only a disposable UI cache. */
   voiceover: VoiceoverSession | null;
@@ -230,7 +245,7 @@ export function shotFromGeneration(args: {
   };
 }
 
-/** Chapters for the Angular 3D Ecommerce marketplace demo. Blank films stay empty. */
+/** Chapters for the built-in ecommerce demo. Blank films stay empty. */
 export function templateChapters(): ProjectScene[] {
   return MARKETPLACE_V0_BLOCKS.map((block) => ({
     ...newScene(block.titleRu),
@@ -259,10 +274,6 @@ export function marketplaceFilmSeed(): {
   };
 }
 
-export function formatForPreset(preset: FilmPreset): ProjectFormat {
-  return preset === 'shorts' ? 'shorts' : 'landscape';
-}
-
 export function defaultExportSettings(
   format: ProjectFormat,
   preset?: FilmPreset,
@@ -286,7 +297,7 @@ export function normalizeShotMotion(value: unknown): ShotMotion {
 
 export function normalizePreset(value: unknown): FilmPreset {
   if (value === 'hero' || value === 'youtube' || value === 'shorts' || value === 'marketplace') return value;
-  return 'marketplace';
+  return 'youtube';
 }
 
 export function sceneHasMedia(scene: ProjectScene): boolean {
@@ -343,12 +354,19 @@ export function composeClips(doc: ProjectDoc): Array<{
   return clips;
 }
 
+export function sceneWantsSlowZoom(effectPrompt: string | null | undefined): boolean {
+  return /приближ|наезд|zoom|зум|ken\s*burns|slow\s*push|лёгк\w*\s*зум|легк\w*\s*зум/i.test(
+    effectPrompt || '',
+  );
+}
+
 export function sceneMediaRows(doc: Pick<ProjectDoc, 'scenes'>): Array<{
   sceneId: string;
   path: string;
   kind: 'video' | 'image';
   name: string;
   durationSec: number;
+  effect: string;
 }> {
   const rows: Array<{
     sceneId: string;
@@ -356,6 +374,7 @@ export function sceneMediaRows(doc: Pick<ProjectDoc, 'scenes'>): Array<{
     kind: 'video' | 'image';
     name: string;
     durationSec: number;
+    effect: string;
   }> = [];
   for (const scene of doc.scenes) {
     const useStill = scene.motion === 'still_motion' && scene.stillPath;
@@ -367,6 +386,7 @@ export function sceneMediaRows(doc: Pick<ProjectDoc, 'scenes'>): Array<{
       kind: useStill || (!scene.clipPath && scene.stillPath) ? 'image' : 'video',
       name: scene.title.trim() || 'Глава',
       durationSec: Math.max(0.5, Number(scene.durationSec) || 5),
+      effect: (scene.effectPrompt || '').trim(),
     });
   }
   return rows;
@@ -455,6 +475,7 @@ export function timelineFromScenes(
       sourceInSec: 0,
       label: row.name,
       autoLength: true,
+      effect: row.effect || undefined,
     });
     cursor += row.durationSec;
   }

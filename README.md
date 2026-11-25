@@ -75,6 +75,7 @@ docs/
 │
 ├── architecture/
 │   ├── SYSTEM_ARCHITECTURE.md     ← Full system with ADRs and technology choices.
+│   ├── VIDEO_GENERATION_HUB.md    ← Hybrid multi-model video generation hub (MLX + cloud APIs).
 │   ├── DOMAIN_MODEL.md            ← All entities, relationships, TypeScript interfaces.
 │   └── RISKS_AND_DECISIONS.md     ← Top 10 × 3 decisions + 10 risks.
 │

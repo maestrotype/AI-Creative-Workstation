@@ -24,22 +24,17 @@
 
 ---
 
-### PD-2: No Video in MVP
+### PD-2: Video is the product (superseded 27 Oct 2026)
 
-**Decision:** Video generation is not in MVP.
+**Former decision:** Video generation is not in MVP.
 
-**Options:**
-1. Include video (full cross-modal from day one)
-2. Include video cloud-only
-3. Exclude video from MVP (chosen)
+**Current decision:** The product is a local AI-first video studio with a classic montage core. Image/3D remain supporting tools. Video editing, local generation, narration and export are in scope.
 
-**Chosen:** Option 3
+**Why the change:** The shipped app already has Film projects, a director timeline, Wan 2.2, XTTS and export. Keeping “no video in MVP” in the decision log made later agents treat the editor as a chapter-stitch generator. The buying product is the editor, not a script form.
 
-**Why:** Local video generation on M4 Max takes 15–45 minutes for 5 seconds of output. This is not a viable creative iteration speed. Cloud video is expensive ($1–3 per clip). Including video in MVP would require either: (a) slow, frustrating UX or (b) high cloud costs that make the free tier unsustainable. The creative asset persistence thesis is provable without video.
+**Constraint that remains true:** Local video models are slow and memory-heavy. The UI must show real duration, model limits, and a job queue. Do not pretend every AI edit is a real-time filter.
 
-**Trade-off:** MVP is not the full "image → 3D → video" vision. Early adopters see a narrower product.
-
-**Future escape path:** V1 adds video when Wan 1.3B performance on Apple Silicon improves (projected: 5–8 minutes for 5s clip by late 2026, acceptable for non-iterative generation).
+**See:** [AI_FIRST_VIDEO_STUDIO.md](../product/AI_FIRST_VIDEO_STUDIO.md).
 
 ---
 

@@ -66,6 +66,7 @@ interface Window {
       shot_index?: number;
       shot_total?: number;
       seed?: number;
+      segments?: { prompt: string; seconds: number }[];
     }) => Promise<{
       job_id: string;
       file_path: string | null;
@@ -97,6 +98,16 @@ interface Window {
       image_base64?: string;
       images_base64?: string[];
     }) => Promise<{ job_id: string; file_path: string | null; model_id: string }>;
+    faceSwap?: (payload: { targetImage: string; sourceFace: string; selector?: string }) => Promise<{
+      success: boolean;
+      output_path: string;
+      data_url: string;
+      faces_detected_source: number;
+      faces_detected_target: number;
+      kind?: 'image' | 'video';
+      frame_count?: number;
+      duration_sec?: number;
+    }>;
     listProjects: () => Promise<Array<{
       id: string;
       name: string;
@@ -106,10 +117,20 @@ interface Window {
       coverPath: string | null;
       assembledPath: string | null;
     }>>;
+    getCanvasRootStatus?: () => Promise<{
+      root: string;
+      documents: string;
+      usingDocuments: boolean;
+      deniedDocuments: boolean;
+      override: string | null;
+    }>;
+    openCanvasPrivacySettings?: () => Promise<{ ok: boolean }>;
+    pickCanvasFolder?: () => Promise<{ ok: boolean; root: string }>;
     createProject: (payload?: {
       name?: string;
       format?: 'landscape' | 'shorts';
       preset?: 'marketplace' | 'hero' | 'youtube' | 'shorts';
+      templateId?: string | null;
     }) => Promise<{
       schemaVersion: number;
       id: string;
@@ -117,6 +138,7 @@ interface Window {
       kind: string;
       format: 'landscape' | 'shorts';
       preset: 'marketplace' | 'hero' | 'youtube' | 'shorts';
+      templateId?: string | null;
       brief: string;
       scenes: Array<{
         id: string;
@@ -149,6 +171,7 @@ interface Window {
       kind: string;
       format: 'landscape' | 'shorts';
       preset: 'marketplace' | 'hero' | 'youtube' | 'shorts';
+      templateId?: string | null;
       brief: string;
       scenes: Array<{
         id: string;
@@ -175,6 +198,56 @@ interface Window {
       updatedAt: number;
     } | null>;
     saveProject: (doc: unknown) => Promise<unknown>;
+    listFilmTemplates: () => Promise<Array<{
+      id: string;
+      name: string;
+      brief: string;
+      format: 'landscape' | 'shorts';
+      builtin: boolean;
+      chapters: Array<{
+        title: string;
+        prompt: string;
+        recordSteps: string;
+        effectPrompt: string;
+        textOverlay: string;
+        durationSec: number;
+        motion: 'still_motion' | 'import' | 'i2v';
+      }>;
+      createdAt: number;
+      updatedAt: number;
+    }>>;
+    saveFilmTemplate: (draft: {
+      name: string;
+      brief: string;
+      format: 'landscape' | 'shorts';
+      chapters: Array<{
+        title: string;
+        prompt: string;
+        recordSteps: string;
+        effectPrompt: string;
+        textOverlay: string;
+        durationSec: number;
+        motion: 'still_motion' | 'import' | 'i2v';
+      }>;
+    }) => Promise<{
+      id: string;
+      name: string;
+      brief: string;
+      format: 'landscape' | 'shorts';
+      builtin: boolean;
+      chapters: Array<{
+        title: string;
+        prompt: string;
+        recordSteps: string;
+        effectPrompt: string;
+        textOverlay: string;
+        durationSec: number;
+        motion: 'still_motion' | 'import' | 'i2v';
+      }>;
+      createdAt: number;
+      updatedAt: number;
+    }>;
+    deleteFilmTemplate: (id: string) => Promise<{ deleted: boolean }>;
     deleteProject: (id: string) => Promise<{ deleted: boolean }>;
     importIntoProject: (payload: { projectId: string; path: string }) => Promise<{ file_path: string; poster_path?: string | null }>;
     importPastedImageIntoProject: (payload: { projectId: string; data: ArrayBuffer; mime?: string }) => Promise<{ file_path: string; poster_path?: null }>;
@@ -346,6 +419,7 @@ interface Window {
       items: Array<{ text: string; index: number; prepared_text?: string }>;
       language?: string;
       seed?: number;
+      skip_prepare?: boolean;
     }) => Promise<{
       status: string;
       engine: string;
@@ -357,10 +431,24 @@ interface Window {
         spoken_text?: string;
       }>;
     }>;
+    stretchVideo?: (payload: {
+      path: string;
+      target_sec: number;
+      output_name?: string;
+    }) => Promise<{
+      status: string;
+      file_path: string;
+      duration_sec: number;
+      source_sec: number;
+      factor: number;
+      stretched: boolean;
+    }>;
     fitSpeechDuration?: (payload: {
       file_path: string;
       target_sec: number;
       force?: boolean;
+      fill_window?: boolean;
+      match_picture?: boolean;
     }) => Promise<{
       file_path: string;
       source_sec: number;
@@ -370,6 +458,8 @@ interface Window {
       tempo: number;
       fitted: boolean;
       needs_shorten: boolean;
+      needs_expand: boolean;
+      matched_picture?: boolean;
     }>;
     mixVoiceoverTrack?: (payload: {
       parts: Array<{ file_path: string; start_sec: number; max_duration_sec?: number }>;
@@ -468,6 +558,12 @@ interface Window {
       start_sec?: number;
       end_sec?: number;
     }) => Promise<{ file_path: string }>;
+    transcribeAudio: (payload: { path: string; language?: string; model_size?: string }) => Promise<{
+      segments: Array<{ start: number; end: number; text: string }>;
+      language: string;
+      full_text: string;
+      warnings: string[];
+    }>;
     analyzeVideo: (payload: {
       video_path: string;
       transcribe?: boolean;
@@ -541,11 +637,32 @@ interface Window {
       target_sec: number;
       language?: string;
       seen?: string;
+      already?: string;
       measured_sec?: number;
       part?: number;
       parts?: number;
       target_wpm?: number;
     }) => Promise<{ text: string }>;
+    reviewScript?: (payload: {
+      segments: Array<{
+        start_sec: number;
+        end_sec: number;
+        text: string;
+        brief?: string;
+        purpose?: string;
+        visual_summary?: string;
+      }>;
+      language?: string;
+      ollama_model?: string;
+      critic?: boolean;
+    }) => Promise<{
+      segments: Array<{ start_sec: number; end_sec: number; text: string }>;
+      report: {
+        rewritten: number[];
+        critic_flagged: number[];
+        remaining: Array<{ index: number; issues: string[] }>;
+      };
+    }>;
     shortenScript: (payload: {
       text: string;
       target_sec: number;
@@ -593,7 +710,7 @@ interface Window {
     readMediaFile: (sourcePath: string) => Promise<ArrayBuffer>;
     ensureVideoPreview: (sourcePath: string, force?: boolean) => Promise<{ path: string; transcoded: boolean }>;
     discardMeshDraft: (sourcePath: string) => Promise<boolean>;
-    saveVideoAs: (sourcePath: string) => Promise<string | null>;
+    saveVideoAs: (sourcePath: string, defaultName?: string) => Promise<string | null>;
     saveMediaAs: (sourcePath: string) => Promise<string | null>;
     gradeVideo: (payload: {
       video_path: string;

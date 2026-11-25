@@ -66,24 +66,44 @@ function filesFromClipboard(event: ClipboardEvent): File[] {
 }
 
 function diskPathOf(file: File): string | undefined {
+  const fromApi = window.api?.getPathForFile?.(file);
+  if (fromApi && fromApi.length > 1) return fromApi;
   const path = (file as File & { path?: string }).path;
   return path && path.length > 1 ? path : undefined;
 }
 
-async function videoToFrame(file: File): Promise<string> {
+const VIDEO_FRAME_TIMEOUT_MS = 12_000;
+
+/** Extract a small JPEG poster — never read the whole video as base64. */
+export async function videoToFrame(file: File, timeoutMs = VIDEO_FRAME_TIMEOUT_MS): Promise<string> {
   const url = URL.createObjectURL(file);
   try {
     const video = document.createElement('video');
     video.muted = true;
     video.playsInline = true;
-    video.preload = 'auto';
+    video.preload = 'metadata';
     const frame = await new Promise<string>((resolve, reject) => {
-      video.onerror = () => reject(new Error('Could not read video'));
+      const timer = window.setTimeout(() => {
+        reject(new Error('Video is taking too long to open. Use a shorter clip or a still frame.'));
+      }, timeoutMs);
+      const fail = (message: string) => {
+        window.clearTimeout(timer);
+        reject(new Error(message));
+      };
+      const ok = (dataUrl: string) => {
+        window.clearTimeout(timer);
+        resolve(dataUrl);
+      };
+      video.onerror = () => fail('Could not read video');
       video.onloadeddata = () => {
         const t = Number.isFinite(video.duration) && video.duration > 0
-          ? Math.min(1.2, video.duration * 0.12)
+          ? Math.min(0.8, video.duration * 0.08)
           : 0;
-        video.currentTime = t;
+        try {
+          video.currentTime = t;
+        } catch {
+          fail('Could not seek video');
+        }
       };
       video.onseeked = () => {
         const w = Math.max(1, video.videoWidth || 1280);
@@ -94,11 +114,11 @@ async function videoToFrame(file: File): Promise<string> {
         canvas.height = Math.max(1, Math.round(h * scale));
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          reject(new Error('Could not read video frame'));
+          fail('Could not read video frame');
           return;
         }
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.88));
+        ok(canvas.toDataURL('image/jpeg', 0.82));
       };
       video.src = url;
     });
@@ -114,8 +134,15 @@ async function fileToReference(file: File): Promise<ReferenceImage> {
     await window.api?.rememberDroppedMedia?.(sourcePath);
   }
   if (isVideoFile(file)) {
+    let dataUrl = '';
+    try {
+      dataUrl = await videoToFrame(file);
+    } catch {
+      // Keep the disk path; UI can show a video badge without a poster.
+      dataUrl = '';
+    }
     return {
-      dataUrl: await videoToFrame(file),
+      dataUrl,
       name: file.name || 'video-frame.jpg',
       kind: 'video',
       sourcePath,

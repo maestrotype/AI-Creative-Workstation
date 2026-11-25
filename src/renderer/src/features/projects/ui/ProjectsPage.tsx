@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { toAssetUrl } from '../../video/model/directorMedia';
-import { marketplaceFilmSeed, type ProjectSummary } from '../model/project';
-import { clearLastProjectId, readLastProjectId, writeLastProjectId } from '../model/handoff';
+import {
+  marketplaceFilmSeed,
+  type ProjectSummary,
+} from '../model/project';
+import { ECOMMERCE_TEMPLATE_ID, scenesFromTemplate } from '../model/filmTemplate';
+import { clearLastProjectId, editorHref, readLastProjectId, scriptHref, writeLastProjectId } from '../model/handoff';
+import { startProjectFromVideo } from '../model/startVoiceover';
+import type { FilmTemplate } from '../../../../../shared/filmTemplate';
 import styles from './ProjectsPage.module.css';
 
 function ipcMessage(err: unknown): string {
@@ -28,22 +34,66 @@ export function ProjectsPage(): ReactNode {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [items, setItems] = useState<ProjectSummary[]>([]);
+  const [templates, setTemplates] = useState<FilmTemplate[]>([]);
+  const [templateId, setTemplateId] = useState(ECOMMERCE_TEMPLATE_ID);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
+  const [fixBusy, setFixBusy] = useState(false);
 
   const refresh = async () => {
     if (!window.api?.listProjects) return;
     try {
       const list = await window.api.listProjects();
       setItems(list);
+      setError(null);
+      setAccessDenied(false);
+      const status = await window.api.getCanvasRootStatus?.();
+      if (status?.deniedDocuments && list.length === 0) {
+        setAccessDenied(true);
+        setError(
+          'Нет доступа к ~/Documents/Canvas — там лежат ваши проекты. '
+          + 'Разрешите доступ в настройках macOS или выберите эту папку вручную.',
+        );
+      }
     } catch (err) {
-      setError(ipcMessage(err));
+      const message = ipcMessage(err);
+      setError(message);
+      setAccessDenied(/Documents\/Canvas|Документам|EPERM|Operation not permitted/i.test(message));
     }
   };
 
   useEffect(() => {
     void refresh();
+    if (!window.api?.listFilmTemplates) return;
+    // Saved recipes only. A denied Templates folder must not hide the projects list.
+    void window.api.listFilmTemplates().then(setTemplates).catch(() => setTemplates([]));
   }, []);
+
+  const openPrivacySettings = async () => {
+    setFixBusy(true);
+    try {
+      await window.api?.openCanvasPrivacySettings?.();
+    } finally {
+      setFixBusy(false);
+    }
+  };
+
+  const pickCanvasFolder = async () => {
+    if (!window.api?.pickCanvasFolder) return;
+    setFixBusy(true);
+    setError(null);
+    try {
+      const result = await window.api.pickCanvasFolder();
+      if (!result.ok) return;
+      await refresh();
+    } catch (err) {
+      setError(ipcMessage(err));
+      setAccessDenied(true);
+    } finally {
+      setFixBusy(false);
+    }
+  };
 
   const create = async () => {
     if (!window.api?.createProject) return;
@@ -52,10 +102,32 @@ export function ProjectsPage(): ReactNode {
     try {
       const doc = await window.api.createProject({
         name: t('projects.untitled'),
+        format: 'landscape',
         preset: 'youtube',
+        templateId: null,
       });
       writeLastProjectId(doc.id);
-      navigate(`/projects/${doc.id}`);
+      navigate(editorHref(doc.id));
+    } catch (err) {
+      setError(ipcMessage(err));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const importVideo = async (voice: boolean) => {
+    if (!window.api?.pickVideo) return;
+    const picked = await window.api.pickVideo();
+    if (!picked) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const href = await startProjectFromVideo(picked, {
+        untitled: t('projects.untitled'),
+        chapterTitle: t('projects.imported_video_chapter'),
+        voice,
+      });
+      navigate(href);
     } catch (err) {
       setError(ipcMessage(err));
     } finally {
@@ -78,12 +150,48 @@ export function ProjectsPage(): ReactNode {
         name: seed.name,
         preset: 'marketplace',
         format: 'landscape',
+        templateId: ECOMMERCE_TEMPLATE_ID,
         brief: seed.brief,
         scenes: seed.scenes,
         voiceover: seed.voiceover,
       });
       writeLastProjectId(doc.id);
-      navigate(`/projects/${doc.id}`);
+      navigate(scriptHref(doc.id));
+    } catch (err) {
+      setError(ipcMessage(err));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const createFromTemplate = async () => {
+    if (templateId === ECOMMERCE_TEMPLATE_ID) {
+      await createTemplate();
+      return;
+    }
+    const template = templates.find((row) => row.id === templateId);
+    if (!template || !window.api?.createProject || !window.api.saveProject) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const doc = await window.api.createProject({
+        name: template.name,
+        format: template.format,
+        preset: template.format === 'shorts' ? 'shorts' : 'youtube',
+        templateId: template.id,
+      });
+      await window.api.saveProject({
+        ...doc,
+        name: template.name,
+        preset: template.format === 'shorts' ? 'shorts' : 'youtube',
+        format: template.format,
+        templateId: template.id,
+        brief: template.brief,
+        scenes: scenesFromTemplate(template.chapters),
+        voiceover: null,
+      });
+      writeLastProjectId(doc.id);
+      navigate(scriptHref(doc.id));
     } catch (err) {
       setError(ipcMessage(err));
     } finally {
@@ -102,6 +210,28 @@ export function ProjectsPage(): ReactNode {
   const lastId = readLastProjectId();
   const lastItem = lastId ? items.find((item) => item.id === lastId) : undefined;
 
+  const templateStart = () => (
+    <>
+      <label className={styles.headSelect}>
+        <span>{t('projects.template_label')}</span>
+        <select
+          className={styles.select}
+          value={templateId}
+          onChange={(e) => setTemplateId(e.target.value)}
+          disabled={creating}
+        >
+          <option value={ECOMMERCE_TEMPLATE_ID}>{t('projects.template_ecommerce')}</option>
+          {templates.map((row) => (
+            <option key={row.id} value={row.id}>{row.name}</option>
+          ))}
+        </select>
+      </label>
+      <button type="button" className={styles.ghostBtn} onClick={() => void createFromTemplate()} disabled={creating}>
+        {t('projects.create_from_template')}
+      </button>
+    </>
+  );
+
   return (
     <div className={styles.container}>
       <header className={styles.header}>
@@ -110,14 +240,11 @@ export function ProjectsPage(): ReactNode {
           <p className={styles.lead}>{t('projects.lead')}</p>
         </div>
         <div className={styles.headerActions}>
-          <Link className={styles.ghostBtn} to="/video">
-            {t('projects.dub_existing')}
-          </Link>
-          <button type="button" className={styles.ghostBtn} onClick={() => void createTemplate()} disabled={creating}>
-            {t('projects.new_template')}
-          </button>
-          <button type="button" className={styles.newButton} onClick={() => void create()} disabled={creating}>
+          <button type="button" className={styles.ghostBtn} onClick={() => void create()} disabled={creating}>
             {creating ? t('projects.creating') : t('projects.new_project')}
+          </button>
+          <button type="button" className={styles.newButton} onClick={() => void importVideo(true)} disabled={creating}>
+            {t('projects.dub_existing')}
           </button>
         </div>
       </header>
@@ -126,24 +253,55 @@ export function ProjectsPage(): ReactNode {
         <button
           type="button"
           className={styles.continueBar}
-          onClick={() => navigate(`/projects/${lastItem.id}`)}
+          onClick={() => navigate(editorHref(lastItem.id))}
         >
           <strong>{t('projects.continue', { name: lastItem.name })}</strong>
           <span>{t('projects.continue_hint')}</span>
         </button>
       ) : null}
 
-      {error ? <p className={styles.error}>{error}</p> : null}
+      {error ? (
+        <div className={styles.errorBox}>
+          <p className={styles.error}>{error}</p>
+          {accessDenied ? (
+            <div className={styles.errorActions}>
+              <button type="button" className={styles.ghostBtn} disabled={fixBusy} onClick={() => void openPrivacySettings()}>
+                Открыть настройки доступа
+              </button>
+              <button type="button" className={styles.newButton} disabled={fixBusy} onClick={() => void pickCanvasFolder()}>
+                Выбрать папку Canvas…
+              </button>
+              <button type="button" className={styles.ghostBtn} disabled={fixBusy} onClick={() => void refresh()}>
+                Проверить снова
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <section className={styles.startOptions}>
+        <button type="button" className={styles.startOption} data-primary="true" onClick={() => void importVideo(true)} disabled={creating}>
+          <strong>{t('projects.start_voice')}</strong>
+          <span>{t('projects.start_voice_hint')}</span>
+        </button>
+        <button type="button" className={styles.startOption} onClick={() => void importVideo(false)} disabled={creating}>
+          <strong>{t('projects.start_import')}</strong>
+          <span>{t('projects.start_import_hint')}</span>
+        </button>
+        <button type="button" className={styles.startOption} onClick={() => void create()} disabled={creating}>
+          <strong>{t('projects.start_blank')}</strong>
+          <span>{t('projects.start_blank_hint')}</span>
+        </button>
+        <div className={styles.startOption}>
+          <strong>{t('projects.start_template')}</strong>
+          <span>{t('projects.start_template_hint')}</span>
+          <div className={styles.startTemplateControls}>{templateStart()}</div>
+        </div>
+      </section>
 
       {items.length === 0 ? (
         <div className={styles.placeholder}>
           <p>{t('projects.empty')}</p>
-          <button type="button" className={styles.ghostBtn} onClick={() => void createTemplate()} disabled={creating}>
-            {t('projects.new_template')}
-          </button>
-          <button type="button" className={styles.newButton} onClick={() => void create()} disabled={creating}>
-            {t('projects.new_project')}
-          </button>
         </div>
       ) : (
         <ul className={styles.grid}>
@@ -161,7 +319,7 @@ export function ProjectsPage(): ReactNode {
           </li>
           {items.map((item) => (
             <li key={item.id}>
-              <button type="button" className={styles.card} onClick={() => navigate(`/projects/${item.id}`)}>
+              <button type="button" className={styles.card} onClick={() => navigate(editorHref(item.id))}>
                 <div className={styles.cover}>
                   {item.coverPath ? (
                     /\.(mp4|mov|m4v|webm|mkv)$/i.test(item.coverPath) ? (
@@ -191,7 +349,7 @@ export function ProjectsPage(): ReactNode {
                   onClick={(e) => {
                     e.stopPropagation();
                     writeLastProjectId(item.id);
-                    navigate(`/video?project=${encodeURIComponent(item.id)}`);
+                    navigate(scriptHref(item.id));
                   }}
                 >
                   {t('projects.open_in_editor')}
@@ -202,7 +360,7 @@ export function ProjectsPage(): ReactNode {
                   onClick={(e) => {
                     e.stopPropagation();
                     writeLastProjectId(item.id);
-                    navigate(`/video?project=${encodeURIComponent(item.id)}&voice=1`);
+                    navigate(editorHref(item.id, true));
                   }}
                 >
                   {t('projects.narrate_film')}

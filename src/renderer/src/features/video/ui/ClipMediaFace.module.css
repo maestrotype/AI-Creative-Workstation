@@ -97,12 +97,20 @@
   color: #fff;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: clip;
+  text-overflow: ellipsis;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
 }
 
-.face[data-narrow='true'] .label {
-  font-size: 9px;
+.face[data-narrow='true'] .meta {
+  display: none;
+}
+
+.face[data-tone='audio'] .meta {
+  padding: 2px 6px 4px;
+}
+
+.face[data-tone='audio'] .label {
+  font-size: 11px;
   letter-spacing: 0.02em;
 }
 

@@ -9,6 +9,9 @@ from typing import Any, Callable, Dict, List, Optional
 
 ProgressFn = Optional[Callable[[str, int, str], None]]
 
+# Narration checks transcribe every synthesized line; loading Whisper per line costs seconds each.
+_WHISPER_MODELS: Dict[str, Any] = {}
+
 
 def _ffmpeg_bin() -> str:
     path = shutil.which("ffmpeg")
@@ -41,6 +44,24 @@ def extract_audio_wav(video_path: str, dest_wav: str) -> None:
         dest_wav,
     ]
     subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+
+def transcribe_media(
+    media_path: str,
+    language: Optional[str] = None,
+    model_size: str = "small",
+    on_progress: ProgressFn = None,
+) -> Dict[str, Any]:
+    """Transcribe a voice message, audio file, or video. ffmpeg extracts the speech."""
+    path = (media_path or "").strip()
+    if not path or not os.path.isfile(path):
+        return {
+            "segments": [],
+            "language": language or "unknown",
+            "full_text": "",
+            "warnings": ["FILE_NOT_FOUND"],
+        }
+    return transcribe_video(path, language=language, model_size=model_size, on_progress=on_progress)
 
 
 def transcribe_video(
@@ -93,7 +114,10 @@ def transcribe_video(
             }
 
         try:
-            model = WhisperModel(model_size, device="cpu", compute_type="int8")
+            model = _WHISPER_MODELS.get(model_size)
+            if model is None:
+                model = WhisperModel(model_size, device="cpu", compute_type="int8")
+                _WHISPER_MODELS[model_size] = model
         except Exception as exc:  # noqa: BLE001
             warnings.append(f"WHISPER_LOAD_FAILED: {exc}")
             return {
@@ -106,12 +130,14 @@ def transcribe_video(
         if on_progress:
             on_progress("transcribe", 55, "Transcribing speech")
 
-        lang = language if language and language != "auto" else None
+        lang = language if language and language not in ("auto", "unknown") else None
         segments_iter, info = model.transcribe(
             wav_path,
             language=lang,
             beam_size=5,
             vad_filter=True,
+            vad_parameters={"min_silence_duration_ms": 700},
+            condition_on_previous_text=True,
         )
 
         segments: List[Dict[str, Any]] = []

@@ -1,5 +1,6 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
 import type { ReactNode, MouseEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useDirector } from './DirectorBoard';
 import { calloutsActiveAt } from '../model/callout';
@@ -15,12 +16,16 @@ interface CalloutEditorProps {
   erasing?: boolean;
 }
 
-const QUICK_PRESETS = [
+const QUICK_PRESETS_RU = [
   'Нажмите сюда',
   'Кликните здесь',
+  'См. подробнее',
+  'Главное меню',
+];
+const QUICK_PRESETS_EN = [
   'Click here',
   'See details',
-  'Главное меню',
+  'Main menu',
 ];
 
 export function CalloutEditor({
@@ -31,11 +36,13 @@ export function CalloutEditor({
   onEraseRegion,
   erasing = false,
 }: CalloutEditorProps): ReactNode {
+  const { t, i18n } = useTranslation();
   const d = useDirector();
+  const presets = i18n.language?.startsWith('ru') ? QUICK_PRESETS_RU : QUICK_PRESETS_EN;
   const [mode, setMode] = useState<'view' | 'add' | 'erase'>('view');
   const [eraseBox, setEraseBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const eraseStart = useRef<{ x: number; y: number } | null>(null);
-  const [calloutText, setCalloutText] = useState(QUICK_PRESETS[0]);
+  const [calloutText, setCalloutText] = useState(presets[0]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const screenRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -96,7 +103,7 @@ export function CalloutEditor({
       endSec: d.playhead + 3,
       targetX: Math.round(x * 10) / 10,
       targetY: Math.round(y * 10) / 10,
-      text: calloutText.trim() || QUICK_PRESETS[0],
+      text: calloutText.trim() || presets[0],
       type: 'arrow',
       shape: 'rect',
       arrowStyle: 'straight',
@@ -196,19 +203,38 @@ export function CalloutEditor({
             ) : null}
           </div>
         </div>
-        <div className={s.chrome}>
+        <div className={s.chrome} role="toolbar" aria-label={t('video.callout_mode_view')}>
             <div className={s.modeToggleGroup}>
-              <button type="button" className={s.modeBtn} data-active={mode === 'view'} onClick={enterViewMode}>
-                Кадр
+              <button
+                type="button"
+                className={s.iconBtn}
+                data-active={mode === 'view'}
+                onClick={enterViewMode}
+                title={t('video.callout_mode_view')}
+                aria-label={t('video.callout_mode_view')}
+              >
+                ▢
               </button>
               <button
                 type="button"
-                className={s.modeBtn}
+                className={s.iconBtn}
                 data-active={mode === 'add'}
                 onClick={enterAddMode}
-                title="Кликните по месту на кадре. Текст встанет рядом и укажет на эту точку."
+                title={t('video.callout_mode_mark')}
+                aria-label={t('video.callout_mode_mark')}
               >
-                Метка
+                ✎
+              </button>
+              <button
+                type="button"
+                className={s.iconBtn}
+                data-active={mode === 'erase'}
+                disabled={erasing}
+                title={erasing ? t('video.callout_mode_erasing') : t('video.callout_mode_erase')}
+                aria-label={t('video.callout_mode_erase')}
+                onClick={() => setMode(mode === 'erase' ? 'view' : 'erase')}
+              >
+                ⌫
               </button>
             </div>
             {mode === 'add' ? (
@@ -217,33 +243,31 @@ export function CalloutEditor({
                 className={s.calloutInput}
                 value={calloutText}
                 onChange={(e) => setCalloutText(e.target.value)}
-                placeholder="Текст"
+                placeholder={t('video.callout_mode_mark')}
                 maxLength={120}
               />
             ) : (
               <span className={s.statsLabel}>{(d.callouts ?? []).length}</span>
             )}
+            <div className={s.chromeSpacer} />
             <button
               type="button"
-              className={s.modeBtn}
-              data-active={mode === 'erase'}
-              disabled={erasing}
-              title="Обведите кнопки в тот момент, где они видны. Сотрётся только этот кусок, не весь ролик."
-              onClick={() => setMode(mode === 'erase' ? 'view' : 'erase')}
-            >
-              {erasing ? 'Стираю…' : 'Стереть'}
-            </button>
-            <button
-              type="button"
-              className={s.viewCtrlBtn}
+              className={s.iconBtn}
               data-on={d.showHints}
               onClick={() => d.setShowHints(!d.showHints)}
-              title="Показывать подсказки"
+              title={t('video.callout_hints')}
+              aria-label={t('video.callout_hints')}
             >
-              Подсказки
+              ◈
             </button>
-            <button type="button" className={s.viewCtrlBtn} onClick={toggleFullscreen} title="На весь экран">
-              {isFullscreen ? 'Свернуть' : 'Экран'}
+            <button
+              type="button"
+              className={s.iconBtn}
+              onClick={toggleFullscreen}
+              title={isFullscreen ? t('video.callout_exit_fullscreen') : t('video.callout_fullscreen')}
+              aria-label={isFullscreen ? t('video.callout_exit_fullscreen') : t('video.callout_fullscreen')}
+            >
+              {isFullscreen ? '⤵' : '⛶'}
             </button>
           </div>
       </div>
